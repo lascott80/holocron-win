@@ -123,16 +123,46 @@ class FoldChevronWidget extends WidgetType {
   }
 }
 
+/** Bullet glyphs by nesting level, as in Word and Obsidian: •, ◦, ▪, then repeating. */
+const BULLET_GLYPHS = ["•", "◦", "▪"];
+
 class BulletWidget extends WidgetType {
-  eq() {
-    return true;
+  constructor(level = 0) {
+    super();
+    this.glyph = BULLET_GLYPHS[level % BULLET_GLYPHS.length];
+  }
+  eq(other) {
+    return other.glyph === this.glyph;
   }
   toDOM() {
     const bullet = document.createElement("span");
     bullet.className = "cm-bullet";
-    bullet.textContent = "•";
+    bullet.textContent = this.glyph;
     return bullet;
   }
+}
+
+// ---------- List indentation ----------
+// Nested items are indented by nesting level, not by the literal spaces in
+// the file: in a proportional font a space is narrow, so "  - " barely moved
+// while "\t- " moved twice as far. Wrapped lines hang under the item's text.
+
+/** Indent per nesting level. */
+export const LIST_INDENT_EM = 1.5;
+
+/** Width of the rendered marker plus the space after it (bullet, "12.", or checkbox), as CSS. */
+export function listMarkerWidth(markerText, isTask) {
+  if (isTask) return "calc(24px + 0.3em)"; // 16px box + 8px margin, then the space after "]"
+  const ordered = /^(\d+)[.)]$/.exec(markerText);
+  if (ordered) return `${(ordered[1].length * 0.56 + 0.3 + 0.3).toFixed(2)}em`;
+  return "1.2em"; // bullet glyph (0.9em) + space
+}
+
+/** Nesting level of a ListItem node: 0 for a top-level item. */
+export function listLevel(node) {
+  let level = 0;
+  for (let parent = node.parent; parent; parent = parent.parent) if (parent.name === "ListItem") level++;
+  return level;
 }
 
 class RuleWidget extends WidgetType {
@@ -180,7 +210,7 @@ class CalloutTitleWidget extends WidgetType {
   }
 }
 
-const bullet = new BulletWidget();
+const bullets = BULLET_GLYPHS.map((_, level) => new BulletWidget(level));
 const rule = new RuleWidget();
 
 const CALLOUT_FAMILIES = {
@@ -467,7 +497,41 @@ function buildDecorations(view) {
             if (/^\s*([-*+]|\d+[.)]) \[[^\]xX ]\](?= |$)/.test(doc.lineAt(node.from).text)) break;
             const isTask = node.node.nextSibling?.name === "Task";
             if (isTask) hideMarkerAndSpace(node.from, node.to);
-            else if (parent?.parent?.name === "BulletList") replaceWith(node.from, node.to, bullet);
+            else if (parent?.parent?.name === "BulletList") {
+              replaceWith(node.from, node.to, bullets[listLevel(parent) % bullets.length]);
+            }
+            break;
+          }
+
+          case "ListItem": {
+            const item = node.node;
+            const markNode = item.getChild("ListMark");
+            if (!markNode) break;
+            const level = listLevel(item);
+            const line = doc.lineAt(markNode.from);
+            const isTask = item.getChild("Task") !== null
+              || /^\s*([-*+]|\d+[.)]) \[[^\]]\](?= |$)/.test(line.text);
+            const indent = `${(level * LIST_INDENT_EM).toFixed(2)}em`;
+            const hang = `calc(${indent} + ${listMarkerWidth(doc.sliceString(markNode.from, markNode.to), isTask)})`;
+            // Leading whitespace becomes exactly `level` steps wide; it stays editable text.
+            if (markNode.from > line.from && /^[ \t]*$/.test(doc.sliceString(line.from, markNode.from))) {
+              mark(line.from, markNode.from, { class: "cm-list-indent", attributes: { style: `width: ${indent}` } });
+            }
+            decorations.push(
+              Decoration.line({ class: "cm-list-line", attributes: { style: `padding-left: ${hang}; text-indent: calc(-1 * ${hang})` } }).range(line.from),
+            );
+            // Continuation lines of this item (not its nested items) line up with its text.
+            const lastLine = doc.lineAt(Math.max(item.from, item.to - 1)).number;
+            for (let n = line.number + 1; n <= lastLine; n++) {
+              const next = doc.line(n);
+              const offset = next.text.search(/\S/);
+              if (offset < 0) continue;
+              let owner = syntaxTree(state).resolveInner(next.from + offset, 1);
+              while (owner && owner.name !== "ListItem") owner = owner.parent;
+              if (!owner || owner.from !== item.from) continue;
+              if (offset > 0) mark(next.from, next.from + offset, { class: "cm-list-indent", attributes: { style: "width: 0" } });
+              decorations.push(Decoration.line({ class: "cm-list-line", attributes: { style: `padding-left: ${hang}` } }).range(next.from));
+            }
             break;
           }
 

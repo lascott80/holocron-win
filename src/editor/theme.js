@@ -121,6 +121,10 @@ export const holocronTheme = EditorView.theme(
 
     // Lists & tasks
     ".cm-bullet": { color: c.muted, display: "inline-block", width: "0.9em" },
+    // Leading whitespace of list lines, sized by nesting level (livePreview.js).
+    ".cm-list-indent": { display: "inline-block", overflow: "hidden", whiteSpace: "pre", verticalAlign: "top" },
+    // The line's hanging indent (negative text-indent) must not leak into inline boxes (bullets, math…).
+    ".cm-list-line *": { textIndent: "0" },
     ".cm-task-checkbox": {
       display: "inline-block",
       position: "relative",
