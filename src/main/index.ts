@@ -42,6 +42,16 @@ const appIcon = () => path.join(app.getAppPath(), "resources", process.platform 
 const trayIcon = () => path.join(app.getAppPath(), "resources", "icon.png");
 const BACKGROUND_NOTICE_KEY = "backgroundNoticeShown";
 
+/**
+ * Dev and test runs (unpackaged, or with an isolated HOLOCRON_USER_DATA
+ * profile) get their own AppUserModelID and show no Windows notifications.
+ * Sharing the installed app's ID let Windows re-point the installed app's
+ * Start-menu shortcut at a test build when that build raised a toast.
+ */
+const isolatedRun = isDev || testProfile;
+const APP_USER_MODEL_ID = isolatedRun ? "app.holocron.notes.dev" : "app.holocron.notes";
+const canNotify = () => !isolatedRun && Notification.isSupported();
+
 export class HolocronApp {
   readonly store = new FileStore(path.join(app.getPath("userData"), "holocron.json"));
   settings: Settings = sanitizeSettings(this.store.get("settings") ?? {});
@@ -316,7 +326,7 @@ export class HolocronApp {
       return { ok: false, error: (error as Error).message };
     }
     this.capture.hide(true);
-    if (Notification.isSupported()) {
+    if (canNotify()) {
       const firstLine = text.trim().split(/\r?\n/)[0] ?? "";
       const notification = new Notification({
         title: target === "daily" ? "Saved to Today’s note" : `Saved to “${stem(notePath)}”`,
@@ -413,7 +423,7 @@ export class HolocronApp {
   private showBackgroundNotice() {
     if (this.store.get<boolean>(BACKGROUND_NOTICE_KEY)) return;
     this.store.set(BACKGROUND_NOTICE_KEY, true);
-    if (!Notification.isSupported()) return;
+    if (!canNotify()) return;
     const shortcut = this.quickCapture.registered && this.registeredShortcut ? shortcutLabel(this.registeredShortcut) : null;
     const notification = new Notification({
       title: "Holocron",
@@ -715,7 +725,7 @@ function installStarterGuide(folder: string) {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.setAppUserModelId("app.holocron.notes");
+  app.setAppUserModelId(APP_USER_MODEL_ID);
   let holocron: HolocronApp | null = null;
 
   // A second launch (jump list item, taskbar, Start menu, a double-clicked
