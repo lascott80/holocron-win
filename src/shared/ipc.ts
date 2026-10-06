@@ -99,7 +99,32 @@ export interface AppState {
   isDark: boolean;
   /** Auto-update (src/main/updater.ts). */
   update: UpdateView;
+  /** Quick capture's system-wide shortcut (src/main/capture.ts). */
+  quickCapture: QuickCaptureView;
 }
+
+export interface QuickCaptureView {
+  /** The shortcut is registered with Windows right now. */
+  registered: boolean;
+  /** Why it couldn't be registered ("That shortcut is in use by another app."), or null. */
+  error: string | null;
+}
+
+/** What the capture window shows (sent with each `capture` UI request). */
+export interface CaptureInfo {
+  /** The open vault's name, or null (the window then asks to open one). */
+  vaultName: string | null;
+  /** The default target from Settings. */
+  target: "daily" | "inbox";
+  /** Vault paths the two targets write to. */
+  dailyPath: string | null;
+  inboxPath: string | null;
+  isDark: boolean;
+  settings: Settings;
+}
+
+/** The answer to `captureSave`. */
+export type CaptureResult = { ok: true; path: string } | { ok: false; error: string };
 
 export type UpdateStatus = "idle" | "checking" | "available" | "not-available" | "downloading" | "downloaded" | "error";
 
@@ -207,7 +232,9 @@ export type UiRequest =
   | { type: "showSearch"; query?: string }
   | { type: "templatePicker"; mode: "insert" | "newNote" }
   | ({ type: "contextMenu" } & ContextMenuParams)
-  | { type: "beep" };
+  | { type: "beep" }
+  /** To the capture window: it's being shown (or the theme changed); `reset` clears the draft. */
+  | { type: "capture"; info: CaptureInfo; reset?: boolean };
 
 /** What Chromium reports for a right-click (the JSON-safe part of Electron's context-menu params). */
 export interface ContextMenuParams {

@@ -41,7 +41,13 @@ export default defineConfig({
     build: {
       target: "chrome140",
       outDir: resolve(out, "renderer"),
-      rollupOptions: { input: resolve(__dirname, "src/renderer/index.html") },
+      // Two pages: the main window and the quick capture window (src/main/capture.ts).
+      rollupOptions: {
+        input: {
+          index: resolve(__dirname, "src/renderer/index.html"),
+          capture: resolve(__dirname, "src/renderer/capture.html"),
+        },
+      },
     },
   },
 });

@@ -1101,36 +1101,121 @@ export class Vault {
     );
   }
 
-  /** Opens the daily note for `date` (today by default), creating it — from the template, if set — when needed. */
-  openDailyNote(date = new Date(), inNewTab = false): string | null {
+  /** The vault path of the daily note for `date` (whether or not it exists). */
+  dailyNotePathFor(date = new Date()): string {
+    const settings = this.dailyNoteSettings;
+    return dailyNotePath(date, settings.folder, settings.format);
+  }
+
+  /**
+   * Makes sure the daily note for `date` exists — creating it from the
+   * template, if one is set — without opening it. `warning` says the
+   * template wasn't found (the note is then created empty). Throws if the
+   * note can't be created.
+   */
+  ensureDailyNote(date = new Date()): { path: string; created: boolean; warning: string | null } {
     const settings = this.dailyNoteSettings;
     const path = dailyNotePath(date, settings.folder, settings.format);
+    if (fsx.exists(this.abs(path))) return { path, created: false, warning: null };
     let warning: string | null = null;
-    if (!fsx.exists(this.abs(path))) {
-      let text = "";
-      const template = settings.template.trim();
-      if (template) {
-        const templatePath = this.templatePath(template);
-        let source: string | null = null;
-        try {
-          source = templatePath === null ? null : fsx.readText(this.abs(templatePath));
-        } catch {
-          source = null;
-        }
-        if (source !== null) text = renderPlaceholders(source, date, P.stem(path), settings.format);
-        else warning = `The daily note template “${template}” wasn’t found, so the note was created empty.`;
-      }
+    let text = "";
+    const template = settings.template.trim();
+    if (template) {
+      const templatePath = this.templatePath(template);
+      let source: string | null = null;
       try {
-        fsx.writeAtomic(this.abs(path), text, { withoutOverwriting: true });
-      } catch (error) {
-        this.showError(`Couldn’t create today’s note: ${message(error)}`);
-        return null;
+        source = templatePath === null ? null : fsx.readText(this.abs(templatePath));
+      } catch {
+        source = null;
       }
-      this.reload();
+      if (source !== null) text = renderPlaceholders(source, date, P.stem(path), settings.format);
+      else warning = `The daily note template “${template}” wasn’t found, so the note was created empty.`;
     }
-    this.open(path, inNewTab);
+    try {
+      fsx.writeAtomic(this.abs(path), text, { withoutOverwriting: true });
+    } catch (error) {
+      // Someone (a sync client, another capture) made it in the meantime: fine.
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      return { path, created: false, warning: null };
+    }
+    this.reload();
+    return { path, created: true, warning };
+  }
+
+  /** Opens the daily note for `date` (today by default), creating it — from the template, if set — when needed. */
+  openDailyNote(date = new Date(), inNewTab = false): string | null {
+    let result: { path: string; warning: string | null };
+    try {
+      result = this.ensureDailyNote(date);
+    } catch (error) {
+      this.showError(`Couldn’t create today’s note: ${message(error)}`);
+      return null;
+    }
+    this.open(result.path, inNewTab);
     this.editor.focus();
-    if (warning) this.showError(warning);
+    if (result.warning) this.showError(result.warning);
+    return result.path;
+  }
+
+  // MARK: Quick capture
+
+  /** The inbox note's vault path from Settings, cleaned up; null if it can't be used (hidden, empty). */
+  get inboxPath(): string | null {
+    return inboxNotePath(this.inboxOverride ?? this.settings.quickCaptureInbox);
+  }
+
+  /** Overrides the inbox setting (tests). */
+  inboxOverride: string | null = null;
+
+  /**
+   * Appends a quick capture to today's daily note (created from the template
+   * if needed) or the inbox note (created if missing), as a bullet with the
+   * time — see `formatCapture`. If the note is open, the capture goes through
+   * its document so the editor shows it at once and unsaved edits are kept;
+   * otherwise the file is read, extended and written back atomically. Line
+   * endings follow the note (CRLF stays CRLF). Returns the note's vault path;
+   * throws with a user-facing message.
+   */
+  appendCapture(text: string, target: "daily" | "inbox", date = new Date()): string {
+    const entry = formatCapture(text, date);
+    if (entry === null) throw new FileError("There’s nothing to save.");
+    let path: string;
+    if (target === "daily") {
+      path = this.dailyNotePathFor(date);
+      // An open note is used as it is (even if its file just vanished: its text is the truth).
+      if (!this.documents.has(path)) {
+        let result: { path: string; warning: string | null };
+        try {
+          result = this.ensureDailyNote(date);
+        } catch (error) {
+          throw new FileError(`Couldn’t create today’s note: ${message(error)}`);
+        }
+        path = result.path;
+        if (result.warning) this.showError(result.warning);
+      }
+    } else {
+      const inbox = this.inboxPath;
+      if (inbox === null) throw new FileError(`The inbox note “${this.settings.quickCaptureInbox}” can’t be used. Choose another in Settings › General.`);
+      path = inbox;
+    }
+    const file = this.abs(path);
+    if (!this.contains(file)) throw new FileError(`“${path}” isn’t in this vault.`);
+
+    const document = this.documents.get(path);
+    if (document) {
+      // The editor gets it as an outside edit (cursor and undo history kept);
+      // the save that follows checks the disk first (§14), as every save does.
+      document.replaceContents(appendEntry(document.text, entry));
+    } else {
+      try {
+        if (fsx.isDirectory(file)) throw new Error("It’s a folder.");
+        const existing = fsx.exists(file) ? fsx.readText(file) : "";
+        fsx.writeAtomic(file, appendEntry(existing, entry));
+      } catch (error) {
+        throw new FileError(`Couldn’t add to “${P.stem(path)}”: ${message(error)}`);
+      }
+    }
+    this.reload([path]);
     return path;
   }
 
@@ -1503,6 +1588,63 @@ async function defaultTrash(): Promise<null> {
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * A quick capture as a markdown bullet with the local time: "- 14:32 first
+ * line", later lines indented two spaces so they stay part of the item
+ * (blank lines inside are kept, empty). Leading/trailing blank lines and
+ * trailing spaces are dropped; null if nothing is left. Lines are joined
+ * with "\n" (`appendEntry` converts to the note's line endings).
+ */
+export function formatCapture(text: string, date: Date): string | null {
+  const lines = text
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/\s+$/, ""));
+  while (lines.length && lines[0].trim() === "") lines.shift();
+  while (lines.length && lines[lines.length - 1].trim() === "") lines.pop();
+  if (!lines.length) return null;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const time = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return [`- ${time} ${lines[0].trimStart()}`, ...lines.slice(1).map((line) => (line === "" ? "" : `  ${line}`))].join("\n");
+}
+
+/**
+ * `existing` with `entry` added as a new block at the end: after a line
+ * break and one blank line (an empty note gets just the entry), ending in a
+ * line break. Nothing already in the note changes. The note's line endings
+ * are kept: if its first line break is CRLF, the entry uses CRLF too.
+ */
+export function appendEntry(existing: string, entry: string): string {
+  const firstBreak = existing.indexOf("\n");
+  const eol = firstBreak > 0 && existing[firstBreak - 1] === "\r" ? "\r\n" : "\n";
+  const block = entry.split("\n").join(eol) + eol;
+  const body = existing.replace(/^﻿/, ""); // a byte-order mark alone counts as empty
+  if (body === "") return existing + block;
+  let text = existing;
+  if (!text.endsWith("\n")) text += eol;
+  if (body.trim() !== "") {
+    // Separate it from the text above with one blank line, unless there already is one.
+    const lines = text.split("\n");
+    if (lines[lines.length - 2].trim() !== "") text += eol;
+  }
+  return text + block;
+}
+
+/**
+ * The inbox setting as a vault path: "/" or "\" separated, ".md" added when
+ * there's no note extension, characters Windows forbids replaced by "-".
+ * Null when empty or when it would climb out of the vault or into a hidden
+ * folder.
+ */
+export function inboxNotePath(setting: string): string | null {
+  const parts = setting.trim().split(/[\\/]+/).map((part) => part.trim()).filter((part) => part !== "" && part !== ".");
+  if (!parts.length || parts.some((part) => part === ".." || part.startsWith("."))) return null;
+  const cleaned = parts.map((part) => part.replace(/[:<>"|?*]/g, "-"));
+  const name = cleaned[cleaned.length - 1];
+  cleaned[cleaned.length - 1] = P.isNote(name) ? name : `${name}.md`;
+  return cleaned.join("/");
 }
 
 const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;

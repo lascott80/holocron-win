@@ -17,6 +17,7 @@ class AppStore {
     version: "",
     isDark: true,
     update: { status: "idle", currentVersion: "", showPrompt: false },
+    quickCapture: { registered: false, error: null },
   });
   tree = $state<TreeNode[]>([]);
   /** The UI has received its first state (avoid flashing the welcome view). */

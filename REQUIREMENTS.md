@@ -650,7 +650,7 @@ In order: "New Note" ⌘N · "Open Today’s Note" ⇧⌘D · ("Insert Template�
 
 Every command must be reachable from a menu (and so from the palette).
 
-**File**: New Note ⌘N · New Note from Template… ⇧⌘N · New Folder ⌥⌘N · New Tab ⌘T · Quick Open… ⌘O · Command Palette… ⇧⌘P · Open Folder as Vault… ⇧⌘O · Create New Vault… · Open Recent Vault › · Save ⌘S · Close Tab ⌘W · Close Vault ⇧⌘W
+**File**: New Note ⌘N · New Note from Template… ⇧⌘N · New Folder ⌥⌘N · New Tab ⌘T · *Windows:* Quick Capture (the system-wide shortcut, default Win+Alt+N; §22) · Quick Open… ⌘O · Command Palette… ⇧⌘P · Open Folder as Vault… ⇧⌘O · Create New Vault… · Open Recent Vault › · Save ⌘S · Close Tab ⌘W · Close Vault ⇧⌘W · *Windows:* Exit Holocron (quits even when running in the background; §22)
 
 **Edit**: Undo ⌘Z · Redo ⇧⌘Z · (standard Cut/Copy/Paste/Select All) · *Windows:* Copy as Markdown Ctrl+Shift+C (ED-58) · Paste as Plain Text Ctrl+Shift+V (ED-59) · Find in Note… ⌘F · Search Vault… ⇧⌘F
 
@@ -679,7 +679,9 @@ Stored per user (Mac: UserDefaults). Window with four tabs; the last tab is reme
 | General › Files | Name new notes from their first line | `nameNotesFromFirstLine` | on | |
 | General › Sync | Merge outside changes automatically when they don’t overlap | `autoMergeExternalChanges` | on | Note: "When another app or device changes a note you’re editing, Holocron combines both sets of changes if they touch different lines. Overlapping changes always ask first." |
 | Appearance | Appearance: Match System / Dark / Light | `appearance` | system | |
-| Appearance | Crystal: Kyber Blue / Sith Red / Jedi Green / Temple Gold | `accent` | kyber | swatches |
+| Appearance | Dark theme (*Windows*): Holocron Dark / Dark+ / One Dark / Dracula / Nord / GitHub Dark / Solarized Dark | `darkTheme` | "holocron-dark" | Preview cards (§16.10); used whenever the effective appearance is dark. Applies on click. Unknown ids fall back to the default |
+| Appearance | Light theme (*Windows*): Holocron Light / Light+ / GitHub Light / Solarized Light | `lightTheme` | "holocron-light" | As above, for light |
+| Appearance | Crystal: Theme default (*Windows*) / Kyber Blue / Sith Red / Jedi Green / Temple Gold | `accent` | kyber | swatches; "theme" = the active colour theme's own accent (Holocron's is Kyber Blue) |
 | Editor | Show the formatting bar above notes | `showFormattingBar` | on | |
 | Editor | Font: System / Serif / Monospaced | `editorFont` | system | §16.3 |
 | Editor | Text size (13–24, step 1, "N pt") | `editorFontSize` | 16 | |
@@ -692,6 +694,12 @@ Stored per user (Mac: UserDefaults). Window with four tabs; the last tab is reme
 | Templates | Daily note template (prompt "None") | `dailyNoteTemplate` | "" | "It can use {{date}}, {{date:dddd, MMMM D}}, {{time}}, {{title}}, {{yesterday}} and {{tomorrow}}." |
 | Templates | Open today’s note when Holocron starts | `openDailyNoteOnLaunch` | off | |
 | General › Updates (*Windows*) | Check for updates automatically | `checkForUpdates` | on | Also shows the version, update status and a Check for Updates / Restart to Update button |
+| General (*Windows*) | Keep Holocron running in the background when the window is closed | `runInBackground` | on | "Closing the window hides Holocron in the notification area, so quick capture keeps working. Quit from the tray icon or File › Exit Holocron." Off: closing the window quits and there's no tray icon |
+| General (*Windows*) | Start Holocron when you sign in to Windows | `launchAtLogin` | off | Registers a sign-in item running `Holocron.exe --hidden` (installed app only); starts hidden in the tray when running in the background is on |
+| General › Quick capture (*Windows*) | Open quick capture with a keyboard shortcut from any app | `quickCaptureEnabled` | on | |
+| General › Quick capture (*Windows*) | Shortcut (a key recorder with Reset) | `quickCaptureShortcut` | "Super+Alt+N" (shown "Win+Alt+N") | Stored as an Electron accelerator, canonical order Super, Ctrl, Alt, Shift, key; needs Ctrl, Alt or Win plus one key (never Esc). Refused: Holocron's own shortcuts ("Holocron already uses Ctrl+Alt+N for “New Folder”.") and combinations without Ctrl/Alt/Win ("Use Ctrl, Alt or the Windows key together with another key."). If Windows won't register it: "That shortcut is in use by another app." |
+| General › Quick capture (*Windows*) | Save captures to: Today’s note / Inbox note | `quickCaptureTarget` | daily | `daily` / `inbox`; the capture window can switch for one capture |
+| General › Quick capture (*Windows*) | Inbox note (prompt "Inbox.md") | `quickCaptureInbox` | "Inbox.md" | A vault path; ".md" added if missing; created when needed. Paths that climb out of the vault or into a hidden folder are refused |
 | (View menu) | View mode | `editorMode` | livePreview | livePreview / source / reading |
 
 UI state also persisted: inspector visible (`showInspector`), inspector tab, tags section expanded, settings tab, per-vault tabs and recents (§7).
@@ -863,6 +871,8 @@ Glyph = links, cursor, icons, checkboxes; Text = tags, current outline item, acc
 
 `--hc-bg` editorBackground · `--hc-text` bodyText · `--hc-strong` strongText · `--hc-muted` tertiaryText · `--hc-faint` faintText · `--hc-quote` emphasizedSecondaryText · `--hc-border` border · `--hc-strong-border` strongBorder · `--hc-raised` codeBackground · `--hc-chip` chip · `--hc-panel` overlayBackground · `--hc-accent` accent glyph · `--hc-accent-rgb` same as "r, g, b" · `--hc-accent-text` accent text · `--hc-font` font stack · `--hc-font-size` "<n>px" · `--hc-line-width` "<n>px". Re-sent whenever appearance, accent, font, size or width changes. (`--hc-highlight` and `--hc-syn-*` live in `editor.css`.)
 
+*Windows:* every colour comes from the active colour theme (§16.10), so the port also sends `--hc-theme` (theme id; Mermaid redraws when it changes) · `--hc-heading` heading colour · `--hc-accent-fill` · `--hc-selection` · `--hc-highlight` · `--hc-search-match-rgb` · `--hc-synced` · `--hc-danger` · `--hc-syn-<token>` (keyword, control, string, number, comment, function, type, variable, property, attribute, tag, punctuation, regexp, meta) · `--hc-callout-<family>` and `--hc-callout-<family>-text` ("r, g, b") · `--hc-callout-body`. `editor.css` keeps Holocron Dark/Light values only as fallbacks.
+
 ### 16.8 Logo
 
 An isometric cube on a 24-unit grid: hexagon through (12,2) (21,7) (21,17) (12,22) (3,17) (3,7) with three inner edges from the centre (12,12) to (21,7), (12,22) and (3,7); 1.5 px stroke, round joins/caps, accent colour. "Glowing" variant: 22% fill, a white centre dot (3× stroke width) and an accent shadow (55%, radius 12). App icon PNGs at 16–512 px (@1x/@2x) in `Assets.xcassets/AppIcon.appiconset`.
@@ -870,6 +880,30 @@ An isometric cube on a 24-unit grid: hexagon through (12,2) (21,7) (21,17) (12,2
 ### 16.9 Motion
 
 Tab scroll 0.15 s; focus-mode transitions 0.2 s; drop highlight 0.12 s; fold chevron 0.12 s; toast spring 0.3 s; dimming 0.2 s. A port should respect the OS "reduce motion" setting (not yet done on Mac — §21).
+
+### 16.10 Colour themes (*Windows*)
+
+The Appearance setting still picks dark or light (or follows Windows); `darkTheme` / `lightTheme` (§13) pick which palette each uses, so Match System can be Dark+ at night and Light+ by day. Themes are pure data in `src/shared/themes.ts`, shared by the renderer (CSS variables, `lib/theme.ts`) and the main process (window background = sidebarBackground; title-bar overlay = titleBar with emphasizedSecondaryText symbols, updated on any appearance, theme or Windows theme change).
+
+| Theme | Kind | Source |
+|---|---|---|
+| Holocron Dark / Holocron Light | dark / light | §16.1 (unchanged); theme accent Kyber Blue |
+| Dark+ / Light+ | dark / light | VS Code "Default Dark+" / "Default Light+" (editor, sidebar, title bar, widget, input, border, selection colours and token colours from the built-in theme files) |
+| One Dark | dark | Atom One Dark (One Dark Pro port) |
+| Dracula | dark | draculatheme.com/spec |
+| Nord | dark | nordtheme.com palette (nord0–nord15) |
+| GitHub Dark / GitHub Light | dark / light | GitHub Primer "dark default" / "light default" (prettylights syntax) |
+| Solarized Dark / Solarized Light | dark / light | ethanschoonover.com/solarized |
+
+Each theme defines all §16.1 tokens plus `titleBar` (the 40 px title bar and window-button overlay; equals sidebarBackground except Dark+ #3C3C3C and Light+ #DDDDDD, whose title-bar hovers use a translucent white/black instead of chip), the 14 code tokens (§16.6 plus control keyword, variable, attribute and regexp), the ==highlight== and search-match colours, a tint and title colour per callout family, and a theme accent (glyph, text, fill). Optional: `heading` (Dark+ #569CD6, Light+ #800000, One Dark #E06C75, Dracula #BD93F9, Nord #88C0D0, Solarized #268BD2 — the themes' markdown heading colours), `quote` (blockquote text: Dark+ #6A9955, Light+ #0451A5, Dracula #F1FA8C, GitHub fg.muted; callouts keep emphasizedSecondaryText) and `selection` (Dark+ #264F78, Light+ #ADD6FF, One Dark #3E4451, Dracula #44475A, Nord #434C5E, Solarized Dark #274642; others use the accent at 28%).
+
+Token mapping: editorBackground = the theme's editor background; sidebarBackground = side bar (also the tab strip); panelBackground = side bar / secondary side bar; overlayBackground = quick input / menus / widgets; raised and chip = inactive tab, input or list-hover colours; border / strongBorder = panel and widget borders; bodyText = editor foreground; text = workbench foreground; tertiaryText = description / line-number foreground; faintText = comment-like grey; codeBackground = a step off the editor background. Where a theme has no equivalent (Nord's and Dracula's muted UI greys, Nord's darker sidebar #2A2F3A) a value was derived from its palette.
+
+Contrast (tests/shared/themes.test.ts): body and UI text ≥ 4.5:1 on the editor, sidebar and overlays; muted and secondary text ≥ 3:1; headings, accent glyphs and callout titles ≥ 3:1; accent text ≥ 4.5:1; white on every theme's accent fill (and every crystal fill) ≥ 4.5:1 (Dark+'s #007ACC is 4.51:1). Exception by design: Solarized Light uses base01 (#586E75) for body text, because Solarized's base00 on base3 is only about 4.1:1. Code token colours are the themes' own and aren't held to a ratio (Solarized's are around 3:1).
+
+Accent: "Theme default" (`accent: "theme"`) uses the theme's accent — Dark+ glyph #3794FF / text #75BEFF / fill #007ACC, Light+ #005FB8, One Dark #61AFEF / fill #3E6FCB, Dracula #BD93F9 / fill #7349C2, Nord #88C0D0 / fill #4C6F99, GitHub #4493F8 or #0969DA / fill #1F6FEB or #0969DA, Solarized #268BD2 / fill #1D6EA8. The four crystals still work with every theme (their dark or light values follow the theme's kind).
+
+Command palette: "Theme: <name>" for every theme sets darkTheme or lightTheme and, if the window is currently showing the other kind, also sets Appearance to Dark or Light so the choice is visible. "Crystal: Theme default" joins the crystal commands.
 
 ---
 
@@ -1027,7 +1061,7 @@ Found while documenting the Mac app (0.1). The last column says how the Windows 
 
 See `Holocron Roadmap.md` for the full roadmap. Not part of the current product (don't treat as requirements for parity): quick capture, Shortcuts/Siri, Spotlight, Share/Services, tasks view, daily-notes calendar, version history, editing properties inline, vault-wide search & replace, editing inside embeds, split view, bookmarks, sidebar sort options, note icons, export & print, themes/CSS snippets, vault health, large-vault caching, multiple windows, a dedicated Holocron iCloud folder, signing/notarisation/auto-updates.
 
-*Built in the Windows port since this list was written:* maths (ED-53), Mermaid (ED-52), PDF/audio/video embeds (ED-56), heading folding (ED-38a), HTML rendering (ED-55), emoji shortcodes (ED-54), more code languages (ED-37), and reduce-motion support (animations and transitions are cut to near zero when Windows' "Animation effects" is off).
+*Built in the Windows port since this list was written:* quick capture (with a tray icon and taskbar jump list, §22), maths (ED-53), Mermaid (ED-52), PDF/audio/video embeds (ED-56), heading folding (ED-38a), HTML rendering (ED-55), emoji shortcodes (ED-54), more code languages (ED-37), and reduce-motion support (animations and transitions are cut to near zero when Windows' "Animation effects" is off).
 
 *Not built in the Windows port yet:* everything above that's still listed, plus §15 cloud handling (iCloud doesn't apply; OneDrive/Dropbox placeholders and conflict-copy detection from §17.4 aren't built), dragging notes out of the sidebar to File Explorer, multi-select in the file tree, math inside callouts/blockquotes, inline HTML inside rendered table cells, remote (https) media, and code signing.
 
@@ -1068,8 +1102,15 @@ How this repository's Electron app (0.2.0) realises the spec, and where it delib
 
 **Updates** (from 0.4.0): `electron-updater` checks the GitHub releases of `lascott80/holocron-win` 15 s after launch and every 6 hours (setting `checkForUpdates`; Help › Check for Updates… always checks). Only the installed app checks. A card at the bottom-right offers "Holocron X is available" with the first lines of the release notes, "What’s new" (opens the release page) and Download / Skip This Version / Later; then a progress bar; then "Update ready — restart to install" with Restart Now (saves everything, installs silently, relaunches) / Later (installs on quit). Skipping suppresses automatic prompts for that version only. Errors from automatic checks show only in Settings; friendly messages for no network ("Couldn’t check for updates. Check your internet connection.") and releases without update data ("No update information is published yet."). The download is verified against the SHA-512 in the release's `latest.yml`; because the app downloads it, Windows SmartScreen doesn't interrupt. Each release must upload `Holocron-Setup-<version>.exe`, its `.blockmap` and `latest.yml`. Log: `%APPDATA%\Holocron\logs\updater.log`.
 
+**Quick capture, tray and jump list** (Windows only)
+- *Quick capture.* A system-wide shortcut (`globalShortcut`; setting `quickCaptureShortcut`, default Win+Alt+N — free on stock Windows 11 and never used inside Holocron; Ctrl+Alt combinations can collide with AltGr typing and with other apps) opens a 520×220 frameless, always-on-top window without a taskbar button, centred on the monitor with the mouse pointer, in the app's light/dark theme. It's the renderer's second page (`capture.html`), with the same preload, context isolation and sandbox as the main window; it can't navigate, open windows or attach webviews, and may only call `captureInfo`, `captureSave`, `captureHide` and `showMainWindow`. Header "Quick capture → [Today’s note | Inbox]" (the target for this capture; a fresh capture starts at `quickCaptureTarget`), a spell-checked text box (focused), footer "Ctrl+Enter to save · Esc to cancel" with Cancel / Save. Enter is a new line; Ctrl+Enter saves; Esc discards the draft and hides; clicking elsewhere hides but keeps the draft. With no vault open: "Open a vault in Holocron first." and an "Open Holocron" button. Also reachable from File › Quick Capture, the command palette, the tray and the jump list. While Settings records a new shortcut the current one is released.
+- *Saving a capture* (`Vault.appendCapture`) appends a block at the end of today's daily note (created from the daily template if missing, without opening it — `ensureDailyNote`) or the inbox note (created, with folders, if missing): a line break if the note doesn't end with one, one blank line unless the last line is already blank, then `- HH:mm first line` with later lines indented two spaces (blank lines inside kept; leading/trailing blank lines and trailing spaces dropped; nothing left → "There’s nothing to save."). The note's line endings are kept (CRLF if its first line break is CRLF); nothing already in the note changes. If the note is open, the capture goes through its NoteDocument (`replaceContents`), so the editor gets it as an outside edit (cursor and undo kept), unsaved edits are kept, and the save that follows checks the disk first (§14: a non-overlapping outside change merges, an overlapping one raises the conflict sheet — nothing is lost). Otherwise the file is read and rewritten atomically. Success hides the window and shows a Windows notification "Saved to Today’s note" (or "Saved to “Inbox”") with the first line; clicking it opens the note.
+- *Background and tray.* With `runInBackground` (default on) a tray icon (the app icon at 16–32 px, tooltip "Holocron") is shown; left-click shows the window; right-click: Quick Capture (with its shortcut), Today’s Note, New Note, —, Open Holocron, Check for Updates…, —, Quit Holocron. Closing the window then saves everything and hides it; the first time, a notification says "Holocron is still running — use Win+Alt+N to capture, or the tray icon to open it." Quitting for real: the tray's Quit, File › Exit Holocron, Windows shutting down, and the updater's Restart Now (electron-updater's `quitAndInstall` quits through `before-quit`, which — like `before-quit-for-update` — marks the app as quitting so windows close instead of hiding; everything is saved first). `launchAtLogin` sets a sign-in item `Holocron.exe --hidden`; launched that way (or with only `--capture`) Holocron starts in the tray.
+- *Jump list.* Tasks: New Note (`--new-note`), Today’s Note (`--today`), Quick Capture (`--capture`); a "Recent Notes" category lists up to 8 of the open vault's recent notes (title; tooltip = vault path; `--open="<file>"`; the exe's icon), refreshed 1.5 s after recent notes change and reduced to the tasks when no vault is open. Items the user removed are left out (re-adding one would make Windows drop the category); if Windows refuses custom categories the tasks are set alone; errors are only logged. Only the installed app with its real profile writes the jump list (it belongs to the app id, so dev and test runs would overwrite the installed app's).
+- *Launch arguments* (`launchArgs.ts`, untrusted): `--new-note`, `--today`, `--capture`, `--hidden`, `--open <file>` / `--open=<file>`, and a bare `.md`/`.markdown` path (file association). Paths must be absolute drive or UNC paths (not `\\?\` or `\\.\`), end in a note extension, exist, and be a non-hidden note inside the open vault or a recent vault (that vault is opened first); otherwise "That note isn’t in a vault Holocron knows." They're read at launch and from a second launch (the single-instance lock passes its argv); a second launch with no arguments shows the window.
+
 **Development hooks**
 - `HOLOCRON_UPDATE_URL=<url>` reads updates from a local server instead of GitHub (`scripts/test-update-server.mjs` serves a folder with Range support); a test update downloaded this way is never installed on quit.
-- `HOLOCRON_USER_DATA=<folder>` uses an isolated profile; `HOLOCRON_OPEN_VAULT=<folder>` opens that vault at launch.
+- `HOLOCRON_USER_DATA=<folder>` uses an isolated profile (and then never writes the jump list, and exposes the app object as `globalThis.holocron` in main for smoke scripts such as `scripts/smoke-capture.mjs`); `HOLOCRON_OPEN_VAULT=<folder>` opens that vault at launch.
 - `HOLOCRON_OUT=<folder>` builds into another output folder, so parallel builds don't collide.
 - `node scripts/smoke.mjs <shots> [--script <file>] [--out <build>] [--vault <folder>] [--light]` launches the built app against a scratch copy of a vault and saves screenshots and the console log.

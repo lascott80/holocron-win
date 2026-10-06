@@ -105,17 +105,21 @@ export function codeLanguage(info) {
   return descriptions.get(name) ?? null;
 }
 
-/** Token colours; values come from --hc-syn-* variables (see editor.css). */
+/** Token colours; values come from --hc-syn-* variables (set per theme; fallbacks in editor.css). */
 const syn = (name, fallback) => `var(--hc-syn-${name}, ${fallback})`;
 export const codeHighlight = HighlightStyle.define([
-  { tag: [t.keyword, t.controlKeyword, t.moduleKeyword, t.operatorKeyword, t.definitionKeyword, t.modifier], color: syn("keyword", "#C792EA") },
+  { tag: [t.keyword, t.operatorKeyword, t.definitionKeyword, t.modifier], color: syn("keyword", "#C792EA") },
+  { tag: [t.controlKeyword, t.moduleKeyword], color: syn("control", syn("keyword", "#C792EA")) },
   { tag: codeHeading, color: syn("keyword", "#C792EA"), fontWeight: "700" },
-  { tag: [t.string, t.special(t.string), t.regexp, t.character, t.escape], color: syn("string", "#A5D6A7") },
+  { tag: [t.string, t.special(t.string), t.character, t.escape], color: syn("string", "#A5D6A7") },
+  { tag: t.regexp, color: syn("regexp", syn("string", "#A5D6A7")) },
   { tag: [t.number, t.bool, t.null, t.atom, t.unit], color: syn("number", "#F78C6C") },
   { tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: syn("comment", "#6B7280"), fontStyle: "italic" },
   { tag: [t.function(t.variableName), t.function(t.propertyName), t.macroName, t.standard(t.variableName)], color: syn("function", "#82AAFF") },
   { tag: [t.typeName, t.className, t.namespace, t.standard(t.typeName)], color: syn("type", "#FFCB6B") },
-  { tag: [t.propertyName, t.attributeName, t.special(t.variableName), t.definition(t.variableName)], color: syn("property", "#89DDFF") },
+  { tag: [t.propertyName, t.special(t.variableName), t.definition(t.variableName)], color: syn("property", "#89DDFF") },
+  { tag: t.attributeName, color: syn("attribute", syn("property", "#89DDFF")) },
+  { tag: t.variableName, color: syn("variable", "inherit") },
   { tag: [t.tagName, t.angleBracket], color: syn("tag", "#F07178") },
   { tag: [t.operator, t.punctuation, t.separator, t.bracket, t.derefOperator], color: syn("punctuation", "#9AA1AD") },
   { tag: [t.inserted], color: syn("string", "#A5D6A7") },

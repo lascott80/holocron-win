@@ -45,8 +45,8 @@
     background: var(--ui-chip);
   }
   button {
-    flex: 1;
-    min-width: 0;
+    /* Share spare space, but never squeeze a label below its own width ("Match System"). */
+    flex: 1 0 auto;
     height: 24px;
     padding: 0 10px;
     border: 0;

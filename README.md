@@ -80,6 +80,43 @@ node scripts/smoke-update.mjs --app dist-test-0.3.9/win-unpacked/Holocron.exe --
 
 `node scripts/test-update-server.mjs <folder>` serves a folder on its own.
 
+## Quick capture, tray and jump list
+
+- **Quick capture** — press **Win+Alt+N** anywhere in Windows (even with
+  Holocron hidden) for a small capture box. Type, then **Ctrl+Enter** to add
+  it to today’s daily note (created from its template if needed) or the inbox
+  note, as a bullet with the time: `- 14:32 Call Ahsoka` (more lines are
+  indented under it). **Esc** discards it; clicking elsewhere hides it and
+  keeps the draft. Also in File › Quick Capture, the command palette, the
+  tray menu and the jump list. If the note is open, the capture goes through
+  the editor (unsaved edits are kept); otherwise the file is rewritten
+  atomically, keeping its line endings. Change the shortcut, the default
+  target and the inbox note in Settings › General › Quick capture.
+- **Running in the background** — by default closing the window saves
+  everything and hides Holocron in the notification area (the first time, a
+  notification says so). Left-click the tray icon to bring it back;
+  right-click for Quick Capture, Today’s Note, New Note, Open Holocron, Check
+  for Updates… and Quit Holocron. File › Exit Holocron always quits.
+  Settings › General can turn this off and can start Holocron (hidden) when
+  you sign in to Windows.
+- **Jump list** — right-click Holocron on the taskbar for New Note, Today’s
+  Note, Quick Capture and the open vault’s eight most recent notes. They run
+  `Holocron.exe --new-note`, `--today`, `--capture` and `--open="<file>"`;
+  a bare `.md` path (a file association) works like `--open`, for notes inside
+  the open vault or a recent one. Only the installed app writes the jump list
+  and the sign-in entry (not `npm run dev` or test profiles).
+
+## Colour themes
+
+Settings › Appearance picks a **dark theme** and a **light theme**: Holocron
+Dark, Dark+ (VS Code), One Dark, Dracula, Nord, GitHub Dark and Solarized
+Dark; Holocron Light, Light+ (VS Code), GitHub Light and Solarized Light.
+Appearance (Match System / Dark / Light) decides which of the two is shown.
+The Crystal can be **Theme default** to use the theme's own accent. The
+command palette has `Theme: <name>` for each one. Themes are data in
+`src/shared/themes.ts` (REQUIREMENTS §16.10); to screenshot them all, build
+and run `node scripts/smoke.mjs <dir> --script scripts/smoke-themes.mjs`.
+
 ## Windows keyboard shortcuts
 
 Mostly ⌘ → Ctrl, with these deliberate changes (REQUIREMENTS §17.2):
@@ -99,6 +136,7 @@ Mostly ⌘ → Ctrl, with these deliberate changes (REQUIREMENTS §17.2):
 | Hover preview, open link in new tab | ⌘ | Ctrl |
 | Copy as Markdown / Paste as Plain Text | — | Ctrl+Shift+C / Ctrl+Shift+V |
 | Fold / unfold heading | — | Ctrl+Shift+[ / Ctrl+Shift+] |
+| Quick capture (system-wide) | — | Win+Alt+N (Settings › General); in its window Ctrl+Enter saves, Esc cancels |
 
 App shortcuts match on the character typed, so AltGr combinations on
 international keyboards never trigger them. Tapping Alt opens the menu bar.

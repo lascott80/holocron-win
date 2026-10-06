@@ -30,6 +30,9 @@ const strings = (value: unknown): string[] => {
 /** Most a rich copy may put on the clipboard (text + HTML, UTF-16 units). */
 export const MAX_CLIPBOARD_LENGTH = 50 * 1024 * 1024;
 
+/** Most a quick capture may hold (UTF-16 units). */
+export const MAX_CAPTURE_LENGTH = 1024 * 1024;
+
 /**
  * Whether the clipboard still holds `expected` (the markdown of the copy a
  * late HTML rewrite belongs to), so a newer copy is never clobbered. Line
@@ -94,6 +97,21 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
     },
     showVaultInFolder: () => app.vault && void shell.openPath(app.vault.root),
     addStarterGuide: () => app.addStarterGuide(),
+    /** File › Exit Holocron: quits even when running in the background. */
+    quitApp: () => app.quit(),
+    showMainWindow: () => app.showMainWindow(),
+
+    // Quick capture (src/main/capture.ts). The capture page may only run these four.
+    quickCapture: () => app.showCapture(),
+    captureInfo: () => app.captureInfo(),
+    captureSave: (text, target) => {
+      const value = str(text);
+      if (value.length > MAX_CAPTURE_LENGTH) return { ok: false, error: "That’s too long for a quick capture." };
+      return app.saveCapture(value, target === "inbox" ? "inbox" : "daily");
+    },
+    /** Hides the capture window; `discard` clears its draft (Esc). */
+    captureHide: (discard) => app.capture.hide(bool(discard)),
+    suspendCaptureShortcut: (suspended) => app.suspendCaptureShortcut(bool(suspended)),
 
     // Updates (src/main/updater.ts)
     checkForUpdates: () => app.updater.check(true),

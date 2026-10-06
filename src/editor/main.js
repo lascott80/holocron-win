@@ -424,7 +424,8 @@ window.holocron = {
     root.classList.toggle("hc-light", mode === "light");
     root.classList.toggle("hc-dark", mode !== "light");
     root.style.colorScheme = mode === "light" ? "light" : "dark";
-    view.dispatch({ effects: setMermaidTheme.of(`${mode === "light" ? "light" : "dark"}:${vars["--hc-accent"] ?? ""}`) });
+    // The key changes with the mode, theme or accent, so diagrams redraw in the new colours.
+    view.dispatch({ effects: setMermaidTheme.of(`${mode === "light" ? "light" : "dark"}:${vars["--hc-theme"] ?? ""}:${vars["--hc-accent"] ?? ""}`) });
     view.requestMeasure();
   },
 

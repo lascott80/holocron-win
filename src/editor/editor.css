@@ -1,5 +1,7 @@
 /* Page chrome around the CodeMirror editor; editor styles live in Editor/src/theme.js.
-   Colours come from --hc-* variables set on <html> by the app (renderer lib/theme.ts). */
+   Colours come from --hc-* variables set on <html> by the app (renderer lib/theme.ts,
+   from the colour themes in shared/themes.ts). The values below are fallbacks
+   (Holocron Dark / Light) for when nothing has set them. */
 #editor {
   height: 100%;
 }
@@ -18,17 +20,25 @@ html.hc-light {
   --hc-highlight: rgba(255, 214, 0, 0.42);
 }
 
-/* Callout colour families: --callout tints the box, --callout-text is the title colour. */
-.cm-callout-blue   { --callout: 90, 180, 255;  --callout-text: 140, 203, 255; }
-.cm-callout-green  { --callout: 61, 214, 140;  --callout-text: 120, 226, 172; }
-.cm-callout-purple { --callout: 176, 148, 255; --callout-text: 196, 176, 255; }
-.cm-callout-yellow { --callout: 232, 193, 90;  --callout-text: 240, 210, 130; }
-.cm-callout-red    { --callout: 255, 107, 107; --callout-text: 255, 150, 150; }
-.cm-callout-gray   { --callout: 154, 161, 173; --callout-text: 190, 196, 205; }
+/* Callout colour families: --callout tints the box, --callout-text is the title colour.
+   Each theme sets --hc-callout-<family>[-text] as "r, g, b". */
+.cm-callout-blue   { --callout: var(--hc-callout-blue, 90, 180, 255);    --callout-text: var(--hc-callout-blue-text, 140, 203, 255); }
+.cm-callout-green  { --callout: var(--hc-callout-green, 61, 214, 140);   --callout-text: var(--hc-callout-green-text, 120, 226, 172); }
+.cm-callout-purple { --callout: var(--hc-callout-purple, 176, 148, 255); --callout-text: var(--hc-callout-purple-text, 196, 176, 255); }
+.cm-callout-yellow { --callout: var(--hc-callout-yellow, 232, 193, 90);  --callout-text: var(--hc-callout-yellow-text, 240, 210, 130); }
+.cm-callout-red    { --callout: var(--hc-callout-red, 255, 107, 107);    --callout-text: var(--hc-callout-red-text, 255, 150, 150); }
+.cm-callout-gray   { --callout: var(--hc-callout-gray, 154, 161, 173);   --callout-text: var(--hc-callout-gray-text, 190, 196, 205); }
 
-html.hc-light .cm-callout-blue   { --callout: 31, 111, 191;  --callout-text: 26, 95, 166; }
-html.hc-light .cm-callout-green  { --callout: 31, 157, 92;   --callout-text: 26, 115, 64; }
-html.hc-light .cm-callout-purple { --callout: 118, 84, 214;  --callout-text: 98, 66, 186; }
-html.hc-light .cm-callout-yellow { --callout: 196, 146, 0;   --callout-text: 128, 92, 0; }
-html.hc-light .cm-callout-red    { --callout: 196, 47, 53;   --callout-text: 168, 38, 43; }
-html.hc-light .cm-callout-gray   { --callout: 107, 114, 128; --callout-text: 75, 81, 92; }
+html.hc-light .cm-callout-blue   { --callout: var(--hc-callout-blue, 31, 111, 191);    --callout-text: var(--hc-callout-blue-text, 26, 95, 166); }
+html.hc-light .cm-callout-green  { --callout: var(--hc-callout-green, 31, 157, 92);    --callout-text: var(--hc-callout-green-text, 26, 115, 64); }
+html.hc-light .cm-callout-purple { --callout: var(--hc-callout-purple, 118, 84, 214);  --callout-text: var(--hc-callout-purple-text, 98, 66, 186); }
+html.hc-light .cm-callout-yellow { --callout: var(--hc-callout-yellow, 196, 146, 0);   --callout-text: var(--hc-callout-yellow-text, 128, 92, 0); }
+html.hc-light .cm-callout-red    { --callout: var(--hc-callout-red, 196, 47, 53);      --callout-text: var(--hc-callout-red-text, 168, 38, 43); }
+html.hc-light .cm-callout-gray   { --callout: var(--hc-callout-gray, 107, 114, 128);   --callout-text: var(--hc-callout-gray-text, 75, 81, 92); }
+
+/* Callouts are blockquotes, but their text uses the plain secondary colour even
+   when a theme colours quotes (Dark+'s green), and the title keeps its family
+   colour over the quote highlighting inside it. */
+.cm-callout { --hc-quote: var(--hc-callout-body, #C9CDD4); }
+html.hc-light .cm-callout { --hc-quote: var(--hc-callout-body, #3A3F47); }
+.cm-line .cm-callout-title-text span { color: inherit; }

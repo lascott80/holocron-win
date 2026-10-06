@@ -4,10 +4,25 @@
   import { onDestroy, type Snippet } from "svelte";
   import { Files, Palette, Settings2, Type, X } from "@lucide/svelte";
   import { dailyNotePath } from "@core/dailyNotes";
-  import { FONT_SIZE_RANGE, LINE_WIDTH_RANGE, type Accent, type Appearance, type EditorFont, type Settings, type SettingsTab } from "@shared/settings";
+  import {
+    defaultSettings,
+    FONT_SIZE_RANGE,
+    LINE_WIDTH_RANGE,
+    normalizeShortcut,
+    shortcutLabel,
+    type Accent,
+    type Appearance,
+    type CaptureTarget,
+    type EditorFont,
+    type Settings,
+    type SettingsTab,
+  } from "@shared/settings";
   import { app } from "../../lib/app.svelte";
+  import { commands } from "../../lib/commands";
   import { run } from "../../lib/host";
-  import { accents } from "../../lib/theme";
+  import { accents, activeTheme, darkThemes, lightThemes } from "../../lib/theme";
+  import { accentColors } from "@shared/themes";
+  import ThemePicker from "./ThemePicker.svelte";
   import Modal from "./Modal.svelte";
   import Segmented from "./Segmented.svelte";
   import Switch from "./Switch.svelte";
@@ -22,8 +37,8 @@
   const s = $derived(app.settings);
 
   // ---- Text fields ----
-  type TextKey = "attachmentFolder" | "templatesFolder" | "dailyNoteFolder" | "dailyNoteFormat" | "dailyNoteTemplate";
-  const textKeys: TextKey[] = ["attachmentFolder", "templatesFolder", "dailyNoteFolder", "dailyNoteFormat", "dailyNoteTemplate"];
+  type TextKey = "attachmentFolder" | "templatesFolder" | "dailyNoteFolder" | "dailyNoteFormat" | "dailyNoteTemplate" | "quickCaptureInbox";
+  const textKeys: TextKey[] = ["attachmentFolder", "templatesFolder", "dailyNoteFolder", "dailyNoteFormat", "dailyNoteTemplate", "quickCaptureInbox"];
   let drafts = $state(Object.fromEntries(textKeys.map((key) => [key, app.settings[key]])) as Record<TextKey, string>);
   let editing = $state<TextKey | null>(null);
   const timers = new Map<TextKey, ReturnType<typeof setTimeout>>();
@@ -59,7 +74,95 @@
 
   onDestroy(() => {
     for (const key of textKeys) if (timers.has(key) || editing === key) commit(key, true);
+    stopRecording();
   });
+
+  // ---- Quick capture shortcut recorder ----
+  // Focus the field and press the keys; Esc cancels. While recording, the current
+  // global shortcut is released so it can be pressed (and recorded) again.
+  let recording = $state(false);
+  let shortcutProblem = $state<string | null>(null);
+  const captureTargets: { value: CaptureTarget; label: string }[] = [
+    { value: "daily", label: "Today’s note" },
+    { value: "inbox", label: "Inbox note" },
+  ];
+
+  const CODE_KEYS: Record<string, string> = {
+    Space: "Space", Tab: "Tab", Backspace: "Backspace", Delete: "Delete", Insert: "Insert", Enter: "Enter", NumpadEnter: "Enter",
+    ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right", Home: "Home", End: "End", PageUp: "PageUp", PageDown: "PageDown",
+    Minus: "-", Equal: "=", BracketLeft: "[", BracketRight: "]", Backslash: "\\", Semicolon: ";", Quote: "'", Comma: ",", Period: ".", Slash: "/", Backquote: "`",
+    NumpadDecimal: "numdec", NumpadAdd: "numadd", NumpadSubtract: "numsub", NumpadMultiply: "nummult", NumpadDivide: "numdiv",
+  };
+
+  /** The key part of an accelerator, from the physical key (so AltGr layouts and Shift don't change it). */
+  function keyFromCode(code: string): string | null {
+    let match: RegExpMatchArray | null;
+    if ((match = code.match(/^Key([A-Z])$/))) return match[1]!;
+    if ((match = code.match(/^Digit([0-9])$/))) return match[1]!;
+    if ((match = code.match(/^Numpad([0-9])$/))) return `num${match[1]}`;
+    if (/^F([1-9]|1[0-9]|2[0-4])$/.test(code)) return code;
+    return CODE_KEYS[code] ?? null;
+  }
+
+  function startRecording() {
+    if (recording) return;
+    recording = true;
+    shortcutProblem = null;
+    run("suspendCaptureShortcut", true);
+  }
+
+  function stopRecording() {
+    if (!recording) return;
+    recording = false;
+    run("suspendCaptureShortcut", false);
+  }
+
+  function setShortcut(shortcut: string) {
+    shortcutProblem = null;
+    // Saved while still suspended; un-suspending then registers the new one.
+    if (shortcut !== app.settings.quickCaptureShortcut) app.setSetting("quickCaptureShortcut", shortcut);
+    if (recording) stopRecording();
+    else {
+      run("suspendCaptureShortcut", true);
+      run("suspendCaptureShortcut", false);
+    }
+  }
+
+  function onRecorderKeydown(event: KeyboardEvent) {
+    if (!recording) {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        startRecording();
+      }
+      return;
+    }
+    if (event.key === "Tab" && !event.ctrlKey && !event.altKey && !event.metaKey) {
+      stopRecording();
+      return; // let focus move on
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === "Escape") {
+      stopRecording();
+      return;
+    }
+    if (["Control", "Alt", "Shift", "Meta", "OS", "AltGraph"].includes(event.key)) return; // wait for the key
+    const key = keyFromCode(event.code);
+    const parts = [event.ctrlKey && "Ctrl", event.altKey && "Alt", event.shiftKey && "Shift", event.metaKey && "Super", key].filter(Boolean);
+    const shortcut = key ? normalizeShortcut(parts.join("+")) : null;
+    if (!shortcut) {
+      shortcutProblem = "Use Ctrl, Alt or the Windows key together with another key.";
+      return;
+    }
+    const clash = commands.find((command) => !command.globalShortcut && [command.shortcut, ...(command.alsoKeys ?? [])].some((s) => s && normalizeShortcut(s) === shortcut));
+    if (clash) {
+      shortcutProblem = `Holocron already uses ${shortcutLabel(shortcut)} for “${clash.title}”.`;
+      return;
+    }
+    setShortcut(shortcut);
+  }
+
+  const captureError = $derived(shortcutProblem ?? (s.quickCaptureEnabled && !recording ? app.state.quickCapture.error : null));
 
   const todayExample = $derived(dailyNotePath(new Date(), drafts.dailyNoteFolder.trim(), drafts.dailyNoteFormat.trim()));
 
@@ -77,9 +180,27 @@
     { value: "serif", label: "Serif" },
     { value: "mono", label: "Monospaced" },
   ];
-  const accentKeys = Object.keys(accents) as Accent[];
+  const accentKeys = ["theme", ...Object.keys(accents)] as Accent[];
+  /** The theme on screen: its accent is what "Theme default" shows. */
+  const shownTheme = $derived(activeTheme(app.state.isDark, s));
+  const accentTitle = (accent: Accent) => (accent === "theme" ? "Theme default" : accents[accent].title);
 
-  function toggle(key: keyof Settings & ("reopenLastVault" | "updateLinksOnMove" | "nameNotesFromFirstLine" | "autoMergeExternalChanges" | "showFormattingBar" | "openDailyNoteOnLaunch" | "readableLineLength" | "checkForUpdates")) {
+  function toggle(
+    key: keyof Settings &
+      (
+        | "reopenLastVault"
+        | "updateLinksOnMove"
+        | "nameNotesFromFirstLine"
+        | "autoMergeExternalChanges"
+        | "showFormattingBar"
+        | "openDailyNoteOnLaunch"
+        | "readableLineLength"
+        | "checkForUpdates"
+        | "quickCaptureEnabled"
+        | "runInBackground"
+        | "launchAtLogin"
+      ),
+  ) {
     return (checked: boolean) => app.setSetting(key, checked);
   }
 
@@ -182,6 +303,63 @@
       {#if tab === "general"}
         <div class="group">
           {@render switchRow("Reopen the last vault when Holocron starts", s.reopenLastVault, toggle("reopenLastVault"))}
+          {@render switchRow(
+            "Keep Holocron running in the background when the window is closed",
+            s.runInBackground,
+            toggle("runInBackground"),
+            "Closing the window hides Holocron in the notification area, so quick capture keeps working. Quit from the tray icon or File › Exit Holocron.",
+          )}
+          {@render switchRow(
+            "Start Holocron when you sign in to Windows",
+            s.launchAtLogin,
+            toggle("launchAtLogin"),
+            s.runInBackground ? "It starts in the background, ready for quick capture." : "It opens its window when you sign in.",
+          )}
+        </div>
+        <h3 class="section-label">Quick capture</h3>
+        <div class="group">
+          {@render switchRow(
+            "Open quick capture with a keyboard shortcut from any app",
+            s.quickCaptureEnabled,
+            toggle("quickCaptureEnabled"),
+            "A small window for jotting something down without switching to Holocron. Ctrl+Enter saves it; Esc cancels.",
+          )}
+          <div class="row">
+            <div class="row-text">
+              <span class="row-label" id="capture-shortcut-label">Shortcut</span>
+              {#if captureError}
+                <span class="row-help error" role="alert">{captureError}</span>
+              {:else}
+                <span class="row-help">{recording ? "Press the new shortcut, or Esc to keep the current one." : "Click the field, then press the keys you want."}</span>
+              {/if}
+            </div>
+            <div class="row-control shortcut">
+              <button
+                class="text-field recorder"
+                class:recording
+                data-shortcut-recorder
+                aria-labelledby="capture-shortcut-label"
+                disabled={!s.quickCaptureEnabled}
+                onclick={startRecording}
+                onkeydown={onRecorderKeydown}
+                onblur={stopRecording}
+              >
+                {recording ? "Press keys…" : shortcutLabel(s.quickCaptureShortcut)}
+              </button>
+              <button
+                class="button"
+                disabled={!s.quickCaptureEnabled || (s.quickCaptureShortcut === defaultSettings.quickCaptureShortcut && !app.state.quickCapture.error)}
+                onclick={() => setShortcut(defaultSettings.quickCaptureShortcut)}
+              >
+                Reset
+              </button>
+            </div>
+          </div>
+          {#snippet captureTarget()}
+            <Segmented label="Save captures to" options={captureTargets} value={s.quickCaptureTarget} onchange={(value) => app.setSetting("quickCaptureTarget", value)} />
+          {/snippet}
+          {@render row("Save captures to", captureTarget, "Each capture is added at the end as a bullet with the time, e.g. “- 14:32 Call Ahsoka”. You can switch for one capture in its window.")}
+          {@render textRow("quickCaptureInbox", "Inbox note", "Inbox.md", "A note in the vault, e.g. Inbox.md or Notes/Inbox. It’s created if it doesn’t exist.")}
         </div>
         <h3 class="section-label">Files</h3>
         <div class="group">
@@ -221,13 +399,21 @@
           {/snippet}
           {@render row("Appearance", appearance)}
           <div class="row stacked">
+            <span class="row-label">Dark theme{#if app.state.isDark}<span class="in-use">In use</span>{/if}</span>
+            <ThemePicker label="Dark theme" themes={darkThemes} value={s.darkTheme} accent={s.accent} onchange={(id) => app.setSetting("darkTheme", id)} />
+          </div>
+          <div class="row stacked">
+            <span class="row-label">Light theme{#if !app.state.isDark}<span class="in-use">In use</span>{/if}</span>
+            <ThemePicker label="Light theme" themes={lightThemes} value={s.lightTheme} accent={s.accent} onchange={(id) => app.setSetting("lightTheme", id)} />
+          </div>
+          <div class="row stacked">
             <span class="row-label">Crystal</span>
             <div class="swatches" role="radiogroup" aria-label="Crystal">
               {#each accentKeys as accent (accent)}
                 {@const selected = s.accent === accent}
-                <button class="swatch" class:selected role="radio" aria-checked={selected} onclick={() => app.setSetting("accent", accent)}>
-                  <span class="dot" style:--swatch={app.state.isDark ? accents[accent].dark : accents[accent].light}></span>
-                  <span class="swatch-label">{accents[accent].title}</span>
+                <button class="swatch" class:selected role="radio" aria-checked={selected} title={accent === "theme" ? `${shownTheme.name}’s own accent` : undefined} onclick={() => app.setSetting("accent", accent)}>
+                  <span class="dot" style:--swatch={accentColors(shownTheme, accent).glyph}></span>
+                  <span class="swatch-label">{accentTitle(accent)}</span>
                 </button>
               {/each}
             </div>
@@ -438,6 +624,28 @@
     width: 220px;
     max-width: 100%;
   }
+  .row-help.error {
+    color: var(--ui-danger);
+  }
+  .shortcut {
+    gap: 8px;
+  }
+  .recorder {
+    min-width: 150px;
+    text-align: center;
+    font-family: inherit;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .recorder.recording {
+    border-color: var(--ui-accent);
+    box-shadow: 0 0 0 3px rgba(var(--ui-accent-rgb), 0.18);
+    color: var(--ui-accent-text);
+  }
+  .recorder:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
   .example {
     max-width: 100%;
     overflow: hidden;
@@ -453,13 +661,23 @@
     display: flex;
     gap: 8px;
   }
+  .in-use {
+    margin-left: 8px;
+    padding: 1px 7px;
+    border-radius: 9px;
+    background: rgba(var(--ui-accent-rgb), 0.14);
+    color: var(--ui-accent-text);
+    font-size: 11px;
+    font-weight: 600;
+  }
   .swatch {
     flex: 1;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 8px;
-    padding: 12px 6px 10px;
+    padding: 12px 4px 10px;
+    white-space: nowrap;
     border: 1px solid var(--ui-border);
     border-radius: 8px;
     background: transparent;

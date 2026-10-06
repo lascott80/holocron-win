@@ -3,18 +3,24 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { app, BrowserWindow, dialog, nativeTheme, protocol, shell, ipcMain } from "electron";
+import { app, autoUpdater as nativeAutoUpdater, BrowserWindow, dialog, globalShortcut, nativeTheme, Notification, protocol, shell, ipcMain } from "electron";
 import { assetResponse } from "./assets";
-import { Channels, type AppState, type EditorMessage, type RecentVault, type UiRequest } from "@shared/ipc";
-import { sanitizeSettings, type Settings } from "@shared/settings";
+import { Channels, type AppState, type CaptureInfo, type CaptureResult, type EditorMessage, type QuickCaptureView, type RecentVault, type UiRequest } from "@shared/ipc";
+import { normalizeShortcut, sanitizeSettings, shortcutLabel, type CaptureTarget, type Settings } from "@shared/settings";
+import { resolveTheme, windowColors } from "@shared/themes";
+import { stem } from "@core/paths";
 import { FileStore } from "./store";
-import { createTrash, writeAtomic } from "./fsx";
+import { createTrash, isInside, writeAtomic } from "./fsx";
 import { Vault } from "./vault";
 import { VaultWatcher } from "./watcher";
 import { EditorBridge, openExternalSafely } from "./editorBridge";
 import { SearchService } from "./searchService";
 import { createCommands } from "./commands";
 import { Updater } from "./updater";
+import { CAPTURE_COMMANDS, CaptureWindow } from "./capture";
+import { TrayIcon } from "./tray";
+import { applyJumpList, buildJumpList, MAX_JUMP_LIST_NOTES, type JumpListNote } from "./jumpList";
+import { hasActions, parseLaunchArgs, type LaunchArgs } from "./launchArgs";
 
 const ASSET_SCHEME = "holocron-asset";
 protocol.registerSchemesAsPrivileged([
@@ -26,8 +32,12 @@ const MAX_RECENT_VAULTS = 8;
 const isDev = !app.isPackaged;
 
 // Test and debug hooks: an isolated profile, and a vault to open at launch.
+const testProfile = Boolean(process.env.HOLOCRON_USER_DATA);
 if (process.env.HOLOCRON_USER_DATA) app.setPath("userData", process.env.HOLOCRON_USER_DATA);
 const launchVault = process.env.HOLOCRON_OPEN_VAULT;
+const devRendererUrl = isDev && process.env.ELECTRON_RENDERER_URL ? process.env.ELECTRON_RENDERER_URL : null;
+const appIcon = () => path.join(app.getAppPath(), "resources", "icon.png");
+const BACKGROUND_NOTICE_KEY = "backgroundNoticeShown";
 
 export class HolocronApp {
   readonly store = new FileStore(path.join(app.getPath("userData"), "holocron.json"));
@@ -40,11 +50,47 @@ export class HolocronApp {
   readonly search = new SearchService();
   readonly updater = new Updater({ store: this.store, settings: () => this.settings, pushState: () => this.pushState(), saveAll: () => this.saveAll() });
   readonly trash = createTrash(path.join(app.getPath("userData"), "trash-staging"), (file) => shell.trashItem(file));
+  readonly capture = new CaptureWindow({
+    info: () => this.captureInfo(),
+    preload: path.join(import.meta.dirname, "../preload/index.cjs"),
+    icon: appIcon(),
+    devUrl: devRendererUrl,
+    load: (window) => (devRendererUrl ? window.loadURL(`${devRendererUrl}/capture.html`) : window.loadFile(path.join(import.meta.dirname, "../renderer/capture.html"))),
+  });
+  readonly tray = new TrayIcon(appIcon(), {
+    show: () => this.showMainWindow(),
+    capture: () => void this.showCapture(),
+    today: () => {
+      this.showMainWindow();
+      this.vault?.openDailyNote();
+    },
+    newNote: () => {
+      this.showMainWindow();
+      this.vault?.createNote();
+    },
+    checkForUpdates: () => {
+      this.showMainWindow();
+      void this.updater.check(true);
+    },
+    quit: () => this.quit(),
+    captureShortcut: () => (this.quickCapture.registered ? this.registeredShortcut : null),
+  });
+  /** Holocron is really quitting (not just hiding the window in the background). */
+  quitting = false;
+  /** Launched with --hidden (sign-in) or just for quick capture: don't show the window yet. */
+  startHidden = false;
+  quickCapture: QuickCaptureView = { registered: false, error: null };
+  private registeredShortcut: string | null = null;
+  /** Settings is recording a new shortcut: the current one mustn't fire meanwhile. */
+  private shortcutSuspended = false;
+  private jumpListTimer: NodeJS.Timeout | null = null;
+  private jumpListKey = "";
   private watcher: VaultWatcher | null = null;
   private stateQueued = false;
 
   constructor() {
     this.applyThemeSource();
+    nativeTheme.on("updated", () => this.capture.refresh());
   }
 
   // MARK: State
@@ -56,6 +102,7 @@ export class HolocronApp {
     setImmediate(() => {
       this.stateQueued = false;
       this.window?.webContents.send(Channels.state, this.state());
+      this.scheduleJumpList();
     });
   }
 
@@ -72,6 +119,7 @@ export class HolocronApp {
       version: app.getVersion(),
       isDark: nativeTheme.shouldUseDarkColors,
       update: this.updater.view(),
+      quickCapture: this.quickCapture,
     };
   }
 
@@ -94,11 +142,25 @@ export class HolocronApp {
     this.settings = next;
     this.store.set("settings", next);
     if (key === "appearance") this.applyThemeSource();
+    if (key === "appearance" || key === "darkTheme" || key === "lightTheme") this.applyWindowColors();
+    if (key === "quickCaptureEnabled" || key === "quickCaptureShortcut") this.registerCaptureShortcut();
+    if (key === "runInBackground") this.updateTray();
+    if (key === "launchAtLogin") this.applyLoginItem();
+    if (key === "accent" || key === "appearance" || key === "darkTheme" || key === "lightTheme" || key === "quickCaptureTarget" || key === "quickCaptureInbox") this.capture.refresh();
     this.pushState();
   }
 
   private applyThemeSource() {
     nativeTheme.themeSource = this.settings.appearance;
+  }
+
+  /** The window background and title-bar overlay follow the colour theme (§16.10). */
+  private applyWindowColors() {
+    const window = this.window;
+    if (!window || window.isDestroyed()) return;
+    const colors = windowChrome(this.settings, nativeTheme.shouldUseDarkColors);
+    window.setTitleBarOverlay(colors.titleBarOverlay);
+    window.setBackgroundColor(colors.backgroundColor);
   }
 
   // MARK: Vaults
@@ -135,6 +197,7 @@ export class HolocronApp {
     this.window?.setTitle(`${vault.name} — Holocron`);
     this.pushTree();
     this.pushState();
+    this.capture.refresh();
   }
 
   async closeVault() {
@@ -149,6 +212,7 @@ export class HolocronApp {
     this.window?.setTitle("Holocron");
     this.pushTree();
     this.pushState();
+    this.capture.refresh();
   }
 
   forgetVault(root: string) {
@@ -207,10 +271,258 @@ export class HolocronApp {
     this.vault?.saveAll();
   }
 
+  /** Quits for real — File › Exit Holocron, the tray's Quit — even when running in the background. */
+  quit() {
+    this.prepareToQuit();
+    app.quit();
+  }
+
+  /** From now on closing windows quits instead of hiding them (before-quit, updates, Windows shutting down). */
+  prepareToQuit() {
+    this.quitting = true;
+    this.capture.quitting = true;
+  }
+
+  // MARK: Quick capture
+
+  captureInfo(): CaptureInfo {
+    const vault = this.vault;
+    return {
+      vaultName: vault?.name ?? null,
+      target: this.settings.quickCaptureTarget,
+      dailyPath: vault?.dailyNotePathFor(new Date()) ?? null,
+      inboxPath: vault?.inboxPath ?? null,
+      isDark: nativeTheme.shouldUseDarkColors,
+      settings: this.settings,
+    };
+  }
+
+  /** Shows the capture window (the global shortcut, tray, jump list and File › Quick Capture). */
+  showCapture() {
+    return this.capture.show();
+  }
+
+  /** The capture window's Save: appends to the note, hides the window and confirms with a notification. */
+  saveCapture(text: string, target: CaptureTarget): CaptureResult {
+    const vault = this.vault;
+    if (!vault) return { ok: false, error: "Open a vault in Holocron first." };
+    let notePath: string;
+    try {
+      notePath = vault.appendCapture(text, target);
+    } catch (error) {
+      return { ok: false, error: (error as Error).message };
+    }
+    this.capture.hide(true);
+    if (Notification.isSupported()) {
+      const firstLine = text.trim().split(/\r?\n/)[0] ?? "";
+      const notification = new Notification({
+        title: target === "daily" ? "Saved to Today’s note" : `Saved to “${stem(notePath)}”`,
+        body: firstLine.length > 120 ? firstLine.slice(0, 119) + "…" : firstLine,
+        silent: true,
+      });
+      notification.on("click", () => {
+        this.showMainWindow();
+        if (this.vault === vault) vault.open(notePath);
+      });
+      notification.show();
+    }
+    return { ok: true, path: notePath };
+  }
+
+  /**
+   * (Re)registers the system-wide quick capture shortcut from Settings and
+   * records whether Windows accepted it (another app may own it).
+   */
+  registerCaptureShortcut() {
+    if (this.registeredShortcut) globalShortcut.unregister(this.registeredShortcut);
+    this.registeredShortcut = null;
+    let view: QuickCaptureView = { registered: false, error: null };
+    const accelerator = normalizeShortcut(this.settings.quickCaptureShortcut);
+    if (this.settings.quickCaptureEnabled && !this.shortcutSuspended) {
+      if (!accelerator) {
+        view = { registered: false, error: "That isn’t a shortcut Holocron can use." };
+      } else {
+        let ok = false;
+        try {
+          ok = globalShortcut.register(accelerator, () => void this.showCapture());
+        } catch {
+          ok = false;
+        }
+        if (ok) {
+          this.registeredShortcut = accelerator;
+          view = { registered: true, error: null };
+        } else {
+          view = { registered: false, error: "That shortcut is in use by another app." };
+        }
+      }
+    }
+    this.quickCapture = view;
+    this.tray.updateMenu();
+    this.pushState();
+  }
+
+  /** While Settings records a new shortcut, the old one is released so pressing it again can be recorded. */
+  suspendCaptureShortcut(suspended: boolean) {
+    if (this.shortcutSuspended === suspended) return;
+    this.shortcutSuspended = suspended;
+    if (suspended) {
+      if (this.registeredShortcut) globalShortcut.unregister(this.registeredShortcut);
+      this.registeredShortcut = null;
+      // Keep reporting the last result, so Settings doesn't flash an error while recording.
+      this.pushState();
+    } else {
+      this.registerCaptureShortcut();
+    }
+  }
+
+  // MARK: Background, tray and sign-in
+
+  /** Shows (creating if needed), restores and focuses the main window. */
+  showMainWindow() {
+    if (!this.window || this.window.isDestroyed()) this.createWindow();
+    const window = this.window!;
+    this.startHidden = false;
+    if (window.isMinimized()) window.restore();
+    window.show();
+    window.focus();
+  }
+
+  /** The tray icon is there while Holocron runs in the background. */
+  updateTray() {
+    if (this.settings.runInBackground) this.tray.create();
+    else this.tray.destroy();
+  }
+
+  /** Start at sign-in (`launchAtLogin`), hidden in the notification area. Only the installed app registers itself. */
+  applyLoginItem() {
+    if (!app.isPackaged) {
+      console.info("Start at sign-in is only set by the installed app.");
+      return;
+    }
+    try {
+      app.setLoginItemSettings({ openAtLogin: this.settings.launchAtLogin, args: ["--hidden"] });
+    } catch (error) {
+      console.warn("Couldn’t change the sign-in setting:", error);
+    }
+  }
+
+  /** The first time the window hides into the background, say where Holocron went. */
+  private showBackgroundNotice() {
+    if (this.store.get<boolean>(BACKGROUND_NOTICE_KEY)) return;
+    this.store.set(BACKGROUND_NOTICE_KEY, true);
+    if (!Notification.isSupported()) return;
+    const shortcut = this.quickCapture.registered && this.registeredShortcut ? shortcutLabel(this.registeredShortcut) : null;
+    const notification = new Notification({
+      title: "Holocron",
+      body: shortcut
+        ? `Holocron is still running — use ${shortcut} to capture, or the tray icon to open it.`
+        : "Holocron is still running — use the tray icon to open it.",
+      silent: true,
+    });
+    notification.on("click", () => this.showMainWindow());
+    notification.show();
+  }
+
+  // MARK: Launch arguments (jump list, sign-in, file association, second launch)
+
+  /** The known vault (the open one first, then recent ones) whose folder holds `file`. */
+  vaultContaining(file: string): string | null {
+    const candidates = [...(this.vault ? [this.vault.root] : []), ...this.recentVaults];
+    return candidates.find((root) => folderExists(root) && isInside(root, file)) ?? null;
+  }
+
+  /**
+   * Acts on launch arguments. `initial`: the app's own command line;
+   * otherwise a second launch, which always brings the window forward
+   * unless it only asked for quick capture (or only said --hidden).
+   */
+  async handleLaunchArgs(args: LaunchArgs, initial: boolean) {
+    if (args.open) await this.openNoteFile(args.open);
+    if (args.newNote) {
+      this.showMainWindow();
+      this.vault?.createNote();
+    }
+    if (args.today) {
+      this.showMainWindow();
+      this.vault?.openDailyNote();
+    }
+    if (args.capture) await this.showCapture();
+    if (!initial && !hasActions(args) && !args.hidden) this.showMainWindow();
+  }
+
+  /** Opens a note given as an absolute path (already checked to be absolute .md/.markdown) if it's in a known vault. */
+  async openNoteFile(file: string) {
+    const fail = () => {
+      this.showMainWindow();
+      this.showError("That note isn’t in a vault Holocron knows.");
+    };
+    let real: string;
+    try {
+      if (!fs.statSync(file).isFile()) return fail();
+      real = fs.realpathSync.native(file);
+    } catch {
+      return fail();
+    }
+    const root = this.vaultContaining(real);
+    if (!root) return fail();
+    if (!this.vault || !samePath(this.vault.root, root)) await this.openVault(root);
+    const vault = this.vault;
+    if (!vault) return fail();
+    let realRoot = vault.root;
+    try {
+      realRoot = fs.realpathSync.native(vault.root);
+    } catch {
+      // Use it as it is.
+    }
+    const wanted = path.relative(realRoot, real).split(path.sep).join("/").toLowerCase();
+    vault.reload();
+    // Hidden notes (".obsidian/…") aren't part of the vault, so they aren't found here.
+    const notePath = vault.allNotes.find((candidate) => candidate.toLowerCase() === wanted);
+    if (!notePath) return fail();
+    this.showMainWindow();
+    vault.open(notePath);
+    this.editor.focus();
+  }
+
+  // MARK: Jump list
+
+  private get jumpListEnabled() {
+    // Only the installed app, with its real profile: the jump list belongs to
+    // the app id, so a dev or test run would overwrite the installed app's.
+    return process.platform === "win32" && app.isPackaged && !testProfile;
+  }
+
+  /** The open vault's recent notes for the jump list, most recent first. */
+  jumpListNotes(): JumpListNote[] {
+    const vault = this.vault;
+    if (!vault) return [];
+    return vault.recentNotes.slice(0, MAX_JUMP_LIST_NOTES * 2).map((notePath) => ({ title: stem(notePath), file: vault.abs(notePath), vaultPath: notePath }));
+  }
+
+  /** What the jump list would be set to now (also for the smoke test). */
+  jumpListCategories() {
+    return buildJumpList(process.execPath, this.jumpListNotes());
+  }
+
+  /** Updates the jump list a moment after recent notes (or the vault) change. */
+  scheduleJumpList() {
+    if (!this.jumpListEnabled) return;
+    const notes = this.jumpListNotes();
+    const key = JSON.stringify(notes.slice(0, MAX_JUMP_LIST_NOTES).map((note) => note.file));
+    if (key === this.jumpListKey) return;
+    if (this.jumpListTimer) clearTimeout(this.jumpListTimer);
+    this.jumpListTimer = setTimeout(() => {
+      this.jumpListTimer = null;
+      const current = this.jumpListNotes();
+      this.jumpListKey = JSON.stringify(current.slice(0, MAX_JUMP_LIST_NOTES).map((note) => note.file));
+      applyJumpList(app, process.execPath, current);
+    }, 1500);
+  }
+
   // MARK: Window
 
   createWindow() {
-    const dark = nativeTheme.shouldUseDarkColors;
+    const colors = windowChrome(this.settings, nativeTheme.shouldUseDarkColors);
     const window = new BrowserWindow({
       width: 1280,
       height: 820,
@@ -218,10 +530,10 @@ export class HolocronApp {
       minHeight: 480,
       title: "Holocron",
       show: false,
-      backgroundColor: dark ? "#15181E" : "#F4F5F7",
+      backgroundColor: colors.backgroundColor,
       titleBarStyle: "hidden",
-      titleBarOverlay: titleBarOverlay(dark),
-      icon: path.join(app.getAppPath(), "resources", "icon.png"),
+      titleBarOverlay: colors.titleBarOverlay,
+      icon: appIcon(),
       webPreferences: {
         preload: path.join(import.meta.dirname, "../preload/index.cjs"),
         contextIsolation: true,
@@ -235,10 +547,29 @@ export class HolocronApp {
     });
     this.window = window;
 
-    window.once("ready-to-show", () => window.show());
+    window.once("ready-to-show", () => {
+      if (!this.startHidden) window.show();
+    });
     window.on("blur", () => this.saveAll());
+    // In the background (the default) closing hides the window to the tray,
+    // after saving everything; only Exit/Quit (or Windows shutting down) quits.
+    window.on("close", (event) => {
+      if (this.quitting || !this.settings.runInBackground || !this.tray.exists) return;
+      event.preventDefault();
+      this.saveAll();
+      this.store.flush();
+      window.hide();
+      this.showBackgroundNotice();
+    });
+    window.on("query-session-end", () => {
+      this.prepareToQuit();
+      this.saveAll();
+      this.store.flush();
+    });
     window.on("closed", () => {
       this.window = null;
+      // The hidden capture window would otherwise keep Holocron running.
+      app.quit();
     });
 
     // The window only ever shows Holocron's own page (REQUIREMENTS ARC-06).
@@ -287,13 +618,17 @@ export class HolocronApp {
       contents.send(Channels.ui, request);
     });
 
-    nativeTheme.on("updated", () => {
-      window.setTitleBarOverlay(titleBarOverlay(nativeTheme.shouldUseDarkColors));
-      window.setBackgroundColor(nativeTheme.shouldUseDarkColors ? "#15181E" : "#F4F5F7");
+    const onThemeChange = () => {
+      if (window.isDestroyed()) return;
+      const colors = windowChrome(this.settings, nativeTheme.shouldUseDarkColors);
+      window.setTitleBarOverlay(colors.titleBarOverlay);
+      window.setBackgroundColor(colors.backgroundColor);
       this.pushState();
-    });
+    };
+    nativeTheme.on("updated", onThemeChange);
+    window.on("closed", () => nativeTheme.off("updated", onThemeChange));
 
-    if (isDev && process.env.ELECTRON_RENDERER_URL) void window.loadURL(process.env.ELECTRON_RENDERER_URL);
+    if (devRendererUrl) void window.loadURL(devRendererUrl);
     else void window.loadFile(path.join(import.meta.dirname, "../renderer/index.html"));
   }
 
@@ -331,8 +666,10 @@ export class HolocronApp {
   }
 }
 
-function titleBarOverlay(dark: boolean) {
-  return { color: dark ? "#15181E" : "#F4F5F7", symbolColor: dark ? "#C9CDD4" : "#3A3F47", height: 40 };
+/** The main window's background and title-bar overlay for the colour theme in use (§16.10). */
+function windowChrome(settings: Settings, dark: boolean) {
+  const colors = windowColors(resolveTheme(dark, settings));
+  return { backgroundColor: colors.background, titleBarOverlay: { ...colors.titleBarOverlay, height: 40 } };
 }
 
 function folderExists(folder: string): boolean {
@@ -378,42 +715,67 @@ if (!app.requestSingleInstanceLock()) {
   app.setAppUserModelId("app.holocron.notes");
   let holocron: HolocronApp | null = null;
 
-  app.on("second-instance", () => {
-    const window = holocron?.window;
-    if (window) {
-      if (window.isMinimized()) window.restore();
-      window.focus();
-    }
+  // A second launch (jump list item, taskbar, Start menu, a double-clicked
+  // note, the sign-in item) hands its arguments to this instance.
+  app.on("second-instance", (_event, argv) => {
+    if (!holocron) return;
+    void holocron.handleLaunchArgs(parseLaunchArgs(Array.isArray(argv) ? argv : []), false);
   });
 
   void app.whenReady().then(async () => {
     holocron = new HolocronApp();
+    if (testProfile) (globalThis as { holocron?: HolocronApp }).holocron = holocron; // for the smoke scripts
     const commands = createCommands(holocron);
-    ipcMain.handle(Channels.command, async (_event, name: string, ...args: unknown[]) => {
+    ipcMain.handle(Channels.command, async (event, name: string, ...args: unknown[]) => {
+      // The capture window only gets the few commands it needs.
+      if (holocron?.capture.owns(event.sender) && !CAPTURE_COMMANDS.has(name)) throw new Error(`Not available here: ${name}`);
       const command = Object.hasOwn(commands, name) ? commands[name] : undefined;
       if (!command) throw new Error(`Unknown command: ${name}`);
       return command(...args);
     });
-    ipcMain.on(Channels.editorMessage, (_event, message: EditorMessage) => {
+    ipcMain.on(Channels.editorMessage, (event, message: EditorMessage) => {
+      if (holocron?.capture.owns(event.sender)) return;
       if (message && typeof message === "object") holocron?.editor.handle(message);
     });
+    // electron-updater's quitAndInstall announces itself here before quitting.
+    nativeAutoUpdater.on("before-quit-for-update", () => holocron?.prepareToQuit());
+
+    const launch = parseLaunchArgs(process.argv);
+    // Signed in to Windows (--hidden), or started just to capture: stay in the
+    // tray — but only when there is a tray to come back from.
+    const captureOnly = launch.capture && !launch.open && !launch.newNote && !launch.today;
+    holocron.startHidden = holocron.settings.runInBackground && (launch.hidden || captureOnly);
+
     holocron.registerAssetProtocol();
+    holocron.updateTray();
     holocron.createWindow();
+    holocron.registerCaptureShortcut();
     holocron.updater.start();
 
-    // Launch (REQUIREMENTS TAB-10).
+    // Launch (REQUIREMENTS TAB-10). A note to open picks its own vault.
     const last = holocron.recentVaults[0];
+    const noteVault = launch.open ? holocron.vaultContaining(launch.open) : null;
     if (launchVault) {
       await holocron.openVault(launchVault);
+    } else if (noteVault) {
+      await holocron.openVault(noteVault);
     } else if (holocron.settings.reopenLastVault && last) {
       await holocron.openVault(last);
-      if (holocron.settings.openDailyNoteOnLaunch) holocron.vault?.openDailyNote();
+      if (holocron.settings.openDailyNoteOnLaunch && !hasActions(launch)) holocron.vault?.openDailyNote();
     }
+    await holocron.handleLaunchArgs(launch, true);
+    holocron.scheduleJumpList();
   });
 
   app.on("before-quit", () => {
+    holocron?.prepareToQuit();
     holocron?.saveAll();
     holocron?.store.flush();
+  });
+
+  app.on("will-quit", () => {
+    globalShortcut.unregisterAll();
+    holocron?.tray.destroy();
   });
 
   app.on("window-all-closed", () => {

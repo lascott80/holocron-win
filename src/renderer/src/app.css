@@ -46,7 +46,7 @@ textarea,
 }
 
 ::selection {
-  background: rgba(var(--ui-accent-rgb), 0.28);
+  background: var(--ui-selection, rgba(var(--ui-accent-rgb), 0.28));
 }
 
 /* Thin overlay-style scrollbars, like the rest of Windows 11. */

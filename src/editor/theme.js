@@ -4,8 +4,8 @@ import { HighlightStyle } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
 import { MONO_FONT, UI_FONT } from "./platform.js";
 
-// Colours, fonts and sizes come from CSS custom properties that Swift sets
-// (see Theme.cssVariables); the fallbacks match the dark theme.
+// Colours, fonts and sizes come from CSS custom properties the app sets per
+// colour theme (renderer lib/theme.ts); the fallbacks match Holocron Dark.
 const v = (name, fallback) => `var(--hc-${name}, ${fallback})`;
 const MONO = MONO_FONT;
 
@@ -13,13 +13,14 @@ const c = {
   bg: v("bg", "#0F1115"),
   text: v("text", "#D8DBE0"),
   strong: v("strong", "#F2F4F7"),
+  heading: `var(--hc-heading, ${v("strong", "#F2F4F7")})`,
   muted: v("muted", "#8A919D"),
   faint: v("faint", "#6B7280"),
   quote: v("quote", "#C9CDD4"),
   accent: v("accent", "#5AB4FF"),
   accentText: v("accent-text", "#9CCFFF"),
   accentSoft: "rgba(var(--hc-accent-rgb, 90, 180, 255), 0.14)",
-  selection: "rgba(var(--hc-accent-rgb, 90, 180, 255), 0.28)",
+  selection: "var(--hc-selection, rgba(var(--hc-accent-rgb, 90, 180, 255), 0.28))",
   border: v("border", "#23272F"),
   strongBorder: v("strong-border", "#343A45"),
   raised: v("raised", "#161A20"),
@@ -47,7 +48,7 @@ export const holocronTheme = EditorView.theme(
     ".cm-placeholder": { color: c.faint },
 
     // Headings
-    ".cm-h": { color: c.strong },
+    ".cm-h": { color: c.heading },
     ".cm-h1": { fontSize: "2.125em", lineHeight: "1.25", fontWeight: "700", letterSpacing: "-0.01em", paddingTop: "10px" },
     ".cm-h2": { fontSize: "1.44em", lineHeight: "1.3", fontWeight: "650", paddingTop: "14px" },
     ".cm-h3": { fontSize: "1.19em", lineHeight: "1.35", fontWeight: "650", paddingTop: "10px" },
@@ -402,9 +403,9 @@ export const holocronTheme = EditorView.theme(
       font: "inherit",
       cursor: "default",
     },
-    ".cm-table-menu-item:hover:not(:disabled)": { backgroundColor: c.accent, color: "#fff" },
+    ".cm-table-menu-item:hover:not(:disabled)": { backgroundColor: v("accent-fill", "#2A72BD"), color: "#fff" },
     ".cm-table-menu-item:disabled": { color: c.faint },
-    ".cm-table-menu-destructive:not(:disabled)": { color: "#F87171" },
+    ".cm-table-menu-destructive:not(:disabled)": { color: v("danger", "#F87171") },
     ".cm-table-menu-check": { display: "inline-block", width: "16px", textAlign: "center", fontSize: "12px" },
     ".cm-table-menu-separator": { height: "1px", margin: "4px 8px", backgroundColor: c.border },
 
@@ -483,8 +484,8 @@ export const holocronTheme = EditorView.theme(
       borderRadius: "5px",
       color: c.text,
     },
-    ".cm-searchMatch": { backgroundColor: "rgba(232, 193, 90, 0.25)" },
-    ".cm-searchMatch.cm-searchMatch-selected": { backgroundColor: "rgba(232, 193, 90, 0.55)" },
+    ".cm-searchMatch": { backgroundColor: "rgba(var(--hc-search-match-rgb, 232, 193, 90), 0.25)" },
+    ".cm-searchMatch.cm-searchMatch-selected": { backgroundColor: "rgba(var(--hc-search-match-rgb, 232, 193, 90), 0.55)" },
     ".cm-panel.cm-search [name=close]": { color: c.muted },
   },
   {},

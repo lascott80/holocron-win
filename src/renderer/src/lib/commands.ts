@@ -3,9 +3,9 @@
 // (REQUIREMENTS §12, QO-05). Shortcuts use the Windows mapping in §17.2.
 
 import { app } from "./app.svelte";
-import { accents } from "./theme";
+import { accents, activeTheme, themes } from "./theme";
 import { editor, run } from "./host";
-import type { Accent, Appearance, EditorMode } from "@shared/settings";
+import { shortcutLabel, type Accent, type Appearance, type EditorMode } from "@shared/settings";
 import type { MenuEntry } from "./menu.svelte";
 
 export interface Command {
@@ -22,6 +22,8 @@ export interface Command {
   run: () => void;
   /** Hidden from the palette (e.g. "Tab 3"). */
   hidden?: boolean;
+  /** The shortcut is a system-wide one (registered by main): shown, never bound in the window. */
+  globalShortcut?: boolean;
 }
 
 const hasVault = () => app.vault !== null;
@@ -55,6 +57,16 @@ export const commands: Command[] = [
   { id: "newNoteFromTemplate", title: "New Note from Template…", shortcut: "Ctrl+Shift+N", enabled: hasVault, run: () => (app.templatePicker = "newNote") },
   { id: "newFolder", title: "New Folder", shortcut: "Ctrl+Alt+N", enabled: hasVault, run: () => run("createFolder") },
   { id: "newTab", title: "New Tab", shortcut: "Ctrl+T", enabled: hasVault, run: () => run("newTab") },
+  {
+    id: "quickCapture",
+    title: "Quick Capture",
+    // The system-wide shortcut from Settings, while Windows has it registered.
+    get shortcut() {
+      return app.state.quickCapture.registered ? shortcutLabel(app.settings.quickCaptureShortcut) : undefined;
+    },
+    globalShortcut: true,
+    run: () => run("quickCapture"),
+  },
   { id: "quickOpen", title: "Quick Open…", shortcut: "Ctrl+O", enabled: hasVault, run: () => app.showQuickOpen() },
   { id: "commandPalette", title: "Command Palette…", shortcut: "Ctrl+Shift+P", hidden: true, run: () => app.showCommandPalette() },
   { id: "openVault", title: "Open Folder as Vault…", shortcut: "Ctrl+Shift+O", run: () => run("openVaultDialog") },
@@ -65,6 +77,8 @@ export const commands: Command[] = [
   { id: "showVaultInExplorer", title: "Show Vault in File Explorer", enabled: hasVault, run: () => run("showVaultInFolder") },
   { id: "showNoteInExplorer", title: "Show Note in File Explorer", enabled: hasNote, run: () => app.doc && run("showInFolder", app.doc.path) },
   { id: "settings", title: "Settings…", shortcut: "Ctrl+,", run: () => (app.settingsOpen = true) },
+  // Quits even when Holocron keeps running in the background (closing the window only hides it).
+  { id: "quitApp", title: "Exit Holocron", run: () => run("quitApp") },
 
   // Edit
   { id: "undo", title: "Undo", shortcut: "Ctrl+Z", editorKey: true, hidden: true, run: undoOrRedo("undo") },
@@ -157,11 +171,23 @@ export const commands: Command[] = [
     enabled: () => app.settings.appearance !== appearance,
     run: () => app.setSetting("appearance", appearance),
   })),
-  ...(Object.keys(accents) as Accent[]).map((accent): Command => ({
+  ...(["theme", ...Object.keys(accents)] as Accent[]).map((accent): Command => ({
     id: `accent:${accent}`,
-    title: `Crystal: ${accents[accent].title}`,
+    title: `Crystal: ${accent === "theme" ? "Theme default" : accents[accent].title}`,
     enabled: () => app.settings.accent !== accent,
     run: () => app.setSetting("accent", accent),
+  })),
+  // Colour themes: a dark theme becomes the dark theme, and if the window is
+  // light the appearance switches to Dark so it shows (and vice versa).
+  ...themes.map((theme): Command => ({
+    id: `theme:${theme.id}`,
+    title: `Theme: ${theme.name}`,
+    enabled: () => activeTheme(app.state.isDark, app.settings).id !== theme.id,
+    run: () => {
+      const dark = theme.kind === "dark";
+      app.setSetting(dark ? "darkTheme" : "lightTheme", theme.id);
+      if (app.state.isDark !== dark) app.setSetting("appearance", theme.kind);
+    },
   })),
 ];
 
@@ -176,7 +202,7 @@ export function runCommand(id: string) {
 export const menus: { title: string; items: (string | { title: string; items: string[] })[] }[] = [
   {
     title: "File",
-    items: ["newNote", "newNoteFromTemplate", "newFolder", "newTab", "-", "quickOpen", "commandPalette", "-", "openVault", "createVault", "-", "save", "closeTab", "closeVault", "-", "showNoteInExplorer", "showVaultInExplorer", "-", "settings"],
+    items: ["newNote", "newNoteFromTemplate", "newFolder", "newTab", "-", "quickCapture", "quickOpen", "commandPalette", "-", "openVault", "createVault", "-", "save", "closeTab", "closeVault", "-", "showNoteInExplorer", "showVaultInExplorer", "-", "settings", "-", "quitApp"],
   },
   { title: "Edit", items: ["undo", "redo", "-", "copyMarkdown", "pastePlainText", "-", "find", "findNext", "findPrevious", "searchVault"] },
   {
@@ -244,7 +270,7 @@ function matches(spec: KeySpec, event: KeyboardEvent): boolean {
   return /^[0-9]$/.test(spec.key) && event.code === `Digit${spec.key}`;
 }
 
-const bindings = commands.flatMap((command) =>
+const bindings = commands.filter((command) => !command.globalShortcut).flatMap((command) =>
   [command.shortcut, ...(command.alsoKeys ?? [])].filter((s): s is string => Boolean(s)).map((shortcut) => ({ spec: parseShortcut(shortcut), command })),
 );
 
@@ -255,6 +281,8 @@ const bindings = commands.flatMap((command) =>
  */
 export function handleKeydown(event: KeyboardEvent) {
   if (event.isComposing || event.repeat && !event.ctrlKey) return;
+  // Settings' shortcut recorder takes every key combination as it is.
+  if ((event.target as Element | null)?.closest?.("[data-shortcut-recorder]")) return;
   const inEditor = (event.target as Element | null)?.closest?.(".cm-editor") != null;
   for (const { spec, command } of bindings) {
     if (!matches(spec, event)) continue;

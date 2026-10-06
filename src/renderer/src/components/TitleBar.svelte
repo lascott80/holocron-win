@@ -120,9 +120,12 @@
     flex: none;
     /* Room for the system window controls drawn over the right edge. */
     padding: 0 calc(100vw - env(titlebar-area-width, calc(100vw - 140px)) + 8px) 0 10px;
-    background: var(--ui-sidebar);
+    /* The theme's title-bar colour (main paints the window buttons' overlay the same). */
+    background: var(--ui-titlebar, var(--ui-sidebar));
     border-bottom: 1px solid var(--ui-border);
     -webkit-app-region: drag;
+    /* Hovers here use the title bar's own hover colour. */
+    --ui-chip: var(--ui-titlebar-hover);
   }
   .titlebar > :global(*:not(.title)) {
     -webkit-app-region: no-drag;
