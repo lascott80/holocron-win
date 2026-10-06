@@ -30,7 +30,9 @@ export class VaultWatcher {
         }
         if (this.pending.size) this.timer ??= setTimeout(() => this.deliver(), this.latency);
       },
-      { ignore: [".git", ".obsidian", ".trash"] },
+      // Use the native Windows API directly; otherwise the watcher first probes
+      // for Watchman and prints "'watchman' is not recognized" when it's absent.
+      { ignore: [".git", ".obsidian", ".trash"], ...(process.platform === "win32" ? { backend: "windows" as const } : {}) },
     );
     if (this.stopped) await subscription.unsubscribe();
     else this.subscription = subscription;
