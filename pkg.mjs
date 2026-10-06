@@ -1,0 +1,10 @@
+﻿import fs from "node:fs"; import os from "node:os"; import path from "node:path";
+import { _electron as electron } from "playwright-core";
+const work = fs.mkdtempSync(path.join(os.tmpdir(), "holocron-pkg-"));
+const vault = path.join(work, "V"); fs.cpSync("resources/guide", vault, { recursive: true });
+const app = await electron.launch({ executablePath: "dist/win-unpacked/Holocron.exe", env: { ...process.env, HOLOCRON_USER_DATA: path.join(work, "p"), HOLOCRON_OPEN_VAULT: vault } });
+const page = await app.firstWindow(); await page.waitForTimeout(2000);
+fs.writeFileSync(path.join(vault, "New From Outside.md"), "# hi");
+await page.waitForTimeout(1500);
+console.log("watcher saw new file:", (await page.evaluate(() => window.holocronHost.call("getState"))).vault.noteCount === 3);
+await app.close(); fs.rmSync(work, { recursive: true, force: true });
