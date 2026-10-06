@@ -1,0 +1,41 @@
+/* Page chrome around the CodeMirror editor; editor styles live in Editor/src/theme.js.
+   Colours come from --hc-* variables that Swift sets via window.holocron.setAppearance. */
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--hc-bg, #0F1115);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+#editor {
+  height: 100%;
+}
+
+/* Code token colours (dark first, then light). */
+:root {
+  --hc-syn-keyword: #C792EA; --hc-syn-string: #A5D6A7; --hc-syn-number: #F78C6C; --hc-syn-comment: #6B7280;
+  --hc-syn-function: #82AAFF; --hc-syn-type: #FFCB6B; --hc-syn-property: #89DDFF; --hc-syn-tag: #F07178;
+  --hc-syn-punctuation: #9AA1AD; --hc-syn-meta: #C3A6FF;
+  --hc-highlight: rgba(232, 193, 90, 0.32);
+}
+html.hc-light {
+  --hc-syn-keyword: #8A3FBF; --hc-syn-string: #2E7D32; --hc-syn-number: #B8501E; --hc-syn-comment: #8A919D;
+  --hc-syn-function: #1F5FBF; --hc-syn-type: #8F6B00; --hc-syn-property: #0B7285; --hc-syn-tag: #C42F35;
+  --hc-syn-punctuation: #5F6672; --hc-syn-meta: #6A4FC2;
+  --hc-highlight: rgba(255, 214, 0, 0.42);
+}
+
+/* Callout colour families: --callout tints the box, --callout-text is the title colour. */
+.cm-callout-blue   { --callout: 90, 180, 255;  --callout-text: 140, 203, 255; }
+.cm-callout-green  { --callout: 61, 214, 140;  --callout-text: 120, 226, 172; }
+.cm-callout-purple { --callout: 176, 148, 255; --callout-text: 196, 176, 255; }
+.cm-callout-yellow { --callout: 232, 193, 90;  --callout-text: 240, 210, 130; }
+.cm-callout-red    { --callout: 255, 107, 107; --callout-text: 255, 150, 150; }
+.cm-callout-gray   { --callout: 154, 161, 173; --callout-text: 190, 196, 205; }
+
+html.hc-light .cm-callout-blue   { --callout: 31, 111, 191;  --callout-text: 26, 95, 166; }
+html.hc-light .cm-callout-green  { --callout: 31, 157, 92;   --callout-text: 26, 115, 64; }
+html.hc-light .cm-callout-purple { --callout: 118, 84, 214;  --callout-text: 98, 66, 186; }
+html.hc-light .cm-callout-yellow { --callout: 196, 146, 0;   --callout-text: 128, 92, 0; }
+html.hc-light .cm-callout-red    { --callout: 196, 47, 53;   --callout-text: 168, 38, 43; }
+html.hc-light .cm-callout-gray   { --callout: 107, 114, 128; --callout-text: 75, 81, 92; }

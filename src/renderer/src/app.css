@@ -1,0 +1,282 @@
+/* Base styles for the window chrome. Colours are --ui-* variables set by
+   lib/theme.ts; the editor's --hc-* variables live on the same <html>. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--ui-sidebar, #15181e);
+  color: var(--ui-text, #e6e8ec);
+  font-family: var(--ui-font, "Segoe UI", system-ui, sans-serif);
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+input,
+textarea,
+[contenteditable] {
+  user-select: text;
+}
+
+:focus-visible {
+  outline: 2px solid rgba(var(--ui-accent-rgb), 0.7);
+  outline-offset: 1px;
+}
+
+::selection {
+  background: rgba(var(--ui-accent-rgb), 0.28);
+}
+
+/* Thin overlay-style scrollbars, like the rest of Windows 11. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  border: 3px solid transparent;
+  border-radius: 6px;
+  background-clip: padding-box;
+}
+:hover::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--ui-text-3) 45%, transparent);
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--ui-text-3) 70%, transparent);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ---- Shared building blocks ---- */
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ui-text-2);
+}
+.icon-button:hover:not(:disabled) {
+  background: var(--ui-chip);
+  color: var(--ui-text);
+}
+.icon-button:active:not(:disabled) {
+  background: color-mix(in srgb, var(--ui-chip) 70%, var(--ui-strong-border));
+}
+.icon-button:disabled {
+  opacity: 0.38;
+}
+.icon-button.active {
+  color: var(--ui-accent);
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 14px;
+  border: 1px solid var(--ui-strong-border);
+  border-radius: 6px;
+  background: var(--ui-raised);
+  color: var(--ui-text);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.button:hover:not(:disabled) {
+  background: var(--ui-chip);
+}
+.button:disabled {
+  opacity: 0.45;
+}
+.button.primary {
+  background: var(--ui-fill);
+  border-color: transparent;
+  color: #fff;
+}
+.button.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ui-fill) 88%, #fff);
+}
+.button.danger {
+  background: var(--ui-danger);
+  border-color: transparent;
+  color: #fff;
+}
+
+.text-field {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--ui-strong-border);
+  border-radius: 6px;
+  background: var(--ui-editor);
+  color: var(--ui-text);
+  outline: none;
+}
+.text-field:focus {
+  border-color: var(--ui-accent);
+  box-shadow: 0 0 0 3px rgba(var(--ui-accent-rgb), 0.18);
+}
+
+.keycap {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 5px;
+  border: 1px solid var(--ui-border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--ui-chip);
+  color: var(--ui-text-2);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.section-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--ui-text-3);
+}
+
+.count-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--ui-chip);
+  color: var(--ui-text-3);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.tag-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(var(--ui-accent-rgb), 0.14);
+  color: var(--ui-accent-text);
+  font-size: 12px;
+}
+.tag-pill:hover {
+  background: rgba(var(--ui-accent-rgb), 0.24);
+}
+
+/* Popup menus (menu bar, context menus, dropdowns). */
+.menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 220px;
+  padding: 4px;
+  border: 1px solid var(--ui-border);
+  border-radius: 8px;
+  background: var(--ui-overlay);
+  box-shadow: var(--ui-shadow);
+  font-size: 13px;
+  animation: menu-in 0.08s ease-out;
+}
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 28px;
+  padding: 0 10px 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ui-text);
+  text-align: left;
+}
+.menu-item:hover:not(:disabled),
+.menu-item.highlighted:not(:disabled) {
+  background: var(--ui-fill);
+  color: #fff;
+}
+.menu-item:hover:not(:disabled) .menu-shortcut,
+.menu-item.highlighted:not(:disabled) .menu-shortcut {
+  color: rgba(255, 255, 255, 0.8);
+}
+.menu-item:disabled {
+  color: var(--ui-faint);
+}
+.menu-item.destructive:not(:disabled) {
+  color: var(--ui-danger);
+}
+.menu-item.destructive:hover:not(:disabled) {
+  background: var(--ui-danger);
+  color: #fff;
+}
+.menu-check {
+  width: 14px;
+  flex: none;
+  display: inline-flex;
+}
+.menu-label {
+  flex: 1;
+  white-space: nowrap;
+}
+.menu-shortcut {
+  color: var(--ui-text-3);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.menu-separator {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--ui-border);
+}
+
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

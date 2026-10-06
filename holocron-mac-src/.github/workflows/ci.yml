@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch cancels the run in progress.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  editor-bundle:
+    name: Editor bundle is current
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: Editor/package-lock.json
+
+      - name: Rebuild editor.js from Editor/src
+        working-directory: Editor
+        run: |
+          npm ci
+          npm run build
+
+      - name: Check the committed bundle matches
+        run: |
+          if ! git diff --quiet -- Holocron/Resources/Editor/editor.js; then
+            echo "::error file=Holocron/Resources/Editor/editor.js::editor.js is out of date. Run 'cd Editor && npm run build' and commit the result."
+            git diff --stat -- Holocron/Resources/Editor/editor.js
+            exit 1
+          fi
+          echo "editor.js matches Editor/src."
+
+  test:
+    name: Build and test
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select the newest Xcode
+        run: |
+          xcode=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          echo "Using $xcode"
+          sudo xcode-select -s "$xcode/Contents/Developer"
+          xcodebuild -version
+
+      - name: Build and run tests
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project Holocron.xcodeproj \
+            -scheme Holocron \
+            -destination 'platform=macOS' \
+            -derivedDataPath build \
+            -resultBundlePath build/TestResults.xcresult \
+            CODE_SIGN_IDENTITY=- \
+            | grep -vE "linkd.autoShortcut|Process Instance Registry"
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: build/TestResults.xcresult
+          retention-days: 7
