@@ -26,6 +26,7 @@ import { focusMode } from "./focusMode.js";
 import { insertSizedTable, tableCommands, tableEditing } from "./tableEditing.js";
 import { folding } from "./folds.js";
 import { comments } from "./comments.js";
+import { mermaidDiagrams, setMermaidTheme } from "./mermaid.js";
 import { livePreview } from "./livePreview.js";
 import { currentNote, imagePaste, inlineImages, setImageContext } from "./images.js";
 import { configureEmbeds, embedDepth, invalidateEmbeds, noteEmbeds, refreshEmbeds, resolveEmbed } from "./embeds.js";
@@ -100,6 +101,7 @@ function embeddedEditorExtensions() {
     preview,
     inlineImages,
     tables,
+    mermaidDiagrams,
     folding,
     comments,
     EditorView.lineWrapping,
@@ -161,6 +163,7 @@ const rendering = [
   preview,
   noteEmbeds,
   tables,
+  mermaidDiagrams,
   folding,
   comments,
   codeBlockTools((code) => post({ type: "copy", text: code })),
@@ -389,6 +392,7 @@ window.holocron = {
     root.classList.toggle("hc-light", mode === "light");
     root.classList.toggle("hc-dark", mode !== "light");
     root.style.colorScheme = mode === "light" ? "light" : "dark";
+    view.dispatch({ effects: setMermaidTheme.of(`${mode === "light" ? "light" : "dark"}:${vars["--hc-accent"] ?? ""}`) });
     view.requestMeasure();
   },
 

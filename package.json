@@ -74,7 +74,8 @@
     "@lezer/highlight": "^1.2.5",
     "@lezer/markdown": "^1.7.2",
     "@lucide/svelte": "^1.52.0",
-    "@parcel/watcher": "^2.6.0"
+    "@parcel/watcher": "^2.6.0",
+    "mermaid": "^12.1.0"
   },
   "allowScripts": {
     "esbuild@0.25.12": true,

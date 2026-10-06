@@ -59,6 +59,7 @@
         ["> [!note] Title", "Callout (tip, warning, …)"],
         ["> [!tip]- Title", "Callout, folded (+ for open)"],
         ["```js … ```", "Code block with colours"],
+        ["```mermaid … ```", "Diagram (flowchart, sequence, …)"],
         ["| a | b |  then Enter", "Table — Tab and Enter move between cells"],
         ["---", "Divider"],
         ["<details><summary>…", "Foldable section"],
