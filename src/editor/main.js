@@ -35,6 +35,7 @@ import { currentNote, imagePaste, inlineImages, setImageContext } from "./images
 import { mediaEmbeds } from "./media.js";
 import { htmlRendering } from "./html.js";
 import { copyMarkdown, richCopy } from "./richCopy.js";
+import { pasteMarkdown, pastePlainText } from "./pasteMarkdown.js";
 import { configureEmbeds, embedDepth, invalidateEmbeds, noteEmbeds, refreshEmbeds, resolveEmbed } from "./embeds.js";
 import { Prec } from "@codemirror/state";
 import { mergeFrontmatterChanges, properties } from "./properties.js";
@@ -83,7 +84,9 @@ const formatKeymap = [
   { key: "Mod-Alt-0", run: setHeading(0) },
   { key: "Mod-Alt-1", run: setHeading(1) },
   { key: "Mod-Alt-2", run: setHeading(2) },
-  { key: "Mod-Alt-3", run: setHeading(3) },];
+  { key: "Mod-Alt-3", run: setHeading(3) },
+  { key: "Mod-Shift-v", run: pastePlainText }, // Paste as Plain Text (Windows convention)
+];
 
 const markdownSupport = markdown({
   base: markdownLanguage,
@@ -244,6 +247,11 @@ const extensions = (mode) => [
     indentWithTab,
   ]),
   imagePaste((image) => post({ type: "pasteImage", ...image })),
+  // Formatted pastes as markdown; local pictures in them are saved as attachments first.
+  pasteMarkdown({
+    saveImage: (mime, data) => window.holocronHost?.call("saveAttachmentData", "", mime, data) ?? Promise.resolve(null),
+    importFile: (path) => window.holocronHost?.call("importFiles", [path]).then((texts) => texts?.[0] ?? null) ?? Promise.resolve(null),
+  }),
   EditorView.contentAttributes.of({ spellcheck: "true", autocorrect: "off", autocapitalize: "off" }),
   placeholder("Start writing…"),
   holocronTheme,
@@ -297,6 +305,7 @@ const commands = {
   foldAllHeadings,
   unfoldAll,
   copyMarkdown: copyMarkdown((text) => post({ type: "copy", text })),
+  pastePlainText,
 };
 
 window.holocron = {

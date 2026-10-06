@@ -97,6 +97,29 @@ export interface AppState {
   errorMessage: string | null;
   version: string;
   isDark: boolean;
+  /** Auto-update (src/main/updater.ts). */
+  update: UpdateView;
+}
+
+export type UpdateStatus = "idle" | "checking" | "available" | "not-available" | "downloading" | "downloaded" | "error";
+
+export interface UpdateView {
+  status: UpdateStatus;
+  /** The newer version found (available / downloading / downloaded). */
+  version?: string;
+  /** Plain text, trimmed. */
+  releaseNotes?: string;
+  /** Download progress, 0–100. */
+  percent?: number;
+  /** A friendly message for the last failure. */
+  error?: string;
+  /** ms since epoch */
+  lastChecked?: number;
+  currentVersion: string;
+  /** The update card is showing (bottom-right of the window). */
+  showPrompt: boolean;
+  /** A transient note in the card ("You’re up to date…"). */
+  message?: string;
 }
 
 // ---- Index queries (inspector, quick open, autocomplete) ----
@@ -183,4 +206,33 @@ export type UiRequest =
   | { type: "quickOpen"; query: string }
   | { type: "showSearch"; query?: string }
   | { type: "templatePicker"; mode: "insert" | "newNote" }
+  | ({ type: "contextMenu" } & ContextMenuParams)
   | { type: "beep" };
+
+/** What Chromium reports for a right-click (the JSON-safe part of Electron's context-menu params). */
+export interface ContextMenuParams {
+  /** Where the menu was asked for, in window coordinates. */
+  x: number;
+  y: number;
+  /** The misspelled word under the pointer, or "". */
+  misspelledWord: string;
+  /** Spell-checker suggestions for `misspelledWord`. */
+  suggestions: string[];
+  isEditable: boolean;
+  selectionText: string;
+  editFlags: {
+    canCut: boolean;
+    canCopy: boolean;
+    canPaste: boolean;
+    canSelectAll: boolean;
+    canUndo: boolean;
+    canRedo: boolean;
+  };
+  linkURL: string;
+  /** "none", "image", "video", "audio", "canvas", "file" or "plugin". */
+  mediaType: string;
+}
+
+/** Edit actions the renderer may ask main to run on its page (`editAction`). */
+export const EDIT_ACTIONS = ["cut", "copy", "paste", "pasteAndMatchStyle", "selectAll", "undo", "redo"] as const;
+export type EditAction = (typeof EDIT_ACTIONS)[number];

@@ -5,6 +5,8 @@ import { clipboard, ClipboardItem, shell } from "electron";
 import { quickOpenSearch } from "@core/quickOpen";
 import { stem } from "@core/paths";
 import { defaultSettings, type Settings } from "@shared/settings";
+import { EDIT_ACTIONS, type EditAction } from "@shared/ipc";
+import { openExternalSafely } from "./editorBridge";
 import type { HolocronApp } from "./index";
 import type { Vault } from "./vault";
 
@@ -38,6 +40,31 @@ export function clipboardStillHolds(current: string, expected: string): boolean 
   return expected !== "" && normal(current) === normal(expected);
 }
 
+export function isEditAction(name: unknown): name is EditAction {
+  return typeof name === "string" && (EDIT_ACTIONS as readonly string[]).includes(name);
+}
+
+/** A word for the spell checker: one line, not absurdly long. */
+export function spellingWord(value: unknown): string {
+  const word = str(value);
+  if (word === "" || word.length > 200 || /[\r\n]/.test(word)) throw new TypeError("Expected a word");
+  return word;
+}
+
+/** holocron-asset://<kind>/<target>?from=<note> → its parts (REQUIREMENTS ARC-07); null for anything else. */
+export function parseAssetUrl(value: string): { kind: string; target: string; from: string } | null {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "holocron-asset:") return null;
+    const kind = url.hostname;
+    if (kind !== "embed" && kind !== "relative") return null;
+    const target = decodeURIComponent(url.pathname.replace(/^\/+/, ""));
+    return target ? { kind, target, from: url.searchParams.get("from") ?? "" } : null;
+  } catch {
+    return null;
+  }
+}
+
 export function createCommands(app: HolocronApp): Record<string, Command> {
   /** Runs `body` with the open vault; does nothing without one. */
   const withVault =
@@ -67,6 +94,15 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
     },
     showVaultInFolder: () => app.vault && void shell.openPath(app.vault.root),
     addStarterGuide: () => app.addStarterGuide(),
+
+    // Updates (src/main/updater.ts)
+    checkForUpdates: () => app.updater.check(true),
+    downloadUpdate: () => app.updater.download(),
+    installUpdate: () => app.updater.install(),
+    skipUpdate: (version) => app.updater.skip(str(version)),
+    dismissUpdate: () => app.updater.dismiss(),
+    /** The release page for a version; the URL is built from the fixed repo. */
+    openReleasePage: (version) => app.updater.openReleasePage(optStr(version)),
     saveAll: () => app.saveAll(),
     cursor: () => app.editor.cursor,
     /** Rich copy: markdown + HTML, only if the clipboard still holds that markdown. */
@@ -77,6 +113,24 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
       if (!clipboardStillHolds(await clipboard.readText(), plain)) return false;
       await clipboard.write([new ClipboardItem({ "text/plain": plain, "text/html": rich })]);
       return true;
+    },
+
+    // Right-click menu (spelling and editing in the window's own page)
+    replaceMisspelling: (word) => app.window?.webContents.replaceMisspelling(spellingWord(word)),
+    addToDictionary: (word) => app.window?.webContents.session.addWordToSpellCheckerDictionary(spellingWord(word)) ?? false,
+    removeFromDictionary: (word) => app.window?.webContents.session.removeWordFromSpellCheckerDictionary(spellingWord(word)) ?? false,
+    editAction: (name) => {
+      if (!isEditAction(name)) throw new TypeError("Unknown edit action");
+      app.window?.webContents[name]();
+    },
+    copyImageAt: (x, y) => app.window?.webContents.copyImageAt(Math.round(num(x)), Math.round(num(y))),
+    /** Opens an image shown in the editor: a vault file in its default app, a web image in the browser. */
+    openImage: (src) => {
+      const url = str(src);
+      if (/^https?:/i.test(url)) return openExternalSafely(url);
+      const asset = parseAssetUrl(url);
+      const file = asset && app.vault?.resolveAsset(asset.kind, asset.target, asset.from);
+      if (file) void shell.openPath(file);
     },
 
     // Tabs and navigation
@@ -116,6 +170,14 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
     confirmDeletion: withVault((vault) => vault.confirmDeletion()),
     cancelDeletion: withVault((vault) => vault.cancelDeletion()),
     importFiles: withVault((vault, files) => vault.importFiles(strings(files))),
+    /** Saves a picture from pasted HTML (base64) as an attachment; returns its embed text, or null. */
+    saveAttachmentData: withVault((vault, name, mime, data) => {
+      const type = str(mime).toLowerCase();
+      if (!/^image\/[\w.+-]+$/.test(type)) throw new TypeError("Expected an image type");
+      // Only a bare file name (no folders); empty → "Pasted image <timestamp>.<ext>".
+      const fileName = (optStr(name) ?? "").split(/[\\/]/).pop() ?? "";
+      return vault.pasteImage(fileName, type, Buffer.from(str(data), "base64"));
+    }),
     runToastAction: withVault((vault) => vault.runToastAction()),
     dismissToast: withVault((vault) => vault.dismissToast()),
     resolveConflict: withVault((vault, choice) => {

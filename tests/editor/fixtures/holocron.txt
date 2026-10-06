@@ -1,0 +1,6 @@
+## Release notes
+
+The **new build** is ready — see [[Roadmap|the roadmap]]. This is ==important==.
+
+- [x] Write the code
+- [ ] Ship it

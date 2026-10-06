@@ -1,7 +1,7 @@
 {
   "name": "holocron",
   "productName": "Holocron",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "A plain-files markdown notes app in the style of Obsidian",
   "private": true,
   "main": "out/main/index.js",
@@ -13,7 +13,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check": "svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.node.json --noEmit",
-    "dist": "electron-vite build && electron-builder --win"
+    "dist": "electron-vite build && electron-builder --win --publish never"
   },
   "build": {
     "appId": "app.holocron.notes",
@@ -36,8 +36,16 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
-    }
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "lascott80",
+        "repo": "holocron-win"
+      }
+    ]
   },
   "devDependencies": {
     "@codemirror/autocomplete": "^6.20.3",
@@ -75,12 +83,14 @@
     "playwright-core": "^1.63.0",
     "svelte": "^5.57.1",
     "svelte-check": "^4.7.6",
+    "turndown": "^7.2.4",
     "typescript": "^6.0.3",
     "vite": "^7.3.7",
     "vitest": "^4.1.11"
   },
   "dependencies": {
-    "@parcel/watcher": "^2.6.0"
+    "@parcel/watcher": "^2.6.0",
+    "electron-updater": "^6.8.9"
   },
   "allowScripts": {
     "esbuild@0.25.12": true,

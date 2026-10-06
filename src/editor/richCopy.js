@@ -228,14 +228,23 @@ function buildHtml(copy) {
     const loaded = diagramCache.get(code);
     if (loaded) diagrams[code] = loaded;
   }
-  return markdownToHtml(copy.text, {
+  return markHolocronCopy(markdownToHtml(copy.text, {
     images,
     diagrams,
     sanitize: (html) => sanitizeForClipboard(html, images),
     highlight: highlightCode,
     stripFrontmatter: copy.startsAtTop,
     context: copy.context,
-  });
+  }));
+}
+
+/**
+ * Tags the clipboard HTML as Holocron's own (an attribute on the wrapper
+ * survives the Windows clipboard), so pasting it back into a note uses the
+ * markdown in text/plain instead of converting the HTML (pasteMarkdown.js).
+ */
+export function markHolocronCopy(html) {
+  return /^<div\b/.test(html) ? html.replace(/^<div\b/, '<div data-holocron-copy=""') : `<div data-holocron-copy="">${html}</div>`;
 }
 
 /** Loads what the first HTML lacked; true if anything new arrived. */

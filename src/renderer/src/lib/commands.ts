@@ -71,6 +71,7 @@ export const commands: Command[] = [
   { id: "redo", title: "Redo", shortcut: "Ctrl+Y", editorKey: true, hidden: true, run: undoOrRedo("redo") },
   // Not an editorKey: reading view can't take focus, so its keys never reach the editor's keymap.
   { id: "copyMarkdown", title: "Copy as Markdown", shortcut: "Ctrl+Shift+C", enabled: hasNote, run: ed("copyMarkdown") },
+  { id: "pastePlainText", title: "Paste as Plain Text", shortcut: "Ctrl+Shift+V", editorKey: true, enabled: canFormat, run: ed("pastePlainText") },
   { id: "find", title: "Find in Note…", shortcut: "Ctrl+F", editorKey: true, enabled: hasNote, run: ed("find") },
   { id: "findNext", title: "Find Next", shortcut: "F3", editorKey: true, enabled: hasNote, run: ed("findNext") },
   { id: "findPrevious", title: "Find Previous", shortcut: "Shift+F3", editorKey: true, enabled: hasNote, run: ed("findPrevious") },
@@ -147,6 +148,7 @@ export const commands: Command[] = [
 
   // Help
   { id: "starterGuide", title: "Add Start Here Guide to Vault", enabled: hasVault, run: () => run("addStarterGuide") },
+  { id: "checkForUpdates", title: "Check for Updates…", run: () => run("checkForUpdates") },
 
   // Appearance (palette only)
   ...(["system", "dark", "light"] as Appearance[]).map((appearance): Command => ({
@@ -176,7 +178,7 @@ export const menus: { title: string; items: (string | { title: string; items: st
     title: "File",
     items: ["newNote", "newNoteFromTemplate", "newFolder", "newTab", "-", "quickOpen", "commandPalette", "-", "openVault", "createVault", "-", "save", "closeTab", "closeVault", "-", "showNoteInExplorer", "showVaultInExplorer", "-", "settings"],
   },
-  { title: "Edit", items: ["undo", "redo", "-", "copyMarkdown", "-", "find", "findNext", "findPrevious", "searchVault"] },
+  { title: "Edit", items: ["undo", "redo", "-", "copyMarkdown", "pastePlainText", "-", "find", "findNext", "findPrevious", "searchVault"] },
   {
     title: "View",
     items: ["toggleSidebar", "toggleInspector", "toggleFormattingBar", "readableLineLength", "-", "mode:livePreview", "mode:source", "mode:reading", "-", "toggleReading", "toggleSource", "focusMode", "-", "foldHeading", "unfoldHeading", "foldAllHeadings", "unfoldAll"],
@@ -191,7 +193,7 @@ export const menus: { title: string; items: (string | { title: string; items: st
       "-", "heading1", "heading2", "heading3", "heading0",
     ],
   },
-  { title: "Help", items: ["starterGuide"] },
+  { title: "Help", items: ["starterGuide", "-", "checkForUpdates"] },
 ];
 
 /** Menu entries for command ids ("-" = separator, nested groups = submenus). */
@@ -257,6 +259,8 @@ export function handleKeydown(event: KeyboardEvent) {
   for (const { spec, command } of bindings) {
     if (!matches(spec, event)) continue;
     if (command.editorKey && (inEditor || command.id === "undo" || command.id === "redo")) return;
+    // Text fields paste plain text natively.
+    if (command.id === "pastePlainText" && (event.target as Element | null)?.closest?.("input, textarea, [contenteditable]")) return;
     // Plain text fields keep their own Ctrl+A/C/V/X/Z and Backspace handling.
     event.preventDefault();
     event.stopPropagation();

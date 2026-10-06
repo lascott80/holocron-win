@@ -25,6 +25,7 @@
   import DeleteConfirm from "./components/overlays/DeleteConfirm.svelte";
   import AlertDialog from "./components/overlays/AlertDialog.svelte";
   import Toast from "./components/overlays/Toast.svelte";
+  import UpdatePrompt from "./components/overlays/UpdatePrompt.svelte";
 
   const vault = $derived(app.vault);
   const showChrome = $derived(!app.focusMode);
@@ -132,6 +133,7 @@
 {#if vault?.conflict}<ConflictSheet />{/if}
 {#if vault?.pendingDeletion}<DeleteConfirm />{/if}
 {#if app.state.errorMessage}<AlertDialog />{/if}
+<UpdatePrompt />
 <PopupMenu />
 <div class="sr-only" aria-live="polite">{vault?.toast?.message ?? ""}</div>
 

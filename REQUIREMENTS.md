@@ -384,7 +384,7 @@ For daily notes, dates refer to the note's day.
 | `![[clip.mp4]]`, `![[a.mp3]]`, `![[a.pdf]]` (ED-56) | Video/audio player or PDF viewer below the line; syntax hidden | Syntax faint, player still shown |
 | `> [!type]± Title` callouts | Callout box (§10.5) | Raw first line |
 | `> quote` | Left border (outermost quote only), quote colour; `> ` hidden | Raw |
-| `- * +` bullets | "•" (muted) | Raw |
+| `- * +` bullets | "•" (muted). *Windows:* by level •, ◦, ▪ (repeating); each nesting level indents 1.5 em whatever spaces or tabs the file uses, and wrapped lines hang under the item text | Raw (indent kept) |
 | `1.` ordered | Shown as typed | — |
 | `- [ ]` / `- [x]` tasks | Checkbox (marker hidden); done lines muted and struck through | Raw |
 | `---` `***` `___` rules | Full-width 1 px line | Faint text |
@@ -557,6 +557,8 @@ Added in the Windows port (0.2.0). All of it follows the live-preview rule: rend
   - Inline HTML other than the ED-02 tags shows raw inside rendered table cells.
 - **ED-56 Media embeds**: `![[clip.mp4]]`, `![[clip.mp4|400]]` (width), `![](clip.webm)` → an HTML5 video player (mp4 webm mov m4v ogv); `![[song.mp3]]` → an audio player (mp3 wav m4a ogg flac aac opus); `![[paper.pdf]]` / `![[paper.pdf#page=3]]` → a PDF card (badge, file name, page hint, "Open" button that opens it in the default app) above the built-in Chromium PDF viewer (600 px tall, resizable). Placement and hiding as images (ED-19, ED-05). Players can seek (ARC-07 range requests). Missing: "File not found: <name>" in a dashed box (PDFs are checked with a HEAD request). Remote `https://` media isn't played.
 - **ED-58 Formatted copy**: in live preview and reading view, Copy and Cut put both `text/plain` (the markdown, exactly as before) and `text/html` (the selection rendered for pasting into email, Teams or Word) on the clipboard; source mode copies markdown only. Edit › **Copy as Markdown** (Ctrl+Shift+C) copies only markdown in any mode. The HTML uses inline styles only, light colours whatever the app theme, and no forced body font: headings, emphasis, `==highlight==` (yellow), code chips and syntax-coloured code blocks, ☐/☑ tasks, tables with borders and alignment, callouts as tinted boxes in their family colour, quotes, footnotes numbered with definitions at the end. Wikilinks become their visible label as plain text; note embeds their title in italics; tags plain text; emoji shortcodes the emoji; math its TeX in monospace; media embeds "▶ clip.mp4" / "🎵 song.mp3" / "📄 paper.pdf"; comments and (when copied from line 1) frontmatter are dropped; raw HTML is sanitised as ED-55. The HTML is written immediately; a second pass then embeds vault images (≤10 MB, ≤640 px wide, as PNG data) and Mermaid diagrams (PNG, light theme) and rewrites the clipboard through main, only if it still holds that copy. In reading view a selection that starts or ends inside a table or diagram takes the whole block.
+- **ED-59 Paste as Markdown**: pasting HTML (web pages, Word, Outlook, Teams, Google Docs) inserts clean markdown — headings, emphasis, `==highlight==`, lists (Word `mso-list` paragraphs become nested lists), tasks (checkboxes or ☐/☑), pipe tables (tidied), quotes, fenced code with its language, links (only http/https/mailto keep a URL), as one undo step. Images: `data:` images are saved as attachments ("Pasted image …"), `file:///` images (Outlook/Word temp files; image extensions only) are copied into the attachment folder, `http(s)` images stay as links, others become their alt text. Escaping only where text would otherwise start markdown. Precedence: read-only → nothing; inside code or frontmatter → plain text; a tab-separated grid (Excel) → the ED-33 table; a single URL over a one-line selection → `[sel](url)` (ED-48, `www.` gets `https://`); no HTML → plain text or image paste; images only → image paste; inside a table → plain text; Holocron's own formatted copy (marked `data-holocron-copy`) → its markdown; trivially plain HTML → plain text; otherwise converted. **Paste as Plain Text** (Ctrl+Shift+V, Edit menu) inserts the clipboard text unchanged.
+- **ED-60 Context menu**: right-clicking in the editor or a text field opens the app's popup menu: spelling suggestions (up to 5, or "No Suggestions") and "Add “word” to Dictionary"; items for what's under the pointer — wikilink: Open Link / Open in New Tab; URL: Open Link / Copy Link Address; tag: Search for #tag; diagram: Expand Diagram / Copy Image; image: Copy Image / Open Image (vault images open in their default app); then Cut, Copy, Copy as Markdown, Paste, Paste as Plain Text, Select All (from the platform's edit flags; Cut and Paste hidden in reading view); and a Format submenu (Bold, Italic, Strikethrough, Highlight, Inline Code, Link) when editable text is selected. Other text fields get the spelling and edit items. Components with their own menus (file tree, tabs, recent vaults, tables) keep them. Menu actions go through the platform's edit commands, so formatted copy (ED-58) still applies.
 - **ED-57 HTML tag autocomplete**: `<` plus letters (or `<` when completion is invoked explicitly), outside code and frontmatter, offers kbd, mark, sup, sub, u, b, i, s, small, ins, del, br, details, summary. Paired tags insert `<tag></tag>` with the cursor inside; `br` inserts `<br>`; `details` inserts a `<details>`/`<summary>` skeleton with the cursor in the summary (§19 #7).
 
 ---
@@ -650,7 +652,7 @@ Every command must be reachable from a menu (and so from the palette).
 
 **File**: New Note ⌘N · New Note from Template… ⇧⌘N · New Folder ⌥⌘N · New Tab ⌘T · Quick Open… ⌘O · Command Palette… ⇧⌘P · Open Folder as Vault… ⇧⌘O · Create New Vault… · Open Recent Vault › · Save ⌘S · Close Tab ⌘W · Close Vault ⇧⌘W
 
-**Edit**: Undo ⌘Z · Redo ⇧⌘Z · (standard Cut/Copy/Paste/Select All) · *Windows:* Copy as Markdown Ctrl+Shift+C (ED-58) · Find in Note… ⌘F · Search Vault… ⇧⌘F
+**Edit**: Undo ⌘Z · Redo ⇧⌘Z · (standard Cut/Copy/Paste/Select All) · *Windows:* Copy as Markdown Ctrl+Shift+C (ED-58) · Paste as Plain Text Ctrl+Shift+V (ED-59) · Find in Note… ⌘F · Search Vault… ⇧⌘F
 
 **View**: Show/Hide Inspector ⌥⌘I · Show/Hide Formatting Bar · View Mode (Live Preview / Source Mode / Reading View) · Toggle Reading View / Back to Editing ⇧⌘E · Toggle Source Mode ⌥⌘E · Enter/Exit Focus Mode ⌥⌘F · (standard Show/Hide Sidebar) · *Windows:* Fold Heading Ctrl+Shift+[ · Unfold Heading Ctrl+Shift+] · Fold All Headings · Unfold All (ED-38a)
 
@@ -658,7 +660,7 @@ Every command must be reachable from a menu (and so from the palette).
 
 **Format** (disabled with no note or in reading view): Insert Template… ⌥⌘T · Bold ⌘B · Italic ⌘I · Strikethrough ⇧⌘X · Highlight ⇧⌘H · Inline Code ⌘E · Insert Link ⌘K · Toggle Checklist Item ⌘L · Bulleted List · Numbered List · Quote · Code Block · Callout · Divider · **Table ›** (Insert Table · Convert Selection to Table · Insert Row Above ⌃⌥⇧↑ · Insert Row Below ⌃⌥⇧↓ · Insert Column Left ⌃⌥⇧← · Insert Column Right ⌃⌥⇧→ · Move Row Up ⌃⌥↑ · Move Row Down ⌃⌥↓ · Move Column Left ⌃⌥← · Move Column Right ⌃⌥→ · Delete Row ⌃⌥⌫ · Delete Column ⌃⌥⇧⌫) · Heading 1–3 ⌥⌘1–3 · Body Text ⌥⌘0
 
-**Help**: Add Start Here Guide to Vault
+**Help**: Add Start Here Guide to Vault · *Windows:* Check for Updates… (§22)
 
 **App**: Settings… ⌘,
 
@@ -689,6 +691,7 @@ Stored per user (Mac: UserDefaults). Window with four tabs; the last tab is reme
 | Templates › Daily notes | Date format | `dailyNoteFormat` | "YYYY-MM-DD" | Shows a live "Today’s note" example path. "Uses Obsidian’s date format: YYYY year, MM month, DD day, dddd weekday. A “/” makes subfolders, e.g. YYYY/MM/YYYY-MM-DD." |
 | Templates | Daily note template (prompt "None") | `dailyNoteTemplate` | "" | "It can use {{date}}, {{date:dddd, MMMM D}}, {{time}}, {{title}}, {{yesterday}} and {{tomorrow}}." |
 | Templates | Open today’s note when Holocron starts | `openDailyNoteOnLaunch` | off | |
+| General › Updates (*Windows*) | Check for updates automatically | `checkForUpdates` | on | Also shows the version, update status and a Check for Updates / Restart to Update button |
 | (View menu) | View mode | `editorMode` | livePreview | livePreview / source / reading |
 
 UI state also persisted: inspector visible (`showInspector`), inspector tab, tags section expanded, settings tab, per-vault tabs and recents (§7).
@@ -1007,6 +1010,8 @@ Found while documenting the Mac app (0.1). The last column says how the Windows 
 | Table size picker | 8 × 8 |
 | Editor text size / line width | 13–24 (16) / 560–1100 step 20 (720) |
 | Window default / welcome minimum | 1280×820 / 820×560 |
+| *Windows:* list indent per nesting level | 1.5 em |
+| *Windows:* update checks | 15 s after launch, then every 6 h |
 | *Windows:* sidebar / inspector width | 200–400 (260) / 240–420 (290) px, user-resizable |
 | *Windows:* title bar height | 40 px |
 | *Windows:* Undo copy of a trashed item kept | 60 s |
@@ -1061,7 +1066,10 @@ How this repository's Electron app (0.2.0) realises the spec, and where it delib
 
 **Settings and state** (§13): stored as JSON in `%APPDATA%\Holocron\holocron.json`, written atomically 250 ms after a change and on quit. Same keys and defaults as §13, plus `showSidebar`.
 
+**Updates** (from 0.4.0): `electron-updater` checks the GitHub releases of `lascott80/holocron-win` 15 s after launch and every 6 hours (setting `checkForUpdates`; Help › Check for Updates… always checks). Only the installed app checks. A card at the bottom-right offers "Holocron X is available" with the first lines of the release notes, "What’s new" (opens the release page) and Download / Skip This Version / Later; then a progress bar; then "Update ready — restart to install" with Restart Now (saves everything, installs silently, relaunches) / Later (installs on quit). Skipping suppresses automatic prompts for that version only. Errors from automatic checks show only in Settings; friendly messages for no network ("Couldn’t check for updates. Check your internet connection.") and releases without update data ("No update information is published yet."). The download is verified against the SHA-512 in the release's `latest.yml`; because the app downloads it, Windows SmartScreen doesn't interrupt. Each release must upload `Holocron-Setup-<version>.exe`, its `.blockmap` and `latest.yml`. Log: `%APPDATA%\Holocron\logs\updater.log`.
+
 **Development hooks**
+- `HOLOCRON_UPDATE_URL=<url>` reads updates from a local server instead of GitHub (`scripts/test-update-server.mjs` serves a folder with Range support); a test update downloaded this way is never installed on quit.
 - `HOLOCRON_USER_DATA=<folder>` uses an isolated profile; `HOLOCRON_OPEN_VAULT=<folder>` opens that vault at launch.
 - `HOLOCRON_OUT=<folder>` builds into another output folder, so parallel builds don't collide.
 - `node scripts/smoke.mjs <shots> [--script <file>] [--out <build>] [--vault <folder>] [--light]` launches the built app against a scratch copy of a vault and saves screenshots and the console log.

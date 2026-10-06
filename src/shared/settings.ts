@@ -26,6 +26,8 @@ export interface Settings {
   dailyNoteFormat: string;
   dailyNoteTemplate: string;
   openDailyNoteOnLaunch: boolean;
+  /** Check GitHub for a newer Holocron at launch and every 6 hours. */
+  checkForUpdates: boolean;
   editorMode: EditorMode;
   /** The mode reading view toggles back to. */
   lastEditingMode: EditorMode;
@@ -55,6 +57,7 @@ export const defaultSettings: Settings = {
   dailyNoteFormat: "YYYY-MM-DD",
   dailyNoteTemplate: "",
   openDailyNoteOnLaunch: false,
+  checkForUpdates: true,
   editorMode: "livePreview",
   lastEditingMode: "livePreview",
   showInspector: true,

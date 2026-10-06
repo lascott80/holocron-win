@@ -6,6 +6,7 @@
   import { dailyNotePath } from "@core/dailyNotes";
   import { FONT_SIZE_RANGE, LINE_WIDTH_RANGE, type Accent, type Appearance, type EditorFont, type Settings, type SettingsTab } from "@shared/settings";
   import { app } from "../../lib/app.svelte";
+  import { run } from "../../lib/host";
   import { accents } from "../../lib/theme";
   import Modal from "./Modal.svelte";
   import Segmented from "./Segmented.svelte";
@@ -78,11 +79,33 @@
   ];
   const accentKeys = Object.keys(accents) as Accent[];
 
-  function toggle(key: keyof Settings & ("reopenLastVault" | "updateLinksOnMove" | "nameNotesFromFirstLine" | "autoMergeExternalChanges" | "showFormattingBar" | "openDailyNoteOnLaunch" | "readableLineLength")) {
+  function toggle(key: keyof Settings & ("reopenLastVault" | "updateLinksOnMove" | "nameNotesFromFirstLine" | "autoMergeExternalChanges" | "showFormattingBar" | "openDailyNoteOnLaunch" | "readableLineLength" | "checkForUpdates")) {
     return (checked: boolean) => app.setSetting(key, checked);
   }
 
   const percent = (value: number, [lo, hi]: readonly [number, number]) => ((value - lo) / (hi - lo)) * 100;
+
+  // ---- Updates ----
+  const update = $derived(app.state.update);
+  const updateStatus = $derived.by(() => {
+    const checked = update.lastChecked ? `Last checked ${new Date(update.lastChecked).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}.` : "";
+    switch (update.status) {
+      case "checking":
+        return "Checking for updates…";
+      case "available":
+        return `Version ${update.version} is available.`;
+      case "downloading":
+        return `Downloading version ${update.version}… ${Math.round(update.percent ?? 0)}%`;
+      case "downloaded":
+        return `Version ${update.version} is ready to install.`;
+      case "not-available":
+        return `Holocron is up to date. ${checked}`.trim();
+      case "error":
+        return `${update.error ?? "Couldn’t check for updates."} ${checked}`.trim();
+      default:
+        return checked || "Not checked yet.";
+    }
+  });
 </script>
 
 {#snippet row(label: string, control: Snippet, help?: string, id?: string, stacked = false)}
@@ -173,6 +196,23 @@
             toggle("autoMergeExternalChanges"),
             "When another app or device changes a note you’re editing, Holocron combines both sets of changes if they touch different lines. Overlapping changes always ask first.",
           )}
+        </div>
+        <h3 class="section-label">Updates</h3>
+        <div class="group">
+          {@render switchRow(
+            "Check for updates automatically",
+            s.checkForUpdates,
+            toggle("checkForUpdates"),
+            "Holocron asks before downloading or installing anything.",
+          )}
+          {#snippet updateControl()}
+            {#if update.status === "downloaded"}
+              <button class="button primary" onclick={() => run("installUpdate")}>Restart to Update</button>
+            {:else}
+              <button class="button" disabled={update.status === "checking" || update.status === "downloading"} onclick={() => run("checkForUpdates")}>Check for Updates</button>
+            {/if}
+          {/snippet}
+          {@render row(`Holocron ${update.currentVersion || app.state.version}`, updateControl, updateStatus)}
         </div>
       {:else if tab === "appearance"}
         <div class="group">

@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { app, BrowserWindow, dialog, nativeTheme, protocol, shell, ipcMain } from "electron";
 import { assetResponse } from "./assets";
-import { Channels, type AppState, type EditorMessage, type RecentVault } from "@shared/ipc";
+import { Channels, type AppState, type EditorMessage, type RecentVault, type UiRequest } from "@shared/ipc";
 import { sanitizeSettings, type Settings } from "@shared/settings";
 import { FileStore } from "./store";
 import { createTrash, writeAtomic } from "./fsx";
@@ -14,6 +14,7 @@ import { VaultWatcher } from "./watcher";
 import { EditorBridge, openExternalSafely } from "./editorBridge";
 import { SearchService } from "./searchService";
 import { createCommands } from "./commands";
+import { Updater } from "./updater";
 
 const ASSET_SCHEME = "holocron-asset";
 protocol.registerSchemesAsPrivileged([
@@ -37,6 +38,7 @@ export class HolocronApp {
   recentVaults: string[] = (this.store.get<string[]>("recentVaultPaths") ?? []).filter(folderExists);
   readonly editor = new EditorBridge(() => this.window?.webContents ?? null);
   readonly search = new SearchService();
+  readonly updater = new Updater({ store: this.store, settings: () => this.settings, pushState: () => this.pushState(), saveAll: () => this.saveAll() });
   readonly trash = createTrash(path.join(app.getPath("userData"), "trash-staging"), (file) => shell.trashItem(file));
   private watcher: VaultWatcher | null = null;
   private stateQueued = false;
@@ -69,6 +71,7 @@ export class HolocronApp {
       errorMessage: this.errorMessage ?? this.vault?.errorMessage ?? null,
       version: app.getVersion(),
       isDark: nativeTheme.shouldUseDarkColors,
+      update: this.updater.view(),
     };
   }
 
@@ -260,6 +263,29 @@ export class HolocronApp {
       }
     });
     contents.session.setSpellCheckerLanguages(["en-US"]);
+    // Right-click: the renderer draws the menu (spelling suggestions, Cut/Copy/Paste, link items).
+    contents.on("context-menu", (_event, params) => {
+      const request: UiRequest = {
+        type: "contextMenu",
+        x: params.x,
+        y: params.y,
+        misspelledWord: params.misspelledWord ?? "",
+        suggestions: [...(params.dictionarySuggestions ?? [])],
+        isEditable: params.isEditable,
+        selectionText: params.selectionText ?? "",
+        editFlags: {
+          canCut: params.editFlags.canCut,
+          canCopy: params.editFlags.canCopy,
+          canPaste: params.editFlags.canPaste,
+          canSelectAll: params.editFlags.canSelectAll,
+          canUndo: params.editFlags.canUndo,
+          canRedo: params.editFlags.canRedo,
+        },
+        linkURL: params.linkURL ?? "",
+        mediaType: params.mediaType ?? "none",
+      };
+      contents.send(Channels.ui, request);
+    });
 
     nativeTheme.on("updated", () => {
       window.setTitleBarOverlay(titleBarOverlay(nativeTheme.shouldUseDarkColors));
@@ -373,6 +399,7 @@ if (!app.requestSingleInstanceLock()) {
     });
     holocron.registerAssetProtocol();
     holocron.createWindow();
+    holocron.updater.start();
 
     // Launch (REQUIREMENTS TAB-10).
     const last = holocron.recentVaults[0];
