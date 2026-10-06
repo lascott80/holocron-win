@@ -18,9 +18,10 @@ export const focusTracking = [
   EditorView.focusChangeEffect.of((_state, focusing) => setFocused.of(focusing)),
 ];
 
-/** True if the editor is focused and any selection touches [from, to]. */
+/** True if the editor is focused and any selection touches [from, to]. Never in reading view (read-only). */
 export function isEditing(state, from, to) {
-  return state.field(focusedField, false) === true
+  return !state.readOnly
+    && state.field(focusedField, false) === true
     && state.selection.ranges.some((range) => range.from <= to && range.to >= from);
 }
 

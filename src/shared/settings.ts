@@ -18,6 +18,8 @@ export interface Settings {
   editorFont: EditorFont;
   editorFontSize: number;
   editorLineWidth: number;
+  /** Cap the text column at `editorLineWidth`; off = notes fill the window. */
+  readableLineLength: boolean;
   attachmentFolder: string;
   templatesFolder: string;
   dailyNoteFolder: string;
@@ -46,6 +48,7 @@ export const defaultSettings: Settings = {
   editorFont: "system",
   editorFontSize: 16,
   editorLineWidth: 720,
+  readableLineLength: true,
   attachmentFolder: "Attachments",
   templatesFolder: "Templates",
   dailyNoteFolder: "Daily",

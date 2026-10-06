@@ -69,6 +69,8 @@ export const commands: Command[] = [
   // Edit
   { id: "undo", title: "Undo", shortcut: "Ctrl+Z", editorKey: true, hidden: true, run: undoOrRedo("undo") },
   { id: "redo", title: "Redo", shortcut: "Ctrl+Y", editorKey: true, hidden: true, run: undoOrRedo("redo") },
+  // Not an editorKey: reading view can't take focus, so its keys never reach the editor's keymap.
+  { id: "copyMarkdown", title: "Copy as Markdown", shortcut: "Ctrl+Shift+C", enabled: hasNote, run: ed("copyMarkdown") },
   { id: "find", title: "Find in Note…", shortcut: "Ctrl+F", editorKey: true, enabled: hasNote, run: ed("find") },
   { id: "findNext", title: "Find Next", shortcut: "F3", editorKey: true, enabled: hasNote, run: ed("findNext") },
   { id: "findPrevious", title: "Find Previous", shortcut: "Shift+F3", editorKey: true, enabled: hasNote, run: ed("findPrevious") },
@@ -77,6 +79,7 @@ export const commands: Command[] = [
   // View
   { id: "toggleSidebar", title: "Toggle Sidebar", shortcut: "Ctrl+\\", enabled: hasVault, checked: () => app.settings.showSidebar, run: () => app.setSetting("showSidebar", !app.settings.showSidebar) },
   { id: "toggleInspector", title: "Toggle Inspector", shortcut: "Ctrl+Alt+I", enabled: hasVault, checked: () => app.settings.showInspector, run: () => app.setSetting("showInspector", !app.settings.showInspector) },
+  { id: "readableLineLength", title: "Readable Line Length", checked: () => app.settings.readableLineLength, run: () => app.setSetting("readableLineLength", !app.settings.readableLineLength) },
   { id: "toggleFormattingBar", title: "Show Formatting Bar", checked: () => app.settings.showFormattingBar, run: () => app.setSetting("showFormattingBar", !app.settings.showFormattingBar) },
   ...modes.map(({ mode, title }): Command => ({
     id: `mode:${mode}`,
@@ -173,10 +176,10 @@ export const menus: { title: string; items: (string | { title: string; items: st
     title: "File",
     items: ["newNote", "newNoteFromTemplate", "newFolder", "newTab", "-", "quickOpen", "commandPalette", "-", "openVault", "createVault", "-", "save", "closeTab", "closeVault", "-", "showNoteInExplorer", "showVaultInExplorer", "-", "settings"],
   },
-  { title: "Edit", items: ["undo", "redo", "-", "find", "findNext", "findPrevious", "searchVault"] },
+  { title: "Edit", items: ["undo", "redo", "-", "copyMarkdown", "-", "find", "findNext", "findPrevious", "searchVault"] },
   {
     title: "View",
-    items: ["toggleSidebar", "toggleInspector", "toggleFormattingBar", "-", "mode:livePreview", "mode:source", "mode:reading", "-", "toggleReading", "toggleSource", "focusMode", "-", "foldHeading", "unfoldHeading", "foldAllHeadings", "unfoldAll"],
+    items: ["toggleSidebar", "toggleInspector", "toggleFormattingBar", "readableLineLength", "-", "mode:livePreview", "mode:source", "mode:reading", "-", "toggleReading", "toggleSource", "focusMode", "-", "foldHeading", "unfoldHeading", "foldAllHeadings", "unfoldAll"],
   },
   { title: "Go", items: ["today", "previousDaily", "nextDaily", "-", "back", "forward", "-", "nextTab", "previousTab"] },
   {

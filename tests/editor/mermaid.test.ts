@@ -30,3 +30,11 @@ describe("findMermaidBlocks", () => {
     expect(found.map((b) => b.code)).toEqual(["", "pie"]);
   });
 });
+
+describe("diagramImage", () => {
+  it("is exported for image export (it needs a DOM, so it's exercised by the smoke test)", async () => {
+    const { diagramImage } = await import("../../src/editor/mermaid.js");
+    expect(typeof diagramImage).toBe("function");
+    expect(diagramImage.length).toBe(1);
+  });
+});

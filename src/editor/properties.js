@@ -262,7 +262,8 @@ const clicks = EditorView.domEventHandlers({
     event.preventDefault();
     const box = event.target.closest(".cm-property-checkbox");
     if (box) return toggleBoolean(view, box.dataset.key);
-    // Anywhere else: edit the raw YAML.
+    // Anywhere else: edit the raw YAML (never in reading view).
+    if (view.state.readOnly || !view.state.facet(EditorView.editable)) return true;
     const range = frontmatterRange(view.state.doc);
     if (!range) return false;
     view.focus();

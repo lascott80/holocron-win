@@ -173,6 +173,8 @@ const tableClicks = EditorView.domEventHandlers({
     const cell = event.target.closest("[data-pos]");
     if (!cell) return false;
     event.preventDefault();
+    // Reading view stays rendered: clicking a cell does nothing.
+    if (view.state.readOnly || !view.state.facet(EditorView.editable)) return true;
     view.focus();
     // Mark focused now so the raw table appears with this click.
     view.dispatch({ selection: { anchor: Number(cell.dataset.pos) }, effects: setFocused.of(true), scrollIntoView: true });

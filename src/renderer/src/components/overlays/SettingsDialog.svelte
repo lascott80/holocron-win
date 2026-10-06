@@ -78,7 +78,7 @@
   ];
   const accentKeys = Object.keys(accents) as Accent[];
 
-  function toggle(key: keyof Settings & ("reopenLastVault" | "updateLinksOnMove" | "nameNotesFromFirstLine" | "autoMergeExternalChanges" | "showFormattingBar" | "openDailyNoteOnLaunch")) {
+  function toggle(key: keyof Settings & ("reopenLastVault" | "updateLinksOnMove" | "nameNotesFromFirstLine" | "autoMergeExternalChanges" | "showFormattingBar" | "openDailyNoteOnLaunch" | "readableLineLength")) {
     return (checked: boolean) => app.setSetting(key, checked);
   }
 
@@ -202,8 +202,11 @@
           {@render row("Font", font)}
           {#snippet size()}{@render slider("editorFontSize", FONT_SIZE_RANGE, 1, "Text size")}{/snippet}
           {@render row("Text size", size)}
-          {#snippet width()}{@render slider("editorLineWidth", LINE_WIDTH_RANGE, 20, "Line width")}{/snippet}
-          {@render row("Line width", width)}
+          {@render switchRow("Readable line length — limit the text width instead of filling the window", s.readableLineLength, toggle("readableLineLength"))}
+          {#if s.readableLineLength}
+            {#snippet width()}{@render slider("editorLineWidth", LINE_WIDTH_RANGE, 20, "Line width")}{/snippet}
+            {@render row("Line width", width)}
+          {/if}
         </div>
         <div class="group">
           {@render textRow(

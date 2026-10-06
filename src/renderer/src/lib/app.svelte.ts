@@ -69,6 +69,11 @@ class AppStore {
         void navigator.clipboard.writeText(message.text);
         return;
       }
+      if (message.type === "copyRich") {
+        // Main only overwrites the clipboard if it still holds this copy's text.
+        call("writeClipboard", message.text, message.html).catch((error: unknown) => console.error("[writeClipboard]", error));
+        return;
+      }
       host.postEditor(message);
     };
     void call<AppState>("getState").then((state) => {

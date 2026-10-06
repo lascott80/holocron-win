@@ -1,11 +1,13 @@
 // Mermaid diagrams: a ```mermaid fenced block renders as its diagram unless
 // you're editing inside it (like tables). Clicking the diagram shows the
-// code. Mermaid itself is large, so it's loaded the first time a note
+// code; its Expand button (or a click in reading view) opens the full-window
+// viewer. Mermaid itself is large, so it's loaded the first time a note
 // contains a diagram. Diagrams follow the light/dark appearance.
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import { StateEffect, StateField } from "@codemirror/state";
 import { focusChanged, focusTracking, isEditing, setFocused } from "./focus.js";
 import { UI_FONT } from "./platform.js";
+import { ICONS, openDiagramViewer, svgSize } from "./diagramViewer.js";
 
 /** Redraws diagrams for a new appearance: "dark" or "light", optionally ":<accent>". */
 export const setMermaidTheme = StateEffect.define();
@@ -34,16 +36,27 @@ export function findMermaidBlocks(doc) {
 // ---------- Rendering ----------
 
 let mermaidModule = null;
-let configuredTheme = null;
+let configuredStyle = null;
 let renderCount = 0;
 /** "theme variables\ncode" → {svg} or {error}; diagrams don't re-render on every keystroke elsewhere. */
 const cache = new Map();
 
-/** Mermaid's "base" theme coloured from Holocron's palette (the --hc-* variables). */
-function themeVariables(theme) {
-  const css = getComputedStyle(document.documentElement);
-  const dark = theme.startsWith("dark");
-  const v = (name, darkFallback, lightFallback) => css.getPropertyValue(`--hc-${name}`).trim() || (dark ? darkFallback : lightFallback);
+/** The editor's appearance from the <html> class: "light" or "dark". */
+function currentTheme() {
+  return globalThis.document?.documentElement.classList.contains("hc-light") ? "light" : "dark";
+}
+
+const isDark = (theme) => theme.startsWith("dark");
+
+/**
+ * Mermaid's "base" theme coloured from Holocron's palette (the --hc-* variables).
+ * With `live` false the built-in palette for `theme` is used instead, so an
+ * export can be light while the app is dark.
+ */
+function themeVariables(theme, live = true) {
+  const css = live ? getComputedStyle(document.documentElement) : null;
+  const dark = isDark(theme);
+  const v = (name, darkFallback, lightFallback) => css?.getPropertyValue(`--hc-${name}`).trim() || (dark ? darkFallback : lightFallback);
   const accent = v("accent", "#5AB4FF", "#1F6FBF");
   const text = v("text", "#D8DBE0", "#2A2E35");
   const surface = v("chip", "#1E222A", "#EBEDF0");
@@ -78,35 +91,117 @@ function themeVariables(theme) {
   };
 }
 
-async function renderDiagram(code, theme) {
-  const variables = themeVariables(theme);
-  const style = JSON.stringify(variables);
+// Mermaid's config is global, so each (initialize, render) pair runs alone:
+// an image export's config never leaks into an on-screen render.
+let queue = Promise.resolve();
+function serial(task) {
+  const run = queue.then(task, task);
+  queue = run.catch(() => {});
+  return run;
+}
+
+/**
+ * Renders (or fetches from the cache) a diagram. `forImage` draws labels as
+ * SVG text instead of HTML (<foreignObject> would taint a canvas).
+ */
+async function renderDiagram(code, theme, { live = true, forImage = false } = {}) {
+  const variables = themeVariables(theme, live);
+  const style = JSON.stringify(variables) + (forImage ? "\nimage" : "");
   const key = `${style}\n${code}`;
   if (cache.has(key)) return cache.get(key);
   mermaidModule ??= import("mermaid").then((module) => module.default);
   const mermaid = await mermaidModule;
-  if (configuredTheme !== style) {
-    mermaid.initialize({
-      startOnLoad: false,
-      securityLevel: "strict", // no click handlers or raw HTML in labels
-      theme: "base",
-      themeVariables: variables,
-      fontFamily: UI_FONT,
-    });
-    configuredTheme = style;
-  }
-  let result;
-  try {
-    const { svg } = await mermaid.render(`holocron-mermaid-${++renderCount}`, code);
-    result = { svg };
-  } catch (error) {
-    result = { error: String(error?.message ?? error).split("\n").slice(0, 4).join("\n") };
-    // A failed render can leave its scratch element behind.
-    document.getElementById(`dholocron-mermaid-${renderCount}`)?.remove();
-  }
+  const result = await serial(async () => {
+    if (cache.has(key)) return cache.get(key);
+    if (configuredStyle !== style) {
+      // initialize() starts from Mermaid's defaults, so the image flags don't stick.
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: "strict", // no click handlers or raw HTML in labels
+        theme: "base",
+        themeVariables: variables,
+        fontFamily: UI_FONT,
+        ...(forImage ? { htmlLabels: false, flowchart: { htmlLabels: false } } : {}),
+      });
+      configuredStyle = style;
+    }
+    const id = `holocron-mermaid-${++renderCount}`;
+    try {
+      const { svg } = await mermaid.render(id, code);
+      return { svg };
+    } catch (error) {
+      // A failed render can leave its scratch element behind.
+      document.getElementById(`d${id}`)?.remove();
+      return { error: String(error?.message ?? error).split("\n").slice(0, 4).join("\n") };
+    }
+  });
   if (cache.size > 100) cache.delete(cache.keys().next().value);
   cache.set(key, result);
   return result;
+}
+
+const PNG_PADDING = 16; // around the diagram, before scaling
+const MAX_CANVAS = 16384;
+
+/** The SVG's root tag given a fixed pixel size (Mermaid's is width="100%" with a max-width). */
+function withSize(svg, width, height) {
+  return svg.replace(/<svg\b[^>]*>/i, (tag) => tag
+    .replace(/\s(width|height)\s*=\s*("[^"]*"|'[^']*')/gi, "")
+    .replace(/\sstyle\s*=\s*("[^"]*"|'[^']*')/i, "")
+    .replace(/^<svg/i, `<svg width="${width}" height="${height}"`));
+}
+
+/**
+ * A diagram as a PNG: `{ dataUrl, width, height }` (width/height in PNG pixels,
+ * i.e. `scale` × the diagram's size plus a small margin). "light" always uses
+ * the light palette on white; "dark" uses the dark palette on the editor
+ * background. Rejects if Mermaid can't draw the code.
+ */
+export async function diagramImage(code, { theme = "light", scale = 2 } = {}) {
+  const live = isDark(theme) === isDark(currentTheme());
+  const { svg, error } = await renderDiagram(code, theme, { live, forImage: true });
+  if (!svg) throw new Error(`Mermaid couldn’t draw this diagram: ${error}`);
+  const size = svgSize(svg);
+  if (!(size.width > 0 && size.height > 0)) throw new Error("The diagram has no size");
+  const image = new Image();
+  image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(withSize(svg, size.width, size.height))}`;
+  await image.decode();
+  const outerW = size.width + 2 * PNG_PADDING;
+  const outerH = size.height + 2 * PNG_PADDING;
+  const ratio = Math.min(scale, MAX_CANVAS / outerW, MAX_CANVAS / outerH);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(outerW * ratio);
+  canvas.height = Math.round(outerH * ratio);
+  const context = canvas.getContext("2d");
+  const background = !isDark(theme)
+    ? "#FFFFFF"
+    : (live && getComputedStyle(document.documentElement).getPropertyValue("--hc-bg").trim()) || "#0F1115";
+  context.fillStyle = background;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(image, PNG_PADDING * ratio, PNG_PADDING * ratio, size.width * ratio, size.height * ratio);
+  return { dataUrl: canvas.toDataURL("image/png"), width: canvas.width, height: canvas.height };
+}
+
+// For smoke scripts (scripts/smoke-diagram-viewer.mjs).
+if (globalThis.window) globalThis.window.holocronDiagramImage = diagramImage;
+
+function dataUrlToBlob(dataUrl) {
+  const [head, data] = dataUrl.split(",");
+  const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+  return new Blob([bytes], { type: /data:([^;]+)/.exec(head)?.[1] ?? "image/png" });
+}
+
+/** Opens the full-window viewer for a rendered diagram; focus goes back to `view` on close. */
+function expandDiagram(view, svg, code, theme) {
+  openDiagramViewer({
+    svg,
+    label: "Diagram viewer",
+    copyImage: async () => dataUrlToBlob((await diagramImage(code, { theme })).dataUrl),
+    returnFocus(previous) {
+      if (previous instanceof HTMLElement && previous.isConnected && previous !== document.body) previous.focus();
+      else view.focus();
+    },
+  });
 }
 
 class MermaidWidget extends WidgetType {
@@ -123,11 +218,32 @@ class MermaidWidget extends WidgetType {
     const wrapper = document.createElement("div");
     wrapper.className = "cm-mermaid";
     wrapper.dataset.pos = String(this.codeFrom);
-    wrapper.title = "Click to edit the diagram";
     const show = ({ svg, error }) => {
       wrapper.replaceChildren();
+      wrapper.expand = null;
       if (svg) {
         wrapper.innerHTML = svg; // sanitised by Mermaid (securityLevel "strict")
+        wrapper.expand = () => expandDiagram(view, svg, this.code, this.theme);
+        const toolbar = document.createElement("div");
+        toolbar.className = "cm-mermaid-toolbar";
+        const expand = document.createElement("button");
+        expand.type = "button";
+        expand.className = "cm-mermaid-expand";
+        expand.innerHTML = ICONS.expand;
+        expand.title = "Expand diagram";
+        expand.setAttribute("aria-label", "Expand diagram");
+        // Keep the editor from seeing the press (it would start editing the code).
+        expand.addEventListener("mousedown", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        });
+        expand.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          wrapper.expand?.();
+        });
+        toolbar.appendChild(expand);
+        wrapper.appendChild(toolbar);
       } else {
         const message = document.createElement("div");
         message.className = "cm-mermaid-error";
@@ -147,13 +263,10 @@ class MermaidWidget extends WidgetType {
     }
     return wrapper;
   }
-  ignoreEvent() {
-    return false;
+  ignoreEvent(event) {
+    // The toolbar handles its own events (keys on the focused button too).
+    return event.target instanceof Element && event.target.closest(".cm-mermaid-toolbar") !== null;
   }
-}
-
-function currentTheme() {
-  return globalThis.document?.documentElement.classList.contains("hc-light") ? "light" : "dark";
 }
 
 function build(state, theme) {
@@ -176,20 +289,43 @@ const mermaidField = StateField.define({
   provide: (field) => EditorView.decorations.from(field, (value) => value.decorations),
 });
 
+const readOnly = (view) => view.state.readOnly || !view.state.facet(EditorView.editable);
+
+/** The diagram (of this editor, not a nested embed's) an event happened on. */
+function diagramAt(event, view) {
+  if (!(event.target instanceof Element) || event.target.closest(".cm-mermaid-toolbar")) return null;
+  const diagram = event.target.closest(".cm-mermaid");
+  return diagram && diagram.closest(".cm-editor") === view.dom ? diagram : null;
+}
+
 const mermaidClicks = EditorView.domEventHandlers({
   mousedown(event, view) {
-    if (event.button !== 0 || !(event.target instanceof Element)) return false;
-    const diagram = event.target.closest(".cm-mermaid");
-    if (!diagram || view.state.readOnly || !view.state.facet(EditorView.editable)) return false;
+    if (event.button !== 0) return false;
+    const diagram = diagramAt(event, view);
+    if (!diagram || readOnly(view)) return false;
     event.preventDefault();
     view.focus();
     view.dispatch({ selection: { anchor: Number(diagram.dataset.pos) }, effects: setFocused.of(true), scrollIntoView: true });
     return true;
   },
+  // Reading view and embeds can't edit, so a click expands the diagram instead.
+  click(event, view) {
+    if (event.button !== 0 || !readOnly(view)) return false;
+    const diagram = diagramAt(event, view);
+    if (!diagram?.expand) return false;
+    diagram.expand();
+    return true;
+  },
+  mouseover(event, view) {
+    const diagram = diagramAt(event, view);
+    if (diagram) diagram.title = !diagram.expand ? "" : readOnly(view) ? "Click to expand the diagram" : "Click to edit the diagram";
+    return false;
+  },
 });
 
 const mermaidTheme = EditorView.baseTheme({
   ".cm-mermaid": {
+    position: "relative",
     display: "flex",
     justifyContent: "center",
     padding: "16px",
@@ -200,8 +336,35 @@ const mermaidTheme = EditorView.baseTheme({
     overflowX: "auto",
     cursor: "pointer",
   },
-  ".cm-mode-reading .cm-mermaid": { cursor: "default" },
+  ".cm-mode-reading .cm-mermaid": { cursor: "zoom-in" },
   ".cm-mermaid svg": { maxWidth: "100%", height: "auto" },
+  ".cm-mermaid-toolbar": {
+    position: "absolute",
+    top: "6px",
+    right: "6px",
+    display: "flex",
+    opacity: "0",
+    transition: "opacity 120ms",
+    pointerEvents: "none",
+  },
+  ".cm-mermaid:hover .cm-mermaid-toolbar, .cm-mermaid-toolbar:focus-within": { opacity: "1", pointerEvents: "auto" },
+  ".cm-mermaid-toolbar button": {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "28px",
+    height: "28px",
+    padding: "0",
+    border: "1px solid var(--hc-border)",
+    borderRadius: "6px",
+    background: "var(--hc-panel)",
+    color: "var(--hc-muted)",
+    cursor: "pointer",
+    boxShadow: "0 1px 3px rgba(0, 0, 0, 0.12)",
+  },
+  ".cm-mermaid-toolbar button:hover": { color: "var(--hc-text)", background: "var(--hc-chip)" },
+  ".cm-mermaid-toolbar button:focus-visible": { outline: "2px solid var(--hc-accent)", outlineOffset: "1px" },
+  ".cm-mermaid-toolbar svg": { width: "16px", height: "16px", maxWidth: "none" },
   ".cm-mermaid-loading": { color: "var(--hc-muted)", fontFamily: UI_FONT, fontSize: "13px" },
   ".cm-mermaid-error": {
     color: "var(--hc-muted)",

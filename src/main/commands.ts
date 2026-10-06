@@ -1,7 +1,7 @@
 // Every command the renderer may run in the main process. Arguments come
 // from the renderer, so each command checks their types before use.
 
-import { shell } from "electron";
+import { clipboard, ClipboardItem, shell } from "electron";
 import { quickOpenSearch } from "@core/quickOpen";
 import { stem } from "@core/paths";
 import { defaultSettings, type Settings } from "@shared/settings";
@@ -24,6 +24,19 @@ const strings = (value: unknown): string[] => {
   if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) throw new TypeError("Expected strings");
   return value;
 };
+
+/** Most a rich copy may put on the clipboard (text + HTML, UTF-16 units). */
+export const MAX_CLIPBOARD_LENGTH = 50 * 1024 * 1024;
+
+/**
+ * Whether the clipboard still holds `expected` (the markdown of the copy a
+ * late HTML rewrite belongs to), so a newer copy is never clobbered. Line
+ * endings may have become CRLF on the way through the Windows clipboard.
+ */
+export function clipboardStillHolds(current: string, expected: string): boolean {
+  const normal = (text: string) => text.replace(/\r\n?/g, "\n");
+  return expected !== "" && normal(current) === normal(expected);
+}
 
 export function createCommands(app: HolocronApp): Record<string, Command> {
   /** Runs `body` with the open vault; does nothing without one. */
@@ -56,6 +69,15 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
     addStarterGuide: () => app.addStarterGuide(),
     saveAll: () => app.saveAll(),
     cursor: () => app.editor.cursor,
+    /** Rich copy: markdown + HTML, only if the clipboard still holds that markdown. */
+    writeClipboard: async (text, html) => {
+      const plain = str(text);
+      const rich = str(html);
+      if (plain.length + rich.length > MAX_CLIPBOARD_LENGTH) throw new RangeError("Clipboard content too large");
+      if (!clipboardStillHolds(await clipboard.readText(), plain)) return false;
+      await clipboard.write([new ClipboardItem({ "text/plain": plain, "text/html": rich })]);
+      return true;
+    },
 
     // Tabs and navigation
     open: withVault((vault, path, newTab) => vault.open(str(path), bool(newTab))),

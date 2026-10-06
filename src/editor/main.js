@@ -34,6 +34,7 @@ import { livePreview } from "./livePreview.js";
 import { currentNote, imagePaste, inlineImages, setImageContext } from "./images.js";
 import { mediaEmbeds } from "./media.js";
 import { htmlRendering } from "./html.js";
+import { copyMarkdown, richCopy } from "./richCopy.js";
 import { configureEmbeds, embedDepth, invalidateEmbeds, noteEmbeds, refreshEmbeds, resolveEmbed } from "./embeds.js";
 import { Prec } from "@codemirror/state";
 import { mergeFrontmatterChanges, properties } from "./properties.js";
@@ -82,8 +83,7 @@ const formatKeymap = [
   { key: "Mod-Alt-0", run: setHeading(0) },
   { key: "Mod-Alt-1", run: setHeading(1) },
   { key: "Mod-Alt-2", run: setHeading(2) },
-  { key: "Mod-Alt-3", run: setHeading(3) },
-];
+  { key: "Mod-Alt-3", run: setHeading(3) },];
 
 const markdownSupport = markdown({
   base: markdownLanguage,
@@ -186,6 +186,7 @@ const rendering = [
   htmlRendering,
   properties,
   hoverPreview,
+  richCopy({ post }), // copies rendered HTML alongside the markdown
 ];
 
 const modeExtensions = {
@@ -295,6 +296,7 @@ const commands = {
   unfoldHeading,
   foldAllHeadings,
   unfoldAll,
+  copyMarkdown: copyMarkdown((text) => post({ type: "copy", text })),
 };
 
 window.holocron = {
@@ -375,7 +377,7 @@ window.holocron = {
     const command = commands[name];
     if (!command) return false;
     // Reading view is read-only: only searching and folding make sense there.
-    const readOnlyCommands = ["find", "findNext", "findPrevious", "selectMatches", "foldHeading", "unfoldHeading", "foldAllHeadings", "unfoldAll"];
+    const readOnlyCommands = ["find", "findNext", "findPrevious", "selectMatches", "foldHeading", "unfoldHeading", "foldAllHeadings", "unfoldAll", "copyMarkdown"];
     if (currentMode === "reading" && !readOnlyCommands.includes(name)) return false;
     view.focus();
     return command(view);

@@ -96,7 +96,8 @@ export function editorVariables(isDark: boolean, settings: Settings): Record<str
     "--hc-warning": p.warning,
     "--hc-font": editorFonts[settings.editorFont].css,
     "--hc-font-size": `${settings.editorFontSize}px`,
-    "--hc-line-width": `${settings.editorLineWidth}px`,
+    // Off: the column grows with the window (the editor adds its 32 px side padding).
+    "--hc-line-width": settings.readableLineLength ? `${settings.editorLineWidth}px` : "100vw",
   };
 }
 

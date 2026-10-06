@@ -159,6 +159,8 @@ export type EditorMessage =
   | { type: "openTag"; tag: string }
   | { type: "embed"; id: number; target: string; from: string }
   | { type: "copy"; text: string }
+  /** Rich copy's second pass: markdown plus HTML with images and diagrams loaded. */
+  | { type: "copyRich"; text: string; html: string }
   | { type: "pasteImage"; name: string; mime: string; data: string };
 
 /** A call from main into `window.holocron` in the editor. */
