@@ -1,6 +1,6 @@
 # Holocron — Product Requirements
 
-A complete, behaviour-level description of Holocron as built (October 2026, version 0.1), so it can be rebuilt from scratch or ported to another platform (for example Windows or Linux with Electron). The Mac app stays Mac-only; this document is the blueprint for a spin-off.
+A complete, behaviour-level description of Holocron as built (October 2026), so it can be rebuilt from scratch or ported to another platform. It was written from the Mac app (version 0.1) and is now kept in step with the **Windows/Electron port (version 0.2.0)** in this repository. Where the two differ, the Windows behaviour is stated and the Mac behaviour noted; §22 summarises the Windows port.
 
 It describes **what the app does and how it should feel**, with exact rules, defaults, limits and user-facing strings. It names the Mac implementation only where that helps, and §17 maps every Mac-specific piece to a cross-platform equivalent.
 
@@ -37,6 +37,7 @@ It describes **what the app does and how it should feel**, with exact rules, def
 19. [Known bugs and quirks](#19-known-bugs-and-quirks)
 20. [Constants](#20-constants)
 21. [Not built yet](#21-not-built-yet)
+22. [The Windows port](#22-the-windows-port)
 
 ---
 
@@ -86,7 +87,7 @@ The Mac app has two halves; a port should keep the same split.
 - **ARC-01** The editor must be CodeMirror 6 (or equivalent) running in a web context. The existing `Editor/src` is plain JavaScript with no Mac dependencies and **can be reused unchanged in Electron's renderer**. Only the bridge transport changes (§2.1).
 - **ARC-02** The native side owns the files. The editor never touches the disk; it receives text and reports edits.
 - **ARC-03** One editor instance per window is reused for every note. The editor keeps per-note state (undo history, cursor, scroll) for up to **30** notes and restores it when switching back, but only if the note's text is unchanged; otherwise it starts fresh at the top.
-- **ARC-04** Editor bundle build: `esbuild src/main.js --bundle --minify --format=iife --target=safari17 --outfile=…/editor.js`. Dependencies: `@codemirror/*` (state, view, commands, language, search, autocomplete, lang-markdown 6.5.x plus the code languages in §10.9), `@lezer/markdown`, `@lezer/highlight`. For Electron, change the target to the Chromium version in use.
+- **ARC-04** Editor bundle build: `esbuild src/main.js --bundle --minify --format=iife --target=safari17 --outfile=…/editor.js`. Dependencies: `@codemirror/*` (state, view, commands, language, search, autocomplete, lang-markdown 6.5.x plus the code languages in §10.9), `@lezer/markdown`, `@lezer/highlight`. For Electron, change the target to the Chromium version in use. *Windows:* the editor (`src/editor`) is bundled into the renderer by Vite instead; code languages (§10.9), Mermaid, KaTeX and the emoji data load lazily as separate chunks the first time a note needs them.
 - **ARC-05** The editor page loads three files: `editor.html`, `editor.css` (CSS variables for highlight/syntax/callout colours, light/dark), `editor.js`.
 
 ### 2.1 Bridge
@@ -132,6 +133,7 @@ The editor calls `post(message)` (Mac: `window.webkit.messageHandlers.holocron.p
 
 - **ARC-06** The web view must only ever load the bundled editor page. Any other navigation is cancelled; link clicks to http/https/mailto open externally.
 - **ARC-07** Images are served to the editor through a private URL scheme (Mac: `holocron-asset://<kind>/<target>?from=<note path>`, kind `embed` or `relative`). The native handler resolves the target as an attachment (§3.4), refuses `relative` targets containing ":", requires the resolved file to be inside the vault (symlinks resolved on both sides) and serves only image extensions. Everything else fails as "file does not exist". Reads happen off the UI thread.
+  *Windows:* the scheme also serves video (mp4 webm mov m4v ogv), audio (mp3 wav m4a ogg flac aac opus) and PDF for media embeds (ED-56) — never notes, scripts, executables or anything else. Only GET and HEAD are allowed. Responses support HTTP `Range` (206 with `Content-Range`, 416 for unsatisfiable ranges, `Accept-Ranges` always) so players can seek, carry the correct MIME type and `X-Content-Type-Options: nosniff`, and every non-PDF response is sandboxed with `Content-Security-Policy: default-src 'none'; sandbox`.
 
 ---
 
@@ -372,6 +374,14 @@ For daily notes, dates refer to the note's day.
 | `<kbd> <mark> <sup> <sub> <u> <b> <i> <s> <small> <ins> <del>` (one line, no attributes) | Styled, tags hidden | Tags faint |
 | `<br>` `<br/>` `<br />` | Line break | Raw |
 | `<details>` / `<summary>X</summary>` | `<details>` lines collapse; summary becomes a bold chevron row (fold, §10.10) | Raw |
+| Other inline HTML: `<span style>`, `<font color>`, `<abbr>`, `<q>`, `<cite>`, `<a href>`, `<img>`, attributes on the tags above (ED-55) | Sanitised and rendered; tags hidden, markdown inside still renders | Raw |
+| HTML blocks (`<div align="center">…`, `<table>`, `<figure>`…) (ED-55) | Sanitised HTML block widget; wrappers that render nothing collapse | Raw (click to edit) |
+| `<!-- comment -->` | Hidden | Raw |
+| `:shortcode:` emoji (ED-54) | The emoji (🚀); file text unchanged | Raw |
+| `$inline math$` (ED-53) | KaTeX formula | Raw |
+| `$$ … $$` display math (ED-53) | Centred KaTeX block | Raw (click to edit) |
+| ```` ```mermaid ```` (ED-52) | Rendered diagram | Raw code block (click to edit) |
+| `![[clip.mp4]]`, `![[a.mp3]]`, `![[a.pdf]]` (ED-56) | Video/audio player or PDF viewer below the line; syntax hidden | Syntax faint, player still shown |
 | `> [!type]± Title` callouts | Callout box (§10.5) | Raw first line |
 | `> quote` | Left border (outermost quote only), quote colour; `> ` hidden | Raw |
 | `- * +` bullets | "•" (muted) | Raw |
@@ -405,7 +415,7 @@ Clicking a checkbox toggles space ↔ `x` (works in reading view; not inside emb
 ### 10.2 View modes
 
 - **ED-06 Live Preview** (default): all rendering.
-- **ED-07 Source Mode** (⌥⌘E toggles with live preview): raw markdown with syntax colouring only — no heading sizes, pills, widgets, grid, folds, or table Tab navigation.
+- **ED-07 Source Mode** (⌥⌘E toggles with live preview): raw markdown with syntax colouring only — no heading sizes, pills, widgets (diagrams, math, emoji, HTML, media), grid or folds. *Windows:* table Tab/⇧Tab cell navigation works here too (§19 #3); the Mac app lacked it.
 - **ED-08 Reading View** (⇧⌘E toggles, returning to the previous editing mode): everything rendered, read-only, nothing ever active. Links, embeds, task checkboxes and property booleans still work; formatting commands, the formatting bar and the Format menu are disabled; Find still works.
 - **ED-09** Always on in every mode: autocomplete, bracket closing, first-line heading, table Enter/⌃⌥ keys, image paste, spreadsheet paste.
 - **ED-10** The mode is a persisted setting, switchable from the View menu, the status bar mode menu and the command palette.
@@ -433,7 +443,7 @@ Clicking a checkbox toggles space ↔ `x` (works in reading view; not inside emb
 - **ED-20 Note embeds** `![[Note]]`, `![[Note#Heading]]`: a box below the line with header "<title> › <heading>" (tooltip "Open note"; click opens, ⌘-click new tab) and a read-only nested editor with the same rendering (no checkbox toggling), max height 480 px scrolling, frontmatter stripped. Content comes from native (unsaved edits in other tabs included), cached per target+current note and refetched when vault data changes.
 - **ED-21 Sections**: `#Heading` → from that heading to the next heading of the same or higher level (case-insensitive, markup ignored, fenced code skipped). `#^id` → the list item or paragraph carrying the id (id removed); an id alone on a line names the block above.
 - **ED-22 Messages**: "Loading…", "“<target>” doesn’t exist yet. Click the title to create it.", "No heading “<heading>” in this note.", "This note is empty."
-- **ED-23 Depth**: one level only — inside an embed, `![[…]]` renders as a plain wikilink. Non-image attachments (`![[file.pdf]]`) render as a wikilink.
+- **ED-23 Depth**: one level only — inside an embed, `![[…]]` renders as a plain wikilink. *Mac:* non-image attachments (`![[file.pdf]]`) render as a wikilink. *Windows:* video, audio and PDF attachments render as players/viewers (ED-56); other attachments render as a wikilink. Block embeds `![[Note#^id]]` and same-note embeds `![[#Heading]]`/`![[#^id]]` render (§19 #2); a line is hidden only if its embed actually renders.
 
 ### 10.7 Properties panel
 
@@ -468,10 +478,13 @@ Clicking a checkbox toggles space ↔ `x` (works in reading view; not inside emb
 - **ED-35** Monospace 13.5 px, line-height 1.7, raised background, 1 px border, 8 px radius, 16 px padding. Fence lines hidden to small faint lines when no line of the block is active.
 - **ED-36** Language label (first word of the info string, lowercase, 11 px) and a "Copy" button (aria "Copy code") that copies the contents and shows "Copied" for 1.2 s — in live and reading modes.
 - **ED-37 Highlighted languages** (and aliases): javascript/js/jsx/mjs, typescript/ts/tsx, python/py, json/jsonc, html/htm/svelte/vue, css/scss/less, sql/postgres/mysql/sqlite, rust/rs, c/h/cpp/c++/hpp, java, go/golang, xml/plist/svg, yaml/yml, swift, shell/sh/bash/zsh/console, ruby/rb, toml, dockerfile/docker, lua, kotlin/kt, csharp/cs/c#, objc/objective-c, diff/patch. Token colours §16.6.
+  *Windows adds:* powershell/ps1/pwsh/ps/psm1/psd1, batch/bat/cmd/dos, php, elixir/ex/exs, makefile/make/mk/mak, graphql/gql, markdown/md, ini/cfg/conf/env/dotenv/properties/editorconfig/gitconfig, scala/sc, dart, ocaml/ml, fsharp/fs/f#, r/rscript, haskell/hs, perl/pl/pm, erlang/erl, clojure/clj/cljs/cljc/edn, scheme/racket/rkt/scm, julia/jl, groovy/gradle, tcl, verilog/v/systemverilog/sv, vhdl/vhd, fortran/f90/f95/f03, pascal/delphi/pas, vbnet/vb/vb.net/visualbasic, vbscript/vbs, latex/tex, protobuf/proto, nginx/nginxconf, cmake, plus cjs/mts/cts/cc/cxx/kts/objectivec/shellsession. The info string's first word must match a name or alias exactly (case-insensitive). Every language loads on demand: a block shows plain until its language has loaded, then re-highlights. Variables, built-ins, definitions and labels are coloured too (variables/definitions as properties, built-ins as functions, labels as meta).
+- **ED-37a Mermaid blocks** are not highlighted as code; they render as diagrams (ED-52).
 
 ### 10.10 Folding and comments
 
-- **ED-38** Foldable: callouts with `+`/`-` and at least one body line; `<details>` blocks (folded unless `<details open>`; header = the `<summary>` line if it follows, else the `<details>` line). Headings do **not** fold.
+- **ED-38** Foldable: callouts with `+`/`-` and at least one body line; `<details>` blocks (folded unless `<details open>`; header = the `<summary>` line if it follows, else the `<details>` line). *Mac:* headings do **not** fold. *Windows:* headings fold too (ED-38a).
+- **ED-38a Heading folding** (Windows): every ATX heading's section — from the end of the heading line to just before the next heading of the same or higher level, or the end of the note — can fold. Fenced code and frontmatter are skipped when finding headings; sections that are only blank lines don't fold; setext headings don't fold. A small chevron sits in the left margin, shown on hover and always while folded (rotated −90°); a folded heading shows a "…" pill after its text, and clicking the pill or the chevron unfolds. The heading line itself is never hidden. Moving the cursor into a folded section unfolds it. Keys: Ctrl+Shift+[ folds the innermost section around the cursor (moving the cursor onto its heading), Ctrl+Shift+] unfolds on the cursor's line; View › Fold Heading / Unfold Heading / Fold All Headings / Unfold All (also in the command palette; editor command names `foldHeading`, `unfoldHeading`, `foldAllHeadings`, `unfoldAll`). Folds belong to each note's editor state (they don't leak between notes and survive switching back). Live preview and reading view only; not in source mode or embeds.
 - **ED-39** Initial fold state is computed when a note is opened; folds typed later start open. Clicking the callout title/summary toggles; a small triangle chevron rotates −90° when folded (0.12 s). Active in live, reading and embeds; not in source mode.
 
 ### 10.11 Autocomplete
@@ -521,7 +534,28 @@ Insertions on a non-empty line go after a blank line ("\n\n") where noted.
 ### 10.15 Hover previews and dev mode
 
 - **ED-50 Hover preview**: holding ⌘ over a wikilink (or pressing ⌘ while over one) shows a popover after 120 ms; it hides 250 ms after the mouse leaves both the link and the popover; Escape or scrolling closes it. Content = the embed box (ED-20). Placed 6 px below the link (above if no room), kept 8 px inside the window, width min(460 px, 100vw−16 px), body max 340 px. `[[#Heading]]` in the same note shows nothing. Links inside the popover open on click (no nested popovers); clicking its header or a link closes it. Main editor only.
-- **ED-51 Dev mode** (no native bridge): `?sample=<url>` loads a document; embeds load from `/Editor/dev/<target>.md`; images from `/Editor/dev/<basename>`; messages log to the console. Fixtures: `Editor/dev/sample.md`, `showcase.md`, `Ilum Survey.md`, `crystal.png`. Use it for visual checks without the native shell.
+- **ED-51 Dev mode** (no native bridge, Mac build): `?sample=<url>` loads a document; embeds load from `/Editor/dev/<target>.md`; images from `/Editor/dev/<basename>`; messages log to the console. Fixtures: `Editor/dev/sample.md`, `showcase.md`, `Ilum Survey.md`, `crystal.png`. Use it for visual checks without the native shell.
+
+### 10.16 Rich content (Windows)
+
+Added in the Windows port (0.2.0). All of it follows the live-preview rule: rendered unless the editor is focused and a selection touches it; reading view and unfocused editors always render; source mode never does. Large libraries (Mermaid ~1.2 MB, KaTeX) load the first time a note needs them.
+
+- **ED-52 Mermaid diagrams**: a fenced block whose info string's first word is `mermaid` (``` or ~~~, any fence length, any case, extra words allowed) renders as its diagram in a block widget; unclosed or empty blocks stay plain code. Clicking a diagram puts the cursor at the start of its code (shown raw). Rendering uses Mermaid with `securityLevel: "strict"` (no click handlers or raw HTML in labels) and the `base` theme coloured from the palette: node fill = chip, borders = accent glyph, text = body text, lines = muted. Diagrams redraw when the appearance or accent changes. While loading: "Drawing diagram…". A diagram Mermaid can't parse shows "Mermaid couldn’t draw this diagram: <first lines of the error>" instead of disappearing. Box: centred, 16 px padding, code background, 1 px border, 8 px radius, horizontal scroll for wide diagrams. Also rendered inside embeds. Results are cached (last 100) by theme + code.
+- **ED-53 Math** (KaTeX, Obsidian/pandoc rules):
+  - Display: `$$ … $$` on their own lines (multi-line), or `$$x$$` on one line → a centred block; not inside fenced code or frontmatter, not across a blank line, never if unclosed. Clicking puts the cursor after the opening `$$`; while editing, every line of the block is raw.
+  - Inline: `$…$` → inline formula. The opening `$` must not be followed by whitespace; the closing `$` must not be preceded by whitespace nor followed by a digit; a `$` that can't close ends the search (so "costs $5 and $10" stays text); `\$` is a literal dollar; `$$` is never inline. Never inside inline/fenced/indented code, frontmatter, URLs, autolinks, HTML, wikilinks or tables (math in table cells stays raw). Single-line only.
+  - Options: `throwOnError: false` (errors show the source in red), `output: "htmlAndMathml"`, `trust: false`, `strict: "ignore"`. Formulas inherit the text colour. Rendered HTML cached by (display mode, source). Not inside callouts or blockquotes.
+- **ED-54 Emoji shortcodes**: the 1,913 GitHub shortcodes (gemoji 8.1, bundled; no network) render as their emoji on non-active lines; the file keeps the shortcode. Unknown names stay text. The opening `:` must not follow a letter, digit, `/` or `:` (except directly after another shortcode, so `:smile::rocket:` works) and no word character may follow the closing `:` — so `10:30:00` and `http://x:smile:` don't match. Skipped in code, frontmatter, URLs, wikilinks and table cells. **Autocomplete**: `:` plus ≥2 characters after whitespace or line start suggests shortcodes with their emoji; choosing one inserts the shortcode (`:rocket:`), not the character; ~90 popular shortcodes rank first.
+- **ED-55 HTML** (like VS Code's preview, sanitised with DOMPurify):
+  - Blocks: top-level HTML blocks (`HTMLBlock` in the markdown parser) render in a block widget; click to edit. A block that would render nothing (a lone `<div align="center">`/`</div>` wrapping markdown, `<script>…`) collapses. `<details>`/`<summary>` and lone `<br>` keep their ED-02 handling. HTML comments are hidden (whole-line comments collapse) unless being edited.
+  - Inline: span, font, abbr, q, cite, code, em, strong, var, samp, dfn, time, big, tt (and the ED-02 tags when written with attributes) style their content, tags hidden; `<img>` renders inline; `<video>`/`<audio>` written on one line render whole.
+  - Allowed tags: formatting, structure, tables, figure, center, font, img, video, audio, source, details/summary. Always removed: script, iframe, frame, object, embed, form, input, button, select, textarea, style, link, meta, base, svg, math, template, picture, track, canvas, dialog.
+  - Allowed attributes include align, valign, alt, title, src, href, width, height, colspan, rowspan, style, color, face, size, bgcolor, border, controls, loop, muted, poster, start, type. Removed: on* handlers, srcset, srcdoc, formaction, ping, background, autoplay, id, name, class, data-*, aria-*.
+  - CSS (`style`): kept — colour, background-color, text-align/decoration, font-*, spacing, width/height, margin (never negative), padding, border*, vertical-align, opacity. Dropped — position, display, transform, `url()`, expressions, escapes, comments, `attr()`/`env()`.
+  - URLs: only http(s), mailto, `data:image/` (images only) and relative paths. Relative `src`/`poster` are served through the asset scheme (kind `relative`); a literal `holocron-asset:` URL in a note is dropped. No href survives sanitising: clicks on `<a>` go through the editor — http/https/mailto → `openURL`; a relative `.md` path, `#Heading` or `[[Target]]` → `openLink`; anything else does nothing.
+  - Inline HTML other than the ED-02 tags shows raw inside rendered table cells.
+- **ED-56 Media embeds**: `![[clip.mp4]]`, `![[clip.mp4|400]]` (width), `![](clip.webm)` → an HTML5 video player (mp4 webm mov m4v ogv); `![[song.mp3]]` → an audio player (mp3 wav m4a ogg flac aac opus); `![[paper.pdf]]` / `![[paper.pdf#page=3]]` → a PDF card (badge, file name, page hint, "Open" button that opens it in the default app) above the built-in Chromium PDF viewer (600 px tall, resizable). Placement and hiding as images (ED-19, ED-05). Players can seek (ARC-07 range requests). Missing: "File not found: <name>" in a dashed box (PDFs are checked with a HEAD request). Remote `https://` media isn't played.
+- **ED-57 HTML tag autocomplete**: `<` plus letters (or `<` when completion is invoked explicitly), outside code and frontmatter, offers kbd, mark, sup, sub, u, b, i, s, small, ins, del, br, details, summary. Paired tags insert `<tag></tag>` with the cursor inside; `br` inserts `<br>`; `details` inserts a `<details>`/`<summary>` skeleton with the cursor in the summary (§19 #7).
 
 ---
 
@@ -602,7 +636,7 @@ In order: "New Note" ⌘N · "Open Today’s Note" ⇧⌘D · ("Insert Template�
 
 - **UI-32 Note stats popover**: "Words", "Characters", "Without spaces", "Paragraphs" (non-empty blank-line-separated blocks), "Reading time" (230 wpm: "Under a minute" or "N min" rounded up); with a selection also "Selected words", "Selected characters".
 - **UI-33 Table size picker**: 8×8 grid of 18 px cells; hover selects columns × rows (header row tinted stronger); caption "<cols> × <rows> table"; click inserts (rows−1 body rows, min 1). Default hover 3×3. Accessible label "Table size", value "N columns, N rows".
-- **UI-34 Markdown cheat sheet** (popover, "Markdown cheat sheet"): Text (bold, italic, strikethrough, highlight, code, escape, `%% hidden %%`, `<kbd>`/`<sup>`), Headings (⌥⌘1–3), Links & embeds (`[[Note]]`, alias, heading, `^id`, web link ⌘K, embeds, image width, tags, footnotes), Lists (bullets, numbers, checklist ⌘L, `[-] [/] [>] [!] [?]`), Blocks (quote, callout, folded callout, code block, "| a | b |  then ↩" "Table — Tab and ↩ move between cells", divider, `<details>`), Properties. Syntax shown monospace in accent, selectable.
+- **UI-34 Markdown cheat sheet** (popover, "Markdown cheat sheet"): Text (bold, italic, strikethrough, highlight, code, escape, `%% hidden %%`, `<kbd>`/`<sup>`), Headings (⌥⌘1–3), Links & embeds (`[[Note]]`, alias, heading, `^id`, web link ⌘K, embeds, image width, tags, footnotes), Lists (bullets, numbers, checklist ⌘L, `[-] [/] [>] [!] [?]`), Blocks (quote, callout, folded callout, code block, "| a | b |  then ↩" "Table — Tab and ↩ move between cells", divider, `<details>`), Properties. Syntax shown monospace in accent, selectable. *Windows* adds Mermaid, math, emoji shortcodes, media embeds and HTML, and shows Ctrl-based shortcuts.
 - **UI-35 Conflict sheet** — §14.5. **Missing-file banner** — §14.2.
 - **UI-36 Settings window** — §13.
 
@@ -616,7 +650,7 @@ Every command must be reachable from a menu (and so from the palette).
 
 **Edit**: Undo ⌘Z · Redo ⇧⌘Z · (standard Cut/Copy/Paste/Select All) · Find in Note… ⌘F · Search Vault… ⇧⌘F
 
-**View**: Show/Hide Inspector ⌥⌘I · Show/Hide Formatting Bar · View Mode (Live Preview / Source Mode / Reading View) · Toggle Reading View / Back to Editing ⇧⌘E · Toggle Source Mode ⌥⌘E · Enter/Exit Focus Mode ⌥⌘F · (standard Show/Hide Sidebar)
+**View**: Show/Hide Inspector ⌥⌘I · Show/Hide Formatting Bar · View Mode (Live Preview / Source Mode / Reading View) · Toggle Reading View / Back to Editing ⇧⌘E · Toggle Source Mode ⌥⌘E · Enter/Exit Focus Mode ⌥⌘F · (standard Show/Hide Sidebar) · *Windows:* Fold Heading Ctrl+Shift+[ · Unfold Heading Ctrl+Shift+] · Fold All Headings · Unfold All (ED-38a)
 
 **Go**: Today’s Note ⇧⌘D · Previous Daily Note ⌃⌘← · Next Daily Note ⌃⌘→ · Back ⌥⌘← · Forward ⌥⌘→ · Show Next Tab ⌃⇥ · Show Previous Tab ⌃⇧⇥ · Tab 1–8 ⌘1–⌘8 · Last Tab ⌘9
 
@@ -858,20 +892,29 @@ Tab scroll 0.15 s; focus-mode transitions 0.2 s; drop highlight 0.12 s; fold che
 
 ### 17.2 Shortcuts on Windows/Linux
 
-Map ⌘ → Ctrl, ⌥ → Alt, ⇧ → Shift, ⌃ → Ctrl where it would otherwise clash. Required changes:
+Map ⌘ → Ctrl, ⌥ → Alt, ⇧ → Shift, ⌃ → Ctrl where it would otherwise clash. As built in the Windows port:
 
-| Mac | Windows/Linux | Why |
+| Mac | Windows | Why |
 |---|---|---|
 | ⌘ (most) | Ctrl | |
-| ⌥⌘← / ⌥⌘→ Back/Forward | Alt+← / Alt+→ | Platform convention |
-| ⌃⌘← / ⌃⌘→ daily notes | Ctrl+Alt+← / → or Ctrl+Shift+, / . | Avoid clash with Back/Forward |
-| ⌃⇥ / ⌃⇧⇥ tabs | Ctrl+Tab / Ctrl+Shift+Tab | same |
-| ⌃⌥ table shortcuts | **Alt+Shift+arrows / Alt+Shift+Ctrl+arrows** | **Ctrl+Alt is AltGr on many keyboard layouts** — typing characters would trigger table commands |
+| ⌥⌘← / ⌥⌘→ Back/Forward | Alt+← / Alt+→, and the mouse's back/forward buttons | Platform convention |
+| ⌃⌘← / ⌃⌘→ daily notes | Alt+PageUp / Alt+PageDown | Ctrl+Alt+arrows rotates the screen on many PCs (Intel graphics) |
+| ⌃⇥ / ⌃⇧⇥ tabs | Ctrl+Tab / Ctrl+Shift+Tab (also Ctrl+PageDown / Ctrl+PageUp) | |
+| ⌘1–⌘8, ⌘9 tabs | Ctrl+1–Ctrl+8, Ctrl+9 = last | Browser convention |
+| ⌃⌥ ↑↓←→ move table row/column | Alt+Shift+arrows | Screen rotation; AltGr |
+| ⌃⌥⇧ ↑↓←→ insert table row/column | Ctrl+Alt+Shift+arrows | |
+| ⌃⌥⌫ / ⌃⌥⇧⌫ delete table row/column | Alt+Shift+Backspace / Ctrl+Alt+Shift+Backspace | |
 | ⇧⌘Z Redo | Ctrl+Y and Ctrl+Shift+Z | |
+| ⌘G / ⇧⌘G find next/previous | F3 / Shift+F3 (Ctrl+G also works in the editor) | Windows convention |
 | ⌘, Settings | Ctrl+, | |
-| ⌥⌘1–3 headings | Ctrl+Alt+1–3 may clash with AltGr; prefer Ctrl+1–3 if tabs move to Alt+1–9 | Decide once and document |
-| ⌘-hover preview | Ctrl-hover | |
+| ⌥⌘0–3 headings | Ctrl+Alt+0–3 | Safe: shortcuts match the typed character, so AltGr characters never trigger them |
+| ⌥⌘N / ⌥⌘T / ⌥⌘I / ⌥⌘F / ⌥⌘E | Ctrl+Alt+N / T / I / F / E | Same AltGr-safe matching |
+| (standard) Show/Hide Sidebar | Ctrl+\ | |
+| ⌘-hover preview, ⌘-click new tab | Ctrl-hover, Ctrl-click | |
 | ⌥-drag rectangular selection | Alt-drag | |
+| — | Tapping Alt opens the menu bar | Windows convention |
+
+App shortcuts are matched on `KeyboardEvent.key` (digits also by physical key), in the capture phase so they win over the editor's defaults; formatting and find keys are left to the editor while it has focus.
 
 ### 17.3 Platform UX differences
 
@@ -902,30 +945,31 @@ Map ⌘ → Ctrl, ⌥ → Alt, ⇧ → Shift, ⌃ → Ctrl where it would otherw
 - **NFR-01 Data safety**: P1/P2 above; never write a file the user didn't change (byte-identical when no rewrite is needed); never write while a conflict is open; deletions only via the system Trash.
 - **NFR-02 Responsiveness**: typing never blocks on disk, index or search; indexing, search, cloud status and downloads run off the UI thread; the editor reveals only after it's ready (no flash of unstyled content).
 - **NFR-03 Scale**: comfortable to ~10,000 notes (planned work: cache the index on disk, lazy tree — §21).
-- **NFR-04 Security**: the editor web content can't navigate away or load remote pages; the asset scheme serves only image files inside the vault (no path traversal, symlink-escape checks); only http/https/mailto links open externally; notes are never executed.
+- **NFR-04 Security**: the editor web content can't navigate away or load remote pages; the asset scheme serves only image files inside the vault (no path traversal, symlink-escape checks); only http/https/mailto links open externally; notes are never executed. *Windows:* the asset scheme also serves media and PDF (ARC-07) with the same confinement; HTML in notes is sanitised (ED-55); Mermaid runs in strict mode and KaTeX with `trust: false`; the renderer is sandboxed with context isolation and gets only the preload's narrow API, and the main process validates every command's arguments; the page CSP allows scripts only from the app, images from the app/data/http(s)/asset scheme, media and frames only from the asset scheme, and no objects. `webPreferences.plugins` is on solely for the built-in PDF viewer.
 - **NFR-05 Accessibility**: every icon button has a label; toasts are announced; keyboard reachability for all commands; the table size picker is adjustable by assistive tech; accent fills keep white text at ≥4.5:1.
-- **NFR-06 Platform** (Mac build): macOS 15+, Swift 6, not sandboxed, ad-hoc signed today; release script builds, tests, archives, optionally signs with Developer ID, notarises and makes a DMG. CI checks the committed editor bundle is current and runs the tests.
-- **NFR-07 Testability**: deterministic seams — injectable state store (instead of UserDefaults), injectable trash function, overridable cloud checks, configurable autosave delay and watcher latency. The Mac test suite is the best executable spec: `HolocronTests/` (Swift Testing, 170 tests across files, notes, links, search, daily notes, templates, tabs, sync, merge, attachments, cloud).
+- **NFR-06 Platform** (Mac build): macOS 15+, Swift 6, not sandboxed, ad-hoc signed today; release script builds, tests, archives, optionally signs with Developer ID, notarises and makes a DMG. CI checks the committed editor bundle is current and runs the tests. *Windows build:* Windows 10/11 x64, Electron 44 (Node 24), TypeScript + Svelte 5, built with electron-vite; `npm run dist` makes an unsigned NSIS installer (~110 MB) with electron-builder. Only `@parcel/watcher` (prebuilt native binary, no rebuild) ships as a runtime dependency; everything else is bundled.
+- **NFR-07 Testability**: deterministic seams — injectable state store (instead of UserDefaults), injectable trash function, overridable cloud checks, configurable autosave delay and watcher latency. The Mac test suite is the best executable spec: `HolocronTests/` (Swift Testing, 170 tests across files, notes, links, search, daily notes, templates, tabs, sync, merge, attachments, cloud). *Windows:* 530 Vitest tests in `tests/` — `core` (pure logic), `main` (vault, documents, sync, file operations, tabs, links, daily notes, templates, attachments and the asset protocol, against real temp folders) and `editor` (editor-state level) — ported from the Swift suite except the iCloud tests, plus `scripts/smoke*.mjs`, which drive the built app with Playwright and take screenshots.
 
 ---
 
 ## 19. Known bugs and quirks
 
-Found while documenting. Fix these in the port (and ideally in the Mac app).
+Found while documenting the Mac app (0.1). The last column says how the Windows port (0.2.0) stands; the Mac app still has them.
 
-| # | Area | Issue |
-|---|---|---|
-| 1 | Missing-file banner | **"Discard Edits" saves the edits anyway** (confirmed in code). It closes the tab, and unloading a note that is dirty saves it, re-creating the deleted file. Intended: drop the document without saving. |
-| 2 | Embeds | `![[Note#^id]]` (block embeds) don't render in the editor — the embed pattern rejects `^` in the fragment — yet live preview hides the line, so it vanishes. Block extraction only works in hover previews. |
-| 3 | Tables | Tab/⇧Tab cell navigation isn't active in source mode (Return and ⌃⌥ keys are). |
-| 4 | Tasks | Clicking a custom-status checkbox (`[!]`, `[?]`…) sets it to `[ ]` instead of cycling or toggling done. ⌘L on such a line inserts a second box (`- [ ] [!] text`). |
-| 5 | Tables | Column tidying counts UTF-16 units, so CJK/emoji/wide characters misalign. |
-| 6 | Theme | `--hc-warning` is used for `[!]` tasks but never sent by the shell, so it's always the dark-mode yellow. |
-| 7 | Autocomplete | HTML tag completion is switched off by the custom completion override. |
-| 8 | Links | Wikilink resolution doesn't prefer the linking note's folder among same-named notes; `Specs/v1.2 notes` with a `.markdown` file isn't found by path (".md" is appended). Whitespace inside `[[ Ilum ]]` is lost when that link is rewritten. |
-| 9 | Templates | `{{yesterday:FORMAT}}` / `{{tomorrow:FORMAT}}` ignore the format. `Do` outputs the day without an ordinal suffix. |
-| 10 | Quick Open | "Create note" ignores the selected folder (always vault-relative), unlike ⌘N. |
-| 11 | Word count | Two different counts exist (index vs status bar); pick one. |
+| # | Area | Issue (Mac) | Windows port |
+|---|---|---|---|
+| 1 | Missing-file banner | **"Discard Edits" saves the edits anyway** (confirmed in code). It closes the tab, and unloading a note that is dirty saves it, re-creating the deleted file. Intended: drop the document without saving. | Fixed: the document is dropped without writing. |
+| 2 | Embeds | `![[Note#^id]]` (block embeds) don't render in the editor — the embed pattern rejects `^` in the fragment — yet live preview hides the line, so it vanishes. Block extraction only works in hover previews. | Fixed: block and same-note embeds render; a line is hidden only if something renders it. |
+| 3 | Tables | Tab/⇧Tab cell navigation isn't active in source mode (Return and ⌃⌥ keys are). | Fixed. |
+| 4 | Tasks | Clicking a custom-status checkbox (`[!]`, `[?]`…) sets it to `[ ]` instead of cycling or toggling done. ⌘L on such a line inserts a second box (`- [ ] [!] text`). | Fixed: any custom status toggles to done `[x]`, done toggles to open; Ctrl+L toggles the same way (also on `1.` lists). |
+| 5 | Tables | Column tidying counts UTF-16 units, so CJK/emoji/wide characters misalign. | Fixed: columns use display width (wide/fullwidth and emoji = 2, combining marks/joiners = 0). |
+| 6 | Theme | `--hc-warning` is used for `[!]` tasks but never sent by the shell, so it's always the dark-mode yellow. | Fixed: sent with the other `--hc-*` variables. |
+| 7 | Autocomplete | HTML tag completion is switched off by the custom completion override. | Fixed (ED-57). |
+| 8 | Links | Wikilink resolution doesn't prefer the linking note's folder among same-named notes; `Specs/v1.2 notes` with a `.markdown` file isn't found by path (".md" is appended). Whitespace inside `[[ Ilum ]]` is lost when that link is rewritten. | Partly fixed: path links try ".md" then ".markdown"; `[[ Ilum ]]` keeps its spacing. Same-folder preference is unchanged (matches LNK-04). |
+| 9 | Templates | `{{yesterday:FORMAT}}` / `{{tomorrow:FORMAT}}` ignore the format. `Do` outputs the day without an ordinal suffix. | Fixed: both honour FORMAT; `Do` gives 1st, 2nd, 3rd, 11th… |
+| 10 | Quick Open | "Create note" ignores the selected folder (always vault-relative), unlike ⌘N. | Fixed: uses the selected folder unless the name contains "/". |
+| 11 | Word count | Two different counts exist (index vs status bar); pick one. | Resolved: the status bar, stats popover and inspector all count whitespace-separated tokens of the whole text. |
+| 12 | Tags | A `#` inside an HTML tag (`<span style="color: #e5534b">`) was indexed as a tag. | Found in the port; fixed: text inside HTML tags is ignored when finding tags. |
 
 ---
 
@@ -960,9 +1004,61 @@ Found while documenting. Fix these in the port (and ideally in the Mac app).
 | Table size picker | 8 × 8 |
 | Editor text size / line width | 13–24 (16) / 560–1100 step 20 (720) |
 | Window default / welcome minimum | 1280×820 / 820×560 |
+| *Windows:* sidebar / inspector width | 200–400 (260) / 240–420 (290) px, user-resizable |
+| *Windows:* title bar height | 40 px |
+| *Windows:* Undo copy of a trashed item kept | 60 s |
+| *Windows:* write retry on file locks | 10 attempts, ~0.8 s total |
+| *Windows:* index read batch | 64 notes |
+| *Windows:* rendered diagram cache | 100 diagrams |
+| *Windows:* PDF viewer height | 600 px (resizable) |
+| *Windows:* emoji autocomplete trigger | `:` + 2 characters |
 
 ---
 
 ## 21. Not built yet
 
-See `Holocron Roadmap.md` for the full roadmap. Not part of the current product (don't treat as requirements for parity): quick capture, Shortcuts/Siri, Spotlight, Share/Services, tasks view, daily-notes calendar, version history, editing properties inline, vault-wide search & replace, editing inside embeds, split view, bookmarks, sidebar sort options, note icons, export & print, themes/CSS snippets, vault health, large-vault caching, multiple windows, maths, Mermaid, PDF/audio/video embeds, heading folding, reduce-motion support, a dedicated Holocron iCloud folder, signing/notarisation/auto-updates.
+See `Holocron Roadmap.md` for the full roadmap. Not part of the current product (don't treat as requirements for parity): quick capture, Shortcuts/Siri, Spotlight, Share/Services, tasks view, daily-notes calendar, version history, editing properties inline, vault-wide search & replace, editing inside embeds, split view, bookmarks, sidebar sort options, note icons, export & print, themes/CSS snippets, vault health, large-vault caching, multiple windows, a dedicated Holocron iCloud folder, signing/notarisation/auto-updates.
+
+*Built in the Windows port since this list was written:* maths (ED-53), Mermaid (ED-52), PDF/audio/video embeds (ED-56), heading folding (ED-38a), HTML rendering (ED-55), emoji shortcodes (ED-54), more code languages (ED-37), and reduce-motion support (animations and transitions are cut to near zero when Windows' "Animation effects" is off).
+
+*Not built in the Windows port yet:* everything above that's still listed, plus §15 cloud handling (iCloud doesn't apply; OneDrive/Dropbox placeholders and conflict-copy detection from §17.4 aren't built), dragging notes out of the sidebar to File Explorer, multi-select in the file tree, math inside callouts/blockquotes, inline HTML inside rendered table cells, remote (https) media, and code signing.
+
+---
+
+## 22. The Windows port
+
+How this repository's Electron app (0.2.0) realises the spec, and where it deliberately differs from the Mac app. Everything not mentioned here behaves as described above.
+
+**Architecture** (§2)
+- **Main process** = the "native" side: the vault model (`src/main/vault.ts`), open notes with autosave, reconcile and merge (`noteDocument.ts`, a line-for-line port of the Swift logic in §14), file I/O (`fsx.ts`), the watcher, settings, the editor bridge and the asset scheme. Full-text search runs in a worker thread with its own copy of note texts.
+- **Renderer** = the window chrome (Svelte 5) and the CodeMirror editor in the same page, sandboxed with context isolation. It receives state snapshots from main and calls named, argument-checked commands through the preload's API.
+- **Pure logic** (`src/core`: parser, links, rewriting, merge, search, quick open, daily notes, templates, auto-title) has no Node or DOM imports and is shared by both.
+- **Bridge** (§2.1): the editor posts through `window.holocronHost.postEditor`; note ids are vault paths rather than absolute paths. Code-block Copy goes straight to the renderer's clipboard. Main → editor calls arrive as IPC messages applied to `window.holocron`.
+
+**Window and UI** (§11)
+- A custom 40 px title bar holds the logo, an in-window menu bar (tapping Alt opens it; ←/→ move between menus), Back/Forward, the note title with the vault as subtitle, and the toolbar buttons; the system's minimise/maximise/close buttons are drawn over its right edge.
+- Sidebar (200–400 px, default 260) and inspector (240–420 px, default 290) are resized by dragging their borders; widths are remembered. Toggle Sidebar is Ctrl+\.
+- Fonts: UI Segoe UI Variable; editor System = Segoe UI Variable, Serif = Cambria/Georgia, Monospaced = Cascadia Mono/Consolas.
+- Wording: "Show in File Explorer", "Recycle Bin", Ctrl-based shortcuts everywhere (tooltips, cheat sheet, the Start Here guide).
+- The file tree also supports Ctrl-click / middle-click to open in a new tab, F2 to rename, Home/End and ←/→ to collapse/expand, and expanding a collapsed folder by hovering over it while dragging. Middle-click closes a tab.
+- Settings is a modal dialog with a left-hand list of the four tabs.
+
+**Files** (§3, §6)
+- Deletion goes to the Recycle Bin (`shell.trashItem`). Electron can't say where an item went, so for Undo a copy is first staged in the app's data folder; Undo restores from it, and it's removed after 60 s. Toasts read "Moved “X” to the Recycle Bin".
+- Atomic writes rename a hidden temp file over the target, retrying for about a second on `EPERM`/`EBUSY`/`EACCES` (antivirus, the search indexer and sync clients briefly hold files open on Windows).
+- Names: rename (FOP-06) also rejects `< > " | ? * \`, a trailing dot or space, and the reserved names CON, PRN, AUX, NUL, COM1–9 and LPT1–9 (with or without an extension): "“<name>” can’t be used as a name on Windows." Names from the first line (FOP-05) get " note" appended if they'd be a reserved name. Notes created from links (LNK-08) turn `: < > " | ? * \` into "-".
+- Case-only renames go through a temporary hidden name (NTFS is case-insensitive). CRLF files round-trip byte-for-byte.
+- The index reads notes in batches of 64 with synchronous reads, yielding between batches; asynchronous reads held handles open across yields, which made renames fail with `EPERM` right after opening a vault.
+
+**Search** (§9): when more than 200 notes match, the best-ranked 200 are kept (the Mac keeps the first 200 found, then sorts).
+
+**Watcher** (SAV-07): `@parcel/watcher` on the Windows backend (ReadDirectoryChangesW), 200 ms batches; `.git`, `.obsidian` and `.trash` aren't watched at all, and other hidden paths are filtered.
+
+**Cloud** (§15): not applicable — the vault is a plain local folder. Only the "Disk" conflict origin exists (§14.5); there's no other-device or duplicate sheet and no sync status.
+
+**Settings and state** (§13): stored as JSON in `%APPDATA%\Holocron\holocron.json`, written atomically 250 ms after a change and on quit. Same keys and defaults as §13, plus `showSidebar`.
+
+**Development hooks**
+- `HOLOCRON_USER_DATA=<folder>` uses an isolated profile; `HOLOCRON_OPEN_VAULT=<folder>` opens that vault at launch.
+- `HOLOCRON_OUT=<folder>` builds into another output folder, so parallel builds don't collide.
+- `node scripts/smoke.mjs <shots> [--script <file>] [--out <build>] [--vault <folder>] [--light]` launches the built app against a scratch copy of a vault and saves screenshots and the console log.
