@@ -2,6 +2,9 @@ import { resolve } from "node:path";
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 
+// HOLOCRON_OUT=out-foo builds into another folder, so parallel builds don't collide.
+const out = resolve(__dirname, process.env.HOLOCRON_OUT || "out");
+
 const alias = {
   "@core": resolve(__dirname, "src/core"),
   "@shared": resolve(__dirname, "src/shared"),
@@ -12,6 +15,7 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     resolve: { alias },
     build: {
+      outDir: resolve(out, "main"),
       rollupOptions: {
         input: {
           index: resolve(__dirname, "src/main/index.ts"),
@@ -24,6 +28,7 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     resolve: { alias },
     build: {
+      outDir: resolve(out, "preload"),
       rollupOptions: {
         output: { format: "cjs", entryFileNames: "[name].cjs" },
       },
@@ -35,6 +40,7 @@ export default defineConfig({
     plugins: [svelte()],
     build: {
       target: "chrome140",
+      outDir: resolve(out, "renderer"),
       rollupOptions: { input: resolve(__dirname, "src/renderer/index.html") },
     },
   },

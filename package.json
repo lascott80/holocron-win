@@ -62,6 +62,7 @@
     "@codemirror/lang-javascript": "^6.2.5",
     "@codemirror/lang-json": "^6.0.2",
     "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/lang-php": "^6.0.2",
     "@codemirror/lang-python": "^6.2.1",
     "@codemirror/lang-sql": "^6.10.0",
     "@codemirror/lang-xml": "^6.1.0",
@@ -75,6 +76,9 @@
     "@lezer/markdown": "^1.7.2",
     "@lucide/svelte": "^1.52.0",
     "@parcel/watcher": "^2.6.0",
+    "codemirror-lang-elixir": "^4.0.1",
+    "dompurify": "^3.4.16",
+    "katex": "^0.19.0",
     "mermaid": "^12.1.0"
   },
   "allowScripts": {

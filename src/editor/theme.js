@@ -262,6 +262,29 @@ export const holocronTheme = EditorView.theme(
     ".cm-callout-title.is-foldable, .cm-summary": { cursor: "pointer" },
     ".cm-summary": { fontWeight: "600", color: c.strong },
 
+    // Heading folds: a chevron in the left margin, a "…" pill when folded
+    ".cm-heading-fold": {
+      position: "relative", display: "inline-block", width: "0", height: "1em", verticalAlign: "middle",
+    },
+    ".cm-heading-fold::before": {
+      content: "''", position: "absolute", right: "4px", top: "50%", width: "18px", height: "18px",
+      transform: "translateY(-50%)", cursor: "pointer", borderRadius: "4px",
+    },
+    ".cm-heading-fold:hover::before": { backgroundColor: c.chip },
+    ".cm-heading-fold-chevron": {
+      position: "absolute", right: "8px", top: "50%", width: "0", height: "0", marginTop: "-3px",
+      borderLeft: "5px solid transparent", borderRight: "5px solid transparent", borderTop: `6px solid ${c.faint}`,
+      opacity: "0", pointerEvents: "none", transition: "transform 0.12s ease, opacity 0.12s ease",
+    },
+    ".cm-line:hover .cm-heading-fold-chevron, .cm-heading-fold.is-folded .cm-heading-fold-chevron": { opacity: "1" },
+    ".cm-heading-fold.is-folded .cm-heading-fold-chevron": { transform: "rotate(-90deg)" },
+    ".cm-heading-fold-pill": {
+      display: "inline-block", margin: "0 0 0 8px", padding: "0 7px", verticalAlign: "middle",
+      fontSize: "12px", lineHeight: "18px", fontWeight: "600", letterSpacing: "0.04em", fontFamily: v("font", UI_FONT),
+      color: c.muted, backgroundColor: c.chip, border: `1px solid ${c.border}`, borderRadius: "9px", cursor: "pointer",
+    },
+    ".cm-heading-fold-pill:hover": { color: c.text, borderColor: c.strongBorder },
+
     // Extra checkbox states
     ".cm-task-checkbox.cm-task-cancelled": { backgroundColor: c.faint, borderColor: c.faint },
     ".cm-task-checkbox.cm-task-cancelled::after": {

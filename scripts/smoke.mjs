@@ -1,7 +1,7 @@
 // Launches the built app (run `npm run build` first) against a throwaway
 // copy of a vault, with an isolated profile, and saves screenshots.
 //
-//   node scripts/smoke.mjs [outDir] [--vault <folder>] [--light] [--script <file.mjs>]
+//   node scripts/smoke.mjs [outDir] [--vault <folder>] [--light] [--script <file.mjs>] [--out <build dir>]
 //
 // A --script module's default export receives { app, page, shot, vault } and
 // can drive the UI before the final screenshot.
@@ -19,6 +19,8 @@ const option = (name) => {
 };
 const light = args.includes("--light") ? (args.splice(args.indexOf("--light"), 1), true) : false;
 const script = option("--script");
+// A build made with `electron-vite build --outDir <dir>` (so parallel builds don't collide).
+const outBuild = option("--out");
 const sourceVault = option("--vault") ?? path.resolve("resources/guide");
 const outDir = path.resolve(args[0] ?? "smoke-output");
 fs.mkdirSync(outDir, { recursive: true });
@@ -31,7 +33,7 @@ fs.mkdirSync(userData);
 if (light) fs.writeFileSync(path.join(userData, "holocron.json"), JSON.stringify({ settings: { appearance: "light" } }));
 
 const app = await electron.launch({
-  args: ["."],
+  args: [outBuild ? path.resolve(outBuild, "main", "index.js") : "."],
   env: { ...process.env, HOLOCRON_USER_DATA: userData, HOLOCRON_OPEN_VAULT: vault, ELECTRON_RENDERER_URL: "" },
 });
 const page = await app.firstWindow();

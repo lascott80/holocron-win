@@ -3,8 +3,8 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { app, BrowserWindow, dialog, nativeTheme, net, protocol, shell, ipcMain } from "electron";
-import { pathToFileURL } from "node:url";
+import { app, BrowserWindow, dialog, nativeTheme, protocol, shell, ipcMain } from "electron";
+import { assetResponse } from "./assets";
 import { Channels, type AppState, type EditorMessage, type RecentVault } from "@shared/ipc";
 import { sanitizeSettings, type Settings } from "@shared/settings";
 import { FileStore } from "./store";
@@ -17,7 +17,8 @@ import { createCommands } from "./commands";
 
 const ASSET_SCHEME = "holocron-asset";
 protocol.registerSchemesAsPrivileged([
-  { scheme: ASSET_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
+  // corsEnabled: the editor checks whether a PDF exists with fetch() (a frame can't tell it).
+  { scheme: ASSET_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } },
 ]);
 
 const MAX_RECENT_VAULTS = 8;
@@ -224,6 +225,9 @@ export class HolocronApp {
         sandbox: true,
         nodeIntegration: false,
         spellcheck: true,
+        // Chromium's built-in PDF viewer, for ![[paper.pdf]] embeds. (The only
+        // plugin left in Electron; PDFs come from the vault-confined asset scheme.)
+        plugins: true,
       },
     });
     this.window = window;
@@ -245,7 +249,10 @@ export class HolocronApp {
       openExternalSafely(url);
       return { action: "deny" };
     });
-    contents.on("did-start-loading", () => this.editor.reset());
+    // The page itself reloading, not a frame inside it (a PDF embed is a frame).
+    contents.on("did-start-navigation", (event) => {
+      if (event.isMainFrame && !event.isSameDocument) this.editor.reset();
+    });
     contents.on("before-input-event", (event, input) => {
       if (input.type === "keyDown" && (input.key === "F12" || (input.control && input.shift && input.key.toLowerCase() === "i" && isDev))) {
         contents.toggleDevTools();
@@ -264,21 +271,36 @@ export class HolocronApp {
     else void window.loadFile(path.join(import.meta.dirname, "../renderer/index.html"));
   }
 
-  /** Serves vault images to the editor: holocron-asset://<kind>/<target>?from=<note path> (REQUIREMENTS ARC-07). */
+  /**
+   * Serves vault images, audio, video and PDFs to the editor:
+   * holocron-asset://<kind>/<target>?from=<note path> (REQUIREMENTS ARC-07).
+   * Range requests are answered so media can seek.
+   */
   registerAssetProtocol() {
+    const appOrigins = new Set(["file://"]);
+    if (isDev && process.env.ELECTRON_RENDERER_URL) appOrigins.add(new URL(process.env.ELECTRON_RENDERER_URL).origin);
     protocol.handle(ASSET_SCHEME, async (request) => {
-      const notFound = () => new Response("Not found", { status: 404 });
+      const notFound = () => new Response("Not found", { status: 404, headers: { "Content-Type": "text/plain" } });
+      let response: Response;
       try {
+        if (request.method !== "GET" && request.method !== "HEAD") return new Response(null, { status: 405 });
         const url = new URL(request.url);
         const kind = url.hostname;
         const target = decodeURIComponent(url.pathname.replace(/^\/+/, ""));
         const from = url.searchParams.get("from") ?? "";
         const file = this.vault?.resolveAsset(kind, target, from);
-        if (!file) return notFound();
-        return await net.fetch(pathToFileURL(file).toString());
+        response = file ? await assetResponse(file, request) : notFound();
       } catch {
-        return notFound();
+        response = notFound();
       }
+      // Only Holocron's own page may read responses with fetch().
+      const origin = request.headers.get("origin");
+      if (origin && appOrigins.has(origin)) {
+        response.headers.set("Access-Control-Allow-Origin", origin);
+        response.headers.set("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges");
+        response.headers.append("Vary", "Origin");
+      }
+      return response;
     });
   }
 }

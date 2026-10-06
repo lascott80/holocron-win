@@ -2,10 +2,12 @@
 // the lines the cursor is on (Obsidian-style). Everything here is decoration;
 // the document text is never changed except by explicit clicks (checkboxes).
 import { Decoration, EditorView, ViewPlugin, WidgetType, keymap } from "@codemirror/view";
-import { Prec } from "@codemirror/state";
+import { Facet, Prec } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
 import { embedDepth, parseEmbed } from "./embeds.js";
 import { isImageEmbed } from "./images.js";
+import { isMediaEmbed } from "./media.js";
+import { inlineElement, inlineImage, inlineMark, pairInlineTags } from "./html.js";
 import { toggledTaskStatus } from "./commands.js";
 import { foldStatus } from "./folds.js";
 import { modKey } from "./platform.js";
@@ -197,13 +199,18 @@ export function activeLines(view) {
   const lines = new Set();
   if (!view.hasFocus || !view.state.facet(EditorView.editable)) return lines;
   const { doc, selection } = view.state;
-  for (const range of selection.ranges) {
+  const ranges = [...selection.ranges];
+  for (const extra of view.state.facet(rawBlocks)) ranges.push(...extra(view.state));
+  for (const range of ranges) {
     const first = doc.lineAt(range.from).number;
     const last = doc.lineAt(range.to).number;
     for (let n = first; n <= last; n++) lines.add(n);
   }
   return lines;
 }
+
+/** Functions (state) => [{ from, to }] of blocks shown raw as a whole while edited (e.g. $$ math). */
+export const rawBlocks = Facet.define();
 
 /** Per view: numbers of the image/embed lines collapsed to zero height. */
 const collapsedLines = new WeakMap();
@@ -308,6 +315,7 @@ function buildDecorations(view) {
     return footnoteNumbers.get(label) ?? "?";
   };
 
+  const htmlTags = []; // inline HTML tags in the range being scanned
   for (const { from, to } of view.visibleRanges) {
     syntaxTree(state).iterate({
       from,
@@ -421,7 +429,7 @@ function buildDecorations(view) {
             const isEmbed = doc.sliceString(node.from - 1, node.from) === "!";
             const inner = doc.sliceString(node.from + 2, node.to - 2);
             // Only hide what images.js / embeds.js will actually render (same parsers).
-            const isImage = isImageEmbed(inner);
+            const isImage = isImageEmbed(inner) || isMediaEmbed(inner); // images.js / media.js
             const isNoteEmbed = isEmbed && !isImage && state.facet(embedDepth) === 0 && parseEmbed(inner) !== null;
             if (isEmbed && (isImage || isNoteEmbed)) {
               // Rendered below the line by images.js / embeds.js.
@@ -543,9 +551,39 @@ function buildDecorations(view) {
           case "Table":
             blockLines(node.from, node.to, "cm-table");
             break;
+
+          case "HTMLTag":
+            htmlTags.push({ from: node.from, to: node.to, text: doc.sliceString(node.from, node.to), group: parent?.from ?? 0 });
+            break;
         }
       },
     });
+
+    // Inline HTML with attributes or beyond the plain tags below (html.js):
+    // <span style>, <a href>, <abbr title>, <img>, … Tags hide, content is styled.
+    for (const tag of pairInlineTags(htmlTags.splice(0))) {
+      if (tag.type === "void") {
+        if (isActive(tag.from)) formatting(tag.from, tag.to);
+        else replaceWith(tag.from, tag.to, inlineImage(tag.attrs));
+        continue;
+      }
+      if (tag.type === "element") {
+        // <video …></video> written in a paragraph: drawn whole.
+        // (Plugins can't replace line breaks, so only when it's on one line.)
+        const oneLine = doc.lineAt(tag.openFrom).number === doc.lineAt(tag.closeTo).number;
+        if (oneLine && !anyLineActive(tag.openFrom, tag.closeTo)) replaceWith(tag.openFrom, tag.closeTo, inlineElement(doc.sliceString(tag.openFrom, tag.closeTo)));
+        continue;
+      }
+      const spec = inlineMark(tag.name, tag.attrs);
+      if (spec) mark(tag.openTo, tag.closeFrom, spec);
+      if (anyLineActive(tag.openFrom, tag.closeTo)) {
+        formatting(tag.openFrom, tag.openTo);
+        formatting(tag.closeFrom, tag.closeTo);
+      } else {
+        hide(tag.openFrom, tag.openTo);
+        hide(tag.closeFrom, tag.closeTo);
+      }
+    }
 
     // Line-based syntax the markdown parser doesn't know about.
     for (let pos = from; pos <= to; ) {

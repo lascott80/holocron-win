@@ -151,7 +151,9 @@ export function parse(text: string): NoteInfo {
       if (decoded === null || !isNote(decoded.split("#")[0])) continue;
       info.links.push({ target: decoded, kind: "markdown", line: lineNumber, context });
     }
-    for (const match of content.matchAll(tagPattern)) {
+    // Inside HTML tags (<span style="color: #e5534b">) a "#" is never a tag.
+    const outsideHtml = content.includes("<") ? content.replace(/<[A-Za-z\/][^<>]*>/g, (tag) => " ".repeat(tag.length)) : content;
+    for (const match of outsideHtml.matchAll(tagPattern)) {
       const tag = match[2];
       if (/[^\p{N}\/]/u.test(tag)) addTag(tag);
     }

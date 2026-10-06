@@ -86,6 +86,10 @@ export const commands: Command[] = [
   })),
   { id: "toggleReading", title: "Toggle Reading View", shortcut: "Ctrl+Shift+E", enabled: hasVault, run: () => app.toggleReadingView() },
   { id: "toggleSource", title: "Toggle Source Mode", shortcut: "Ctrl+Alt+E", enabled: hasVault, run: () => app.toggleSourceMode() },
+  { id: "foldHeading", title: "Fold Heading", shortcut: "Ctrl+Shift+[", editorKey: true, enabled: hasNote, run: ed("foldHeading") },
+  { id: "unfoldHeading", title: "Unfold Heading", shortcut: "Ctrl+Shift+]", editorKey: true, enabled: hasNote, run: ed("unfoldHeading") },
+  { id: "foldAllHeadings", title: "Fold All Headings", enabled: hasNote, run: ed("foldAllHeadings") },
+  { id: "unfoldAll", title: "Unfold All", enabled: hasNote, run: ed("unfoldAll") },
   { id: "focusMode", title: "Focus Mode", shortcut: "Ctrl+Alt+F", enabled: hasNote, checked: () => app.focusMode, run: () => (app.focusMode = !app.focusMode) },
 
   // Go
@@ -172,7 +176,7 @@ export const menus: { title: string; items: (string | { title: string; items: st
   { title: "Edit", items: ["undo", "redo", "-", "find", "findNext", "findPrevious", "searchVault"] },
   {
     title: "View",
-    items: ["toggleSidebar", "toggleInspector", "toggleFormattingBar", "-", "mode:livePreview", "mode:source", "mode:reading", "-", "toggleReading", "toggleSource", "focusMode"],
+    items: ["toggleSidebar", "toggleInspector", "toggleFormattingBar", "-", "mode:livePreview", "mode:source", "mode:reading", "-", "toggleReading", "toggleSource", "focusMode", "-", "foldHeading", "unfoldHeading", "foldAllHeadings", "unfoldAll"],
   },
   { title: "Go", items: ["today", "previousDaily", "nextDaily", "-", "back", "forward", "-", "nextTab", "previousTab"] },
   {

@@ -192,3 +192,10 @@ describe("Angle bracket links", () => {
     expect(info.links.map((l) => l.target)).toEqual(["Crystal Log.md", "Ilum.md"]);
   });
 });
+
+describe("HTML attributes", () => {
+  test("a # inside an HTML tag isn't a tag, but one beside it is", () => {
+    const info = parse('<span style="color: #e5534b">red</span> #real\n<font color= #00ff00>x</font>');
+    expect(info.tags).toEqual(["real"]);
+  });
+});

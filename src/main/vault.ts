@@ -18,6 +18,7 @@ import { isPlaceholderName, titleFromContent } from "@core/autoTitle";
 import type { Settings } from "@shared/settings";
 import type { ConflictView, DocView, NoteDetails, TabView, ToastView, TreeNode, VaultView } from "@shared/ipc";
 import * as fsx from "./fsx";
+import { isServableAsset } from "./assets";
 import { EditorTab } from "./editorTab";
 import { NoteDocument } from "./noteDocument";
 import type { StateStore } from "./store";
@@ -1033,14 +1034,15 @@ export class Vault {
   // MARK: Attachments
 
   /**
-   * The file an image embed points to, for the editor's asset protocol.
-   * `kind` is "embed" (![[name]]) or "relative" (![](path)); the result is
-   * always an image inside the vault.
+   * The file an image or media embed points to, for the editor's asset
+   * protocol. `kind` is "embed" (![[name]]) or "relative" (![](path), <img
+   * src>); the result is always an image, audio, video or PDF file inside the
+   * vault (never a note, script or any other file).
    */
   resolveAsset(kind: string, target: string, fromNote: string): string | null {
     if (kind === "relative" && target.includes(":")) return null; // not a local path
     const path = Attachments.resolve(target, fromNote, this.attachments);
-    if (path === null || !P.isImage(path)) return null;
+    if (path === null || !isServableAsset(path)) return null;
     const file = this.abs(path);
     return this.contains(file) ? file : null;
   }

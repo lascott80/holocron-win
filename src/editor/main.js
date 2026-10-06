@@ -25,10 +25,15 @@ import { hoverPreview } from "./hoverPreview.js";
 import { focusMode } from "./focusMode.js";
 import { insertSizedTable, tableCommands, tableEditing } from "./tableEditing.js";
 import { folding } from "./folds.js";
+import { foldAllHeadings, foldHeading, headingFoldKeymap, headingFolding, unfoldAll, unfoldHeading } from "./headingFolds.js";
 import { comments } from "./comments.js";
 import { mermaidDiagrams, setMermaidTheme } from "./mermaid.js";
+import { math } from "./math.js";
+import { emoji } from "./emoji.js";
 import { livePreview } from "./livePreview.js";
 import { currentNote, imagePaste, inlineImages, setImageContext } from "./images.js";
+import { mediaEmbeds } from "./media.js";
+import { htmlRendering } from "./html.js";
 import { configureEmbeds, embedDepth, invalidateEmbeds, noteEmbeds, refreshEmbeds, resolveEmbed } from "./embeds.js";
 import { Prec } from "@codemirror/state";
 import { mergeFrontmatterChanges, properties } from "./properties.js";
@@ -91,6 +96,7 @@ const preview = livePreview({
   onOpenURL: (url) => post({ type: "openURL", url }),
   onOpenTag: (tag) => post({ type: "openTag", tag }),
 });
+const media = mediaEmbeds({ onOpenLink: (target, newTab) => post({ type: "openLink", target, newTab }) });
 
 /** The read-only editor inside a note embed: same rendering, no editing. */
 function embeddedEditorExtensions() {
@@ -100,8 +106,12 @@ function embeddedEditorExtensions() {
     syntaxHighlighting(codeHighlight),
     preview,
     inlineImages,
+    media,
+    htmlRendering,
     tables,
     mermaidDiagrams,
+    math,
+    emoji,
     folding,
     comments,
     EditorView.lineWrapping,
@@ -164,10 +174,16 @@ const rendering = [
   noteEmbeds,
   tables,
   mermaidDiagrams,
+  math,
+  emoji,
   folding,
+  headingFolding,
+  keymap.of(headingFoldKeymap),
   comments,
   codeBlockTools((code) => post({ type: "copy", text: code })),
   inlineImages,
+  media,
+  htmlRendering,
   properties,
   hoverPreview,
 ];
@@ -275,6 +291,10 @@ const commands = {
   replaceAll,
   selectMatches: selectSelectionMatches,
   ...tableCommands,
+  foldHeading,
+  unfoldHeading,
+  foldAllHeadings,
+  unfoldAll,
 };
 
 window.holocron = {
@@ -354,8 +374,9 @@ window.holocron = {
   run(name) {
     const command = commands[name];
     if (!command) return false;
-    // Reading view is read-only: only searching makes sense there.
-    if (currentMode === "reading" && !["find", "findNext", "findPrevious", "selectMatches"].includes(name)) return false;
+    // Reading view is read-only: only searching and folding make sense there.
+    const readOnlyCommands = ["find", "findNext", "findPrevious", "selectMatches", "foldHeading", "unfoldHeading", "foldAllHeadings", "unfoldAll"];
+    if (currentMode === "reading" && !readOnlyCommands.includes(name)) return false;
     view.focus();
     return command(view);
   },

@@ -30,11 +30,20 @@ export function setImageContext(noteId) {
   currentNoteId = noteId ?? "";
 }
 
-function source(kind, target) {
+/**
+ * The URL a file is loaded from: http(s)/data URLs as they are, vault files
+ * through holocron-asset://<kind>/<target>?from=<note> (kind "embed" for
+ * ![[name]], "relative" for paths in ![](path) and HTML src attributes).
+ */
+export function assetSource(kind, target) {
   if (/^(https?:|data:)/i.test(target)) return target;
   if (!hasNativeBridge) return `/Editor/dev/${target.split("/").pop()}`; // browser dev mode
   return `holocron-asset://${kind}/${encodeURIComponent(target)}?from=${encodeURIComponent(currentNoteId)}`;
 }
+const source = assetSource;
+
+/** Local audio, video and PDF files are rendered by media.js, not as images. */
+const MEDIA_TARGET = /^(?![a-z][a-z0-9+.-]*:)[^?#]*\.(mp4|webm|mov|m4v|ogv|mp3|wav|m4a|ogg|flac|aac|opus|pdf)([?#].*)?$/i;
 
 /** Image references on one line of text, in order. */
 export function findImages(text) {
@@ -54,6 +63,7 @@ export function findImages(text) {
     try {
       target = decodeURI(target);
     } catch {}
+    if (MEDIA_TARGET.test(target)) continue;
     images.push({ from: match.index, to: match.index + match[0].length, src: source("relative", target), alt, width });
   }
   return images.sort((a, b) => a.from - b.from);

@@ -1,86 +1,126 @@
 // Fenced code blocks: syntax colouring for common languages, plus a
 // language label and a Copy button in the block's corner.
 import { Decoration, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
-import { HighlightStyle, StreamLanguage, syntaxTree } from "@codemirror/language";
+import { HighlightStyle, LanguageDescription, LanguageSupport, StreamLanguage, syntaxTree } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
-import { javascript } from "@codemirror/lang-javascript";
-import { python } from "@codemirror/lang-python";
-import { json } from "@codemirror/lang-json";
-import { html } from "@codemirror/lang-html";
-import { css } from "@codemirror/lang-css";
-import { sql } from "@codemirror/lang-sql";
-import { go } from "@codemirror/lang-go";
-import { xml } from "@codemirror/lang-xml";
-import { yaml } from "@codemirror/lang-yaml";
-import { swift } from "@codemirror/legacy-modes/mode/swift";
-import { shell } from "@codemirror/legacy-modes/mode/shell";
-import { ruby } from "@codemirror/legacy-modes/mode/ruby";
-import { toml } from "@codemirror/legacy-modes/mode/toml";
-import { dockerFile } from "@codemirror/legacy-modes/mode/dockerfile";
-import { lua } from "@codemirror/legacy-modes/mode/lua";
-import { c, cpp, java, kotlin, csharp, objectiveC } from "@codemirror/legacy-modes/mode/clike";
-import { rust } from "@codemirror/legacy-modes/mode/rust";
-import { diff } from "@codemirror/legacy-modes/mode/diff";
+import { codeHeading } from "./modes/tags.js";
 
-const legacy = (mode) => () => StreamLanguage.define(mode);
+// Every language loads on first use (in its own chunk); until then a block
+// shows plain and is re-highlighted when the parser arrives.
+const legacy = (load) => () => load().then((mode) => new LanguageSupport(StreamLanguage.define(mode)));
+const legacyMode = (load, name, retag) => legacy(() => load().then((m) => (retag ? retagged(m[name], retag) : m[name])));
 
-/** Language name or alias (as written after ```) → language support. */
-const LANGUAGES = {
-  javascript: () => javascript(), js: () => javascript(), jsx: () => javascript({ jsx: true }), mjs: () => javascript(),
-  typescript: () => javascript({ typescript: true }), ts: () => javascript({ typescript: true }),
-  tsx: () => javascript({ typescript: true, jsx: true }),
-  python: () => python(), py: () => python(),
-  json: () => json(), jsonc: () => json(),
-  html: () => html(), htm: () => html(), svelte: () => html(), vue: () => html(),
-  css: () => css(), scss: () => css(), less: () => css(),
-  sql: () => sql(), postgres: () => sql(), mysql: () => sql(), sqlite: () => sql(),
-  rust: legacy(rust), rs: legacy(rust),
-  c: legacy(c), h: legacy(c), cpp: legacy(cpp), "c++": legacy(cpp), hpp: legacy(cpp),
-  java: legacy(java),
-  go: () => go(), golang: () => go(),
-  xml: () => xml(), plist: () => xml(), svg: () => xml(),
-  yaml: () => yaml(), yml: () => yaml(),
-  swift: legacy(swift),
-  shell: legacy(shell), sh: legacy(shell), bash: legacy(shell), zsh: legacy(shell), console: legacy(shell),
-  ruby: legacy(ruby), rb: legacy(ruby),
-  toml: legacy(toml),
-  dockerfile: legacy(dockerFile), docker: legacy(dockerFile),
-  lua: legacy(lua),
-  kotlin: legacy(kotlin), kt: legacy(kotlin),
-  csharp: legacy(csharp), cs: legacy(csharp), "c#": legacy(csharp),
-  objc: legacy(objectiveC), "objective-c": legacy(objectiveC),
-  diff: legacy(diff), patch: legacy(diff),
+/** A stream mode whose token names are rewritten by `retag(token, stream)`. */
+function retagged(mode, retag) {
+  return { ...mode, token: (stream, state) => retag(mode.token(stream, state), stream) };
+}
+
+// PowerShell: $variables in the variable colour, -Parameters as attributes.
+const powerShellTokens = (token, stream) => {
+  if (token !== "variable") return token;
+  if (stream.current().startsWith("$")) return "variableName.special";
+  return stream.string[stream.start - 1] === "-" && /^\s?$/.test(stream.string.charAt(stream.start - 2)) ? "attributeName" : token;
 };
+// INI / properties: [section] headers as types (not markdown headings).
+const iniTokens = (token) => (token === "header" ? "typeName" : token);
+const javascript = (config) => () => import("@codemirror/lang-javascript").then((m) => m.javascript(config));
 
-const loaded = new Map();
+/** [name, aliases (as written after ```), loader]. */
+const LANGUAGES = [
+  ["javascript", ["js", "mjs", "cjs"], javascript()],
+  ["jsx", [], javascript({ jsx: true })],
+  ["typescript", ["ts", "mts", "cts"], javascript({ typescript: true })],
+  ["tsx", [], javascript({ typescript: true, jsx: true })],
+  ["python", ["py"], () => import("@codemirror/lang-python").then((m) => m.python())],
+  ["json", ["jsonc"], () => import("@codemirror/lang-json").then((m) => m.json())],
+  ["html", ["htm", "svelte", "vue"], () => import("@codemirror/lang-html").then((m) => m.html())],
+  ["css", ["scss", "less"], () => import("@codemirror/lang-css").then((m) => m.css())],
+  ["sql", ["postgres", "mysql", "sqlite"], () => import("@codemirror/lang-sql").then((m) => m.sql())],
+  ["go", ["golang"], () => import("@codemirror/lang-go").then((m) => m.go())],
+  ["xml", ["plist", "svg"], () => import("@codemirror/lang-xml").then((m) => m.xml())],
+  ["yaml", ["yml"], () => import("@codemirror/lang-yaml").then((m) => m.yaml())],
+  ["php", [], () => import("./modes/php.js").then((m) => m.php())],
+  ["elixir", ["ex", "exs"], () => import("codemirror-lang-elixir").then((m) => m.elixir())],
+  ["rust", ["rs"], legacyMode(() => import("@codemirror/legacy-modes/mode/rust"), "rust")],
+  ["c", ["h"], legacyMode(() => import("@codemirror/legacy-modes/mode/clike"), "c")],
+  ["cpp", ["c++", "hpp", "cc", "cxx"], legacyMode(() => import("@codemirror/legacy-modes/mode/clike"), "cpp")],
+  ["java", [], legacyMode(() => import("@codemirror/legacy-modes/mode/clike"), "java")],
+  ["kotlin", ["kt", "kts"], legacyMode(() => import("@codemirror/legacy-modes/mode/clike"), "kotlin")],
+  ["csharp", ["cs", "c#"], legacyMode(() => import("@codemirror/legacy-modes/mode/clike"), "csharp")],
+  ["objc", ["objective-c", "objectivec"], legacyMode(() => import("@codemirror/legacy-modes/mode/clike"), "objectiveC")],
+  ["scala", ["sc"], legacyMode(() => import("@codemirror/legacy-modes/mode/clike"), "scala")],
+  ["dart", [], legacyMode(() => import("@codemirror/legacy-modes/mode/clike"), "dart")],
+  ["swift", [], legacyMode(() => import("@codemirror/legacy-modes/mode/swift"), "swift")],
+  ["shell", ["sh", "bash", "zsh", "console", "shellsession"], legacyMode(() => import("@codemirror/legacy-modes/mode/shell"), "shell")],
+  ["powershell", ["ps1", "pwsh", "ps", "psm1", "psd1"], legacyMode(() => import("@codemirror/legacy-modes/mode/powershell"), "powerShell", powerShellTokens)],
+  ["batch", ["bat", "cmd", "dos"], legacyMode(() => import("./modes/batch.js"), "batch")],
+  ["ruby", ["rb"], legacyMode(() => import("@codemirror/legacy-modes/mode/ruby"), "ruby")],
+  ["toml", [], legacyMode(() => import("@codemirror/legacy-modes/mode/toml"), "toml")],
+  ["ini", ["cfg", "conf", "env", "dotenv", "properties", "editorconfig", "gitconfig"], legacyMode(() => import("@codemirror/legacy-modes/mode/properties"), "properties", iniTokens)],
+  ["dockerfile", ["docker"], legacyMode(() => import("@codemirror/legacy-modes/mode/dockerfile"), "dockerFile")],
+  ["makefile", ["make", "mk", "mak"], legacyMode(() => import("./modes/makefile.js"), "makefile")],
+  ["cmake", [], legacyMode(() => import("@codemirror/legacy-modes/mode/cmake"), "cmake")],
+  ["nginx", ["nginxconf"], legacyMode(() => import("@codemirror/legacy-modes/mode/nginx"), "nginx")],
+  ["lua", [], legacyMode(() => import("@codemirror/legacy-modes/mode/lua"), "lua")],
+  ["perl", ["pl", "pm"], legacyMode(() => import("@codemirror/legacy-modes/mode/perl"), "perl")],
+  ["r", ["rscript"], legacyMode(() => import("@codemirror/legacy-modes/mode/r"), "r")],
+  ["julia", ["jl"], legacyMode(() => import("@codemirror/legacy-modes/mode/julia"), "julia")],
+  ["haskell", ["hs"], legacyMode(() => import("@codemirror/legacy-modes/mode/haskell"), "haskell")],
+  ["ocaml", ["ml"], legacyMode(() => import("@codemirror/legacy-modes/mode/mllike"), "oCaml")],
+  ["fsharp", ["fs", "f#"], legacyMode(() => import("@codemirror/legacy-modes/mode/mllike"), "fSharp")],
+  ["erlang", ["erl"], legacyMode(() => import("@codemirror/legacy-modes/mode/erlang"), "erlang")],
+  ["clojure", ["clj", "cljs", "cljc", "edn"], legacyMode(() => import("@codemirror/legacy-modes/mode/clojure"), "clojure")],
+  ["scheme", ["racket", "rkt", "scm"], legacyMode(() => import("@codemirror/legacy-modes/mode/scheme"), "scheme")],
+  ["groovy", ["gradle"], legacyMode(() => import("@codemirror/legacy-modes/mode/groovy"), "groovy")],
+  ["tcl", [], legacyMode(() => import("@codemirror/legacy-modes/mode/tcl"), "tcl")],
+  ["verilog", ["v", "systemverilog", "sv"], legacyMode(() => import("@codemirror/legacy-modes/mode/verilog"), "verilog")],
+  ["vhdl", ["vhd"], legacyMode(() => import("@codemirror/legacy-modes/mode/vhdl"), "vhdl")],
+  ["fortran", ["f90", "f95", "f03"], legacyMode(() => import("@codemirror/legacy-modes/mode/fortran"), "fortran")],
+  ["pascal", ["delphi", "pas"], legacyMode(() => import("@codemirror/legacy-modes/mode/pascal"), "pascal")],
+  ["vbnet", ["vb", "vb.net", "visualbasic"], legacyMode(() => import("@codemirror/legacy-modes/mode/vb"), "vb")],
+  ["vbscript", ["vbs"], legacyMode(() => import("@codemirror/legacy-modes/mode/vbscript"), "vbScript")],
+  ["latex", ["tex"], legacyMode(() => import("@codemirror/legacy-modes/mode/stex"), "stex")],
+  ["protobuf", ["proto"], legacyMode(() => import("@codemirror/legacy-modes/mode/protobuf"), "protobuf")],
+  ["graphql", ["gql"], legacyMode(() => import("./modes/graphql.js"), "graphql")],
+  ["markdown", ["md"], legacyMode(() => import("./modes/markdown.js"), "markdownCode")],
+  ["diff", ["patch"], legacyMode(() => import("@codemirror/legacy-modes/mode/diff"), "diff")],
+];
 
-/** For markdown({ codeLanguages }): resolves the info string to a language. */
+/** Lower-case name or alias → its LanguageDescription (which caches the loaded support). */
+const descriptions = new Map();
+for (const [name, alias, load] of LANGUAGES) {
+  const description = LanguageDescription.of({ name, alias, load });
+  for (const key of [name, ...alias]) descriptions.set(key, description);
+}
+
+/** Every fence name that gets highlighting. */
+export const codeLanguageNames = [...descriptions.keys()];
+
+/**
+ * For markdown({ codeLanguages }): the language for an info string's first
+ * word (exact, case-insensitive). Markdown loads it on demand.
+ */
 export function codeLanguage(info) {
   const name = info.trim().split(/\s+/)[0].toLowerCase();
-  const make = LANGUAGES[name];
-  if (!make) return null;
-  if (!loaded.has(name)) {
-    const support = make();
-    loaded.set(name, support.language ?? support);
-  }
-  return loaded.get(name);
+  return descriptions.get(name) ?? null;
 }
 
 /** Token colours; values come from --hc-syn-* variables (see editor.css). */
 const syn = (name, fallback) => `var(--hc-syn-${name}, ${fallback})`;
 export const codeHighlight = HighlightStyle.define([
   { tag: [t.keyword, t.controlKeyword, t.moduleKeyword, t.operatorKeyword, t.definitionKeyword, t.modifier], color: syn("keyword", "#C792EA") },
-  { tag: [t.string, t.special(t.string), t.regexp, t.character], color: syn("string", "#A5D6A7") },
-  { tag: [t.number, t.bool, t.null, t.atom], color: syn("number", "#F78C6C") },
+  { tag: codeHeading, color: syn("keyword", "#C792EA"), fontWeight: "700" },
+  { tag: [t.string, t.special(t.string), t.regexp, t.character, t.escape], color: syn("string", "#A5D6A7") },
+  { tag: [t.number, t.bool, t.null, t.atom, t.unit], color: syn("number", "#F78C6C") },
   { tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: syn("comment", "#6B7280"), fontStyle: "italic" },
-  { tag: [t.function(t.variableName), t.function(t.propertyName), t.macroName], color: syn("function", "#82AAFF") },
+  { tag: [t.function(t.variableName), t.function(t.propertyName), t.macroName, t.standard(t.variableName)], color: syn("function", "#82AAFF") },
   { tag: [t.typeName, t.className, t.namespace, t.standard(t.typeName)], color: syn("type", "#FFCB6B") },
-  { tag: [t.propertyName, t.attributeName], color: syn("property", "#89DDFF") },
+  { tag: [t.propertyName, t.attributeName, t.special(t.variableName), t.definition(t.variableName)], color: syn("property", "#89DDFF") },
   { tag: [t.tagName, t.angleBracket], color: syn("tag", "#F07178") },
-  { tag: [t.operator, t.punctuation, t.separator, t.bracket], color: syn("punctuation", "#9AA1AD") },
+  { tag: [t.operator, t.punctuation, t.separator, t.bracket, t.derefOperator], color: syn("punctuation", "#9AA1AD") },
   { tag: [t.inserted], color: syn("string", "#A5D6A7") },
-  { tag: [t.deleted], color: syn("tag", "#F07178") },
-  { tag: [t.meta, t.annotation, t.self], color: syn("meta", "#C3A6FF") },
+  { tag: [t.deleted, t.invalid], color: syn("tag", "#F07178") },
+  { tag: [t.meta, t.annotation, t.self, t.labelName], color: syn("meta", "#C3A6FF") },
 ]);
 
 // ---------- Label & copy button ----------

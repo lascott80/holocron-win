@@ -1,7 +1,9 @@
-// Autocomplete for [[links]], [[Note#headings]], ![[embeds]], #tags and <html> tags.
+// Autocomplete for [[links]], [[Note#headings]], ![[embeds]], #tags, <html> tags and :emoji:.
 // Holocron sends the vault's notes, attachments and tags via setVaultData.
 import { autocompletion } from "@codemirror/autocomplete";
 import { syntaxTree } from "@codemirror/language";
+import { EditorView } from "@codemirror/view";
+import { EMOJI } from "./emojiData.js";
 
 let vault = { notes: [], attachments: [], tags: [] };
 
@@ -165,10 +167,56 @@ export function htmlTagCompletions(context) {
   };
 }
 
-export const linkAutocomplete = autocompletion({
-  override: [linkCompletions, tagCompletions, htmlTagCompletions],
-  icons: false,
-  activateOnTyping: true,
-  maxRenderedOptions: 60,
+// Emoji shortcodes (":ro" → :rocket:): inserts the shortcode, which keeps the
+// file plain text; live preview shows the emoji.
+const POPULAR_EMOJI = [
+  "+1", "-1", "100", "smile", "smiley", "grin", "joy", "laughing", "wink", "blush", "heart_eyes", "thinking",
+  "sweat_smile", "sob", "cry", "rage", "sunglasses", "partying_face", "pray", "clap", "wave", "muscle", "ok_hand",
+  "raised_hands", "eyes", "heart", "fire", "sparkles", "star", "tada", "rocket", "zap", "boom", "bulb", "bug",
+  "memo", "warning", "x", "white_check_mark", "heavy_check_mark", "question", "exclamation", "construction",
+  "lock", "key", "link", "pushpin", "calendar", "books", "bookmark", "coffee", "tea", "beer", "pizza", "gift",
+  "trophy", "checkered_flag", "chart_with_upwards_trend", "hourglass", "alarm_clock", "mag", "gear", "wrench",
+  "hammer", "package", "art", "speech_balloon", "robot", "ghost", "skull", "see_no_evil", "rainbow", "sunny",
+  "snowflake", "earth_americas", "house", "computer", "email", "phone", "arrow_right", "point_right",
+  "rotating_light", "recycle", "pencil2", "clipboard", "lipstick", "rose", "dog", "cat", "unicorn",
+];
+
+const EMOJI_OPTIONS = Object.entries(EMOJI).map(([name, emoji], index) => ({
+  label: `:${name}:`,
+  emoji,
+  // Popular ones first (in POPULAR_EMOJI order), then gemoji order: faces before objects and flags.
+  boost: POPULAR_EMOJI.includes(name) ? 1 - POPULAR_EMOJI.indexOf(name) / 1000 : -index / 10000,
+}));
+
+/** Draws the emoji before the shortcode in the list. */
+function renderEmoji(completion) {
+  if (!completion.emoji) return null;
+  const span = document.createElement("span");
+  span.className = "cm-completionEmoji";
+  span.textContent = completion.emoji;
+  return span;
+}
+
+export function emojiCompletions(context) {
+  const line = context.state.doc.lineAt(context.pos);
+  const before = line.text.slice(0, context.pos - line.from);
+  const match = /(?:^|\s):([\w+-]{2,})$/.exec(before);
+  if (!match || inCode(context.state, context.pos)) return null;
+  return { from: context.pos - match[1].length - 1, options: EMOJI_OPTIONS, validFor: /^:[\w+-]*$/ };
+}
+
+const emojiOptionTheme = EditorView.baseTheme({
+  ".cm-completionEmoji": { display: "inline-block", width: "1.6em", fontSize: "15px", lineHeight: "1" },
 });
+
+export const linkAutocomplete = [
+  autocompletion({
+    override: [linkCompletions, tagCompletions, htmlTagCompletions, emojiCompletions],
+    icons: false,
+    activateOnTyping: true,
+    maxRenderedOptions: 60,
+    addToOptions: [{ render: renderEmoji, position: 20 }],
+  }),
+  emojiOptionTheme,
+];
 
