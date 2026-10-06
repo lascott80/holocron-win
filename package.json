@@ -3,6 +3,11 @@
   "productName": "Holocron",
   "version": "0.5.0",
   "description": "A plain-files markdown notes app in the style of Obsidian",
+  "author": {
+    "name": "Lawrence Scott",
+    "url": "https://www.lascott.net/"
+  },
+  "homepage": "https://github.com/lascott80/holocron-win",
   "private": true,
   "main": "out/main/index.js",
   "type": "module",
@@ -32,7 +37,7 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "resources/icon.png"
+      "icon": "resources/icon.ico"
     },
     "nsis": {
       "oneClick": false,
@@ -45,7 +50,8 @@
         "owner": "lascott80",
         "repo": "holocron-win"
       }
-    ]
+    ],
+    "copyright": "Copyright © 2026 Lawrence Scott"
   },
   "devDependencies": {
     "@codemirror/autocomplete": "^6.20.3",

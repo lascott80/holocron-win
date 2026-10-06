@@ -1,7 +1,8 @@
 // Every command the renderer may run in the main process. Arguments come
 // from the renderer, so each command checks their types before use.
 
-import { clipboard, ClipboardItem, shell } from "electron";
+import os from "node:os";
+import { app as electronApp, clipboard, ClipboardItem, shell } from "electron";
 import { quickOpenSearch } from "@core/quickOpen";
 import { stem } from "@core/paths";
 import { defaultSettings, type Settings } from "@shared/settings";
@@ -9,6 +10,13 @@ import { EDIT_ACTIONS, type EditAction } from "@shared/ipc";
 import { openExternalSafely } from "./editorBridge";
 import type { HolocronApp } from "./index";
 import type { Vault } from "./vault";
+
+/** The only links the About dialog can open. */
+export const ABOUT_LINKS = {
+  website: "https://www.lascott.net/",
+  github: "https://github.com/lascott80/holocron-win",
+  releases: "https://github.com/lascott80/holocron-win/releases",
+} as const;
 
 type Command = (...args: unknown[]) => unknown;
 
@@ -121,6 +129,20 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
     dismissUpdate: () => app.updater.dismiss(),
     /** The release page for a version; the URL is built from the fixed repo. */
     openReleasePage: (version) => app.updater.openReleasePage(optStr(version)),
+
+    // About dialog
+    aboutInfo: () => ({
+      version: electronApp.getVersion(),
+      electron: process.versions.electron,
+      chrome: process.versions.chrome,
+      node: process.versions.node,
+      os: `${os.version()} (${os.release()}, ${process.arch})`,
+    }),
+    /** Opens one of a fixed set of links; never an arbitrary URL from the renderer. */
+    openAboutLink: (which) => {
+      const url = ABOUT_LINKS[str(which) as keyof typeof ABOUT_LINKS];
+      if (url) void shell.openExternal(url);
+    },
     saveAll: () => app.saveAll(),
     cursor: () => app.editor.cursor,
     /** Rich copy: markdown + HTML, only if the clipboard still holds that markdown. */

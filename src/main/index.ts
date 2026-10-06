@@ -36,7 +36,10 @@ const testProfile = Boolean(process.env.HOLOCRON_USER_DATA);
 if (process.env.HOLOCRON_USER_DATA) app.setPath("userData", process.env.HOLOCRON_USER_DATA);
 const launchVault = process.env.HOLOCRON_OPEN_VAULT;
 const devRendererUrl = isDev && process.env.ELECTRON_RENDERER_URL ? process.env.ELECTRON_RENDERER_URL : null;
-const appIcon = () => path.join(app.getAppPath(), "resources", "icon.png");
+/** Window icon: the multi-size .ico on Windows (crisp in the taskbar at every scale). */
+const appIcon = () => path.join(app.getAppPath(), "resources", process.platform === "win32" ? "icon.ico" : "icon.png");
+/** The 1024 px master; the tray picks hand-tuned small sizes from resources/icons beside it. */
+const trayIcon = () => path.join(app.getAppPath(), "resources", "icon.png");
 const BACKGROUND_NOTICE_KEY = "backgroundNoticeShown";
 
 export class HolocronApp {
@@ -57,7 +60,7 @@ export class HolocronApp {
     devUrl: devRendererUrl,
     load: (window) => (devRendererUrl ? window.loadURL(`${devRendererUrl}/capture.html`) : window.loadFile(path.join(import.meta.dirname, "../renderer/capture.html"))),
   });
-  readonly tray = new TrayIcon(appIcon(), {
+  readonly tray = new TrayIcon(trayIcon(), {
     show: () => this.showMainWindow(),
     capture: () => void this.showCapture(),
     today: () => {

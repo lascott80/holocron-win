@@ -660,7 +660,7 @@ Every command must be reachable from a menu (and so from the palette).
 
 **Format** (disabled with no note or in reading view): Insert Template… ⌥⌘T · Bold ⌘B · Italic ⌘I · Strikethrough ⇧⌘X · Highlight ⇧⌘H · Inline Code ⌘E · Insert Link ⌘K · Toggle Checklist Item ⌘L · Bulleted List · Numbered List · Quote · Code Block · Callout · Divider · **Table ›** (Insert Table · Convert Selection to Table · Insert Row Above ⌃⌥⇧↑ · Insert Row Below ⌃⌥⇧↓ · Insert Column Left ⌃⌥⇧← · Insert Column Right ⌃⌥⇧→ · Move Row Up ⌃⌥↑ · Move Row Down ⌃⌥↓ · Move Column Left ⌃⌥← · Move Column Right ⌃⌥→ · Delete Row ⌃⌥⌫ · Delete Column ⌃⌥⇧⌫) · Heading 1–3 ⌥⌘1–3 · Body Text ⌥⌘0
 
-**Help**: Add Start Here Guide to Vault · *Windows:* Check for Updates… (§22)
+**Help**: Add Start Here Guide to Vault · *Windows:* Check for Updates… (§22) · About Holocron (version, author Lawrence Scott with www.lascott.net, links to the source and release notes, Electron/Chromium/Node versions, "Copy Version Info"; links open only from a fixed allow-list)
 
 **App**: Settings… ⌘,
 
@@ -876,6 +876,8 @@ Glyph = links, cursor, icons, checkboxes; Text = tags, current outline item, acc
 ### 16.8 Logo
 
 An isometric cube on a 24-unit grid: hexagon through (12,2) (21,7) (21,17) (12,22) (3,17) (3,7) with three inner edges from the centre (12,12) to (21,7), (12,22) and (3,7); 1.5 px stroke, round joins/caps, accent colour. "Glowing" variant: 22% fill, a white centre dot (3× stroke width) and an accent shadow (55%, radius 12). App icon PNGs at 16–512 px (@1x/@2x) in `Assets.xcassets/AppIcon.appiconset`.
+
+*Windows app icon* (0.5.1): the Mac icon's near-black tile vanished on Windows 11's dark taskbar (#202020) and its padded, thin-stroke cube was illegible at 16–32 px. The Windows icon is a full-bleed rounded tile (22 of 24 units, radius 5) with a diagonal Kyber gradient (#5AB4FF → #1F5FAE) and a soft top sheen, carrying the cube in white at 66% scale with a 25% white top face; stroke weight is tuned per size (heavier at ≤ 24 px, where the centre dot is dropped). Designs live in `scripts/icon/designs.mjs`; `npx electron scripts/icon/build.mjs` writes `resources/icon.png` (1024 px), `resources/icon.ico` (16, 20, 24, 32, 40, 48, 64, 96, 128, 256) and `resources/icons/icon-N.png` (the tray uses these hand-tuned sizes); `scripts/icon/preview.mjs` compares designs on dark and light taskbars. The original Mac icon is kept as `resources/icon-mac-original.png`.
 
 ### 16.9 Motion
 

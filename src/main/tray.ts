@@ -2,6 +2,7 @@
 // (setting `runInBackground`). Left-click shows the window; right-click
 // offers quick capture, today's note, a new note, updates and Quit.
 
+import path from "node:path";
 import { Menu, Tray, nativeImage, type MenuItemConstructorOptions, type NativeImage } from "electron";
 
 export interface TrayActions {
@@ -31,13 +32,18 @@ export function trayMenuTemplate(actions: TrayActions): MenuItemConstructorOptio
   ];
 }
 
-/** The app icon at the sizes Windows uses for the tray (16 px at 100% scaling up to 32 px at 200%). */
+/**
+ * The app icon at the sizes Windows uses for the tray (16 px at 100% scaling
+ * up to 32 px at 200%). Uses the hand-tuned `icons/icon-N.png` beside
+ * `iconFile` when present (heavier strokes stay crisp), else scales `iconFile`.
+ */
 export function trayImage(iconFile: string): NativeImage {
   const source = nativeImage.createFromPath(iconFile);
-  if (source.isEmpty()) return source;
   const image = nativeImage.createEmpty();
   for (const [scaleFactor, size] of [[1, 16], [1.25, 20], [1.5, 24], [2, 32]] as const) {
-    image.addRepresentation({ scaleFactor, buffer: source.resize({ width: size, height: size, quality: "best" }).toPNG() });
+    const tuned = nativeImage.createFromPath(path.join(path.dirname(iconFile), "icons", `icon-${size}.png`));
+    const sized = tuned.isEmpty() ? (source.isEmpty() ? null : source.resize({ width: size, height: size, quality: "best" })) : tuned;
+    if (sized) image.addRepresentation({ scaleFactor, buffer: sized.toPNG() });
   }
   return image;
 }

@@ -31,6 +31,7 @@ class AppStore {
   searchText = $state("");
   focusMode = $state(false);
   settingsOpen = $state(false);
+  aboutOpen = $state(false);
   /** Cursor and selection in the editor (status bar). */
   cursor = $state({ line: 1, column: 1, selectedWords: 0, selectedCharacters: 0 });
   /** The editor's current text for the shown note (word counts). */

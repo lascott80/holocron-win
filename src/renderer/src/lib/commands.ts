@@ -162,6 +162,7 @@ export const commands: Command[] = [
 
   // Help
   { id: "starterGuide", title: "Add Start Here Guide to Vault", enabled: hasVault, run: () => run("addStarterGuide") },
+  { id: "about", title: "About Holocron", run: () => (app.aboutOpen = true) },
   { id: "checkForUpdates", title: "Check for Updates…", run: () => run("checkForUpdates") },
 
   // Appearance (palette only)
@@ -219,7 +220,7 @@ export const menus: { title: string; items: (string | { title: string; items: st
       "-", "heading1", "heading2", "heading3", "heading0",
     ],
   },
-  { title: "Help", items: ["starterGuide", "-", "checkForUpdates"] },
+  { title: "Help", items: ["starterGuide", "-", "checkForUpdates", "-", "about"] },
 ];
 
 /** Menu entries for command ids ("-" = separator, nested groups = submenus). */

@@ -21,6 +21,7 @@
   import TemplatePicker from "./components/overlays/TemplatePicker.svelte";
   import Welcome from "./components/overlays/Welcome.svelte";
   import SettingsDialog from "./components/overlays/SettingsDialog.svelte";
+  import AboutDialog from "./components/overlays/AboutDialog.svelte";
   import ConflictSheet from "./components/overlays/ConflictSheet.svelte";
   import DeleteConfirm from "./components/overlays/DeleteConfirm.svelte";
   import AlertDialog from "./components/overlays/AlertDialog.svelte";
@@ -130,6 +131,7 @@
 {#if app.quickOpen}<QuickOpen />{/if}
 {#if app.templatePicker}<TemplatePicker />{/if}
 {#if app.settingsOpen}<SettingsDialog />{/if}
+{#if app.aboutOpen}<AboutDialog />{/if}
 {#if vault?.conflict}<ConflictSheet />{/if}
 {#if vault?.pendingDeletion}<DeleteConfirm />{/if}
 {#if app.state.errorMessage}<AlertDialog />{/if}
