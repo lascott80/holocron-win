@@ -268,6 +268,8 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
     // Index queries
     details: withVault((vault, path) => vault.details(str(path))),
     allTags: withVault((vault) => vault.index.allTags()),
+    allTasks: withVault((vault, includeDone, tag) => vault.index.allTasks({ includeDone: bool(includeDone), tag: optStr(tag) })),
+    toggleTask: withVault((vault, path, line) => vault.toggleTask(str(path), num(line))),
     notesTagged: withVault((vault, tag) => vault.index.notesTaggedWith(str(tag))),
     search: (query, matchCase, useRegex) => app.search.search(str(query), bool(matchCase), bool(useRegex)),
     replaceInVault: withVault((vault, query, replacement, matchCase, useRegex, onlyPath) =>

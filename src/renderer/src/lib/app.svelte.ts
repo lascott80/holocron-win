@@ -27,7 +27,7 @@ class AppStore {
   // UI-only state
   quickOpen = $state<{ query: string; mode: "notes" | "commands" } | null>(null);
   templatePicker = $state<"insert" | "newNote" | null>(null);
-  sidebarMode = $state<"files" | "search">("files");
+  sidebarMode = $state<"files" | "search" | "tasks">("files");
   searchFocusRequest = $state(0);
   searchText = $state("");
   focusMode = $state(false);
@@ -211,6 +211,13 @@ class AppStore {
     if (!this.settings.showSidebar) this.setSetting("showSidebar", true);
     if (query !== undefined) this.searchText = query;
     this.searchFocusRequest++;
+  }
+
+  /** The sidebar's Tasks view (TSK-02). */
+  showTasks() {
+    if (!this.vault) return;
+    this.sidebarMode = "tasks";
+    if (!this.settings.showSidebar) this.setSetting("showSidebar", true);
   }
 
   setSetting<K extends keyof Settings>(key: K, value: Settings[K]) {

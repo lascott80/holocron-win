@@ -135,6 +135,7 @@ export const commands: Command[] = [
   { id: "findNext", title: "Find Next", shortcut: "F3", editorKey: true, enabled: hasNote, run: ed("findNext") },
   { id: "findPrevious", title: "Find Previous", shortcut: "Shift+F3", editorKey: true, enabled: hasNote, run: ed("findPrevious") },
   { id: "searchVault", title: "Search Vault…", shortcut: "Ctrl+Shift+F", enabled: hasVault, run: () => app.showSearch() },
+  { id: "showTasks", title: "Show Tasks", shortcut: "Ctrl+Shift+T", enabled: hasVault, run: () => app.showTasks() },
 
   // View
   { id: "toggleSidebar", title: "Toggle Sidebar", shortcut: "Ctrl+\\", enabled: hasVault, checked: () => app.settings.showSidebar, run: () => app.setSetting("showSidebar", !app.settings.showSidebar) },
@@ -267,7 +268,7 @@ export const menus: { title: string; items: (string | { title: string; items: st
   { title: "Edit", items: ["undo", "redo", "-", "copyMarkdown", "pastePlainText", "-", "find", "findNext", "findPrevious", "searchVault"] },
   {
     title: "View",
-    items: ["toggleSidebar", "toggleInspector", "toggleFormattingBar", "readableLineLength", { title: "Sort Files", items: FILE_SORTS.map(({ value }) => `sortFiles:${value}`) }, "-", "zoomIn", "zoomOut", "zoomReset", "-", "mode:livePreview", "mode:source", "mode:reading", "-", "toggleReading", "toggleSource", "focusMode", "-", "foldHeading", "unfoldHeading", "foldAllHeadings", "unfoldAll"],
+    items: ["toggleSidebar", "toggleInspector", "toggleFormattingBar", "readableLineLength", "showTasks", { title: "Sort Files", items: FILE_SORTS.map(({ value }) => `sortFiles:${value}`) }, "-", "zoomIn", "zoomOut", "zoomReset", "-", "mode:livePreview", "mode:source", "mode:reading", "-", "toggleReading", "toggleSource", "focusMode", "-", "foldHeading", "unfoldHeading", "foldAllHeadings", "unfoldAll"],
   },
   { title: "Go", items: ["today", "previousDaily", "nextDaily", "-", "back", "forward", "-", "nextTab", "previousTab"] },
   {

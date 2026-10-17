@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { LinkResolver, parse, plainText } from "@core/noteParser";
+import { LinkResolver, parse, plainText, toggleTaskLine } from "@core/noteParser";
 
 describe("NoteParser", () => {
   const sample = [
@@ -197,5 +197,27 @@ describe("HTML attributes", () => {
   test("a # inside an HTML tag isn't a tag, but one beside it is", () => {
     const info = parse('<span style="color: #e5534b">red</span> #real\n<font color= #00ff00>x</font>');
     expect(info.tags).toEqual(["real"]);
+  });
+});
+describe("Tasks", () => {
+  test("are parsed with status, text and indent, outside code blocks", () => {
+    const text = "# Plan\n- [ ] Build hilt\n  - [x] Find crystal\n1. [!] Ask Yoda\n* [X]\tdone too\n- [ ]no space\n```\n- [ ] not a task\n```\n- plain bullet\n";
+    const { tasks } = parse(text);
+    expect(tasks).toEqual([
+      { line: 2, text: "Build hilt", status: " ", done: false, indent: 0 },
+      { line: 3, text: "Find crystal", status: "x", done: true, indent: 2 },
+      { line: 4, text: "Ask Yoda", status: "!", done: false, indent: 0 },
+      { line: 5, text: "done too", status: "X", done: true, indent: 0 },
+    ]);
+  });
+
+  test("toggle on a given line, keeping CRLF and other lines", () => {
+    const text = "- [ ] a\r\n- [x] b\r\n- [!] c\r\nplain\r\n";
+    expect(toggleTaskLine(text, 1)).toBe("- [x] a\r\n- [x] b\r\n- [!] c\r\nplain\r\n");
+    expect(toggleTaskLine(text, 2)).toBe("- [ ] a\r\n- [ ] b\r\n- [!] c\r\nplain\r\n");
+    expect(toggleTaskLine(text, 3)).toBe("- [ ] a\r\n- [x] b\r\n- [x] c\r\nplain\r\n");
+    expect(toggleTaskLine(text, 4)).toBeNull();
+    expect(toggleTaskLine(text, 9)).toBeNull();
+    expect(toggleTaskLine("- [ ] last", 1)).toBe("- [x] last");
   });
 });

@@ -359,6 +359,12 @@ For daily notes, dates refer to the note's day.
 **Acceptance**: fuzzy ranking prefers word starts, titles over paths, recent notes; tag search includes nested tags; phrase/exclude/filters/regex/case/accents behave as specified; truncation at 200 notes / 20 lines; backlinks and mentions as described.
 
 ---
+### 9.4 Tasks (*Windows*)
+
+- **TSK-01 Parsing**: a checklist item is a list line `- [s] text` with any marker (`-`, `*`, `+`, `1.`, `1)`), one character `s` in the box and a space or end of line after it; outside code blocks. Status " " is open, `x`/`X` done, anything else a custom status (counted as open). The index keeps each note's tasks (line, text, status, indent).
+- **TSK-02 Tasks view**: the sidebar's third mode (Files / Search / **Tasks**; View › Show Tasks, Ctrl+Shift+T). Every note with open tasks, in path order, as a collapsible group with its title and an "open/total" chip; tasks in line order, indented by nesting, custom statuses shown in the box. A filter box narrows by words in the task text or note title; a `#tag` token keeps only notes carrying that tag. A ✓ toggle also shows completed tasks (struck through). Summary line "N open tasks in M notes". Follows the index, so edits appear ~300 ms after typing pauses.
+- **TSK-03 Toggling**: clicking a box toggles that line like Ctrl+L (open or custom → `[x]`, done → `[ ]`): an open note changes through its document (editor updated in place, undo kept, saved as usual), other notes are rewritten atomically keeping line endings. Clicking the text reveals the line in the note; clicking the note title opens it.
+
 
 ## 10. The editor
 

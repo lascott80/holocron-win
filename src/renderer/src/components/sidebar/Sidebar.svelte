@@ -1,7 +1,7 @@
 <!-- The sidebar (REQUIREMENTS §11.2): vault switcher, Files/Search switch, then the
      file tree and tags or the search panel, and the New Note / New Folder bar. -->
 <script lang="ts">
-  import { FolderPlus, FolderTree, Plus, Search } from "@lucide/svelte";
+  import { FolderPlus, FolderTree, ListChecks, Plus, Search } from "@lucide/svelte";
   import { app } from "../../lib/app.svelte";
   import { runCommand } from "../../lib/commands";
   import VaultSwitcher from "./VaultSwitcher.svelte";
@@ -9,10 +9,12 @@
   import FileTree from "./FileTree.svelte";
   import TagsSection from "./TagsSection.svelte";
   import SearchPanel from "./SearchPanel.svelte";
+  import TasksPanel from "./TasksPanel.svelte";
 
   const modes = [
     { mode: "files", label: "Files", icon: FolderTree },
     { mode: "search", label: "Search", icon: Search },
+    { mode: "tasks", label: "Tasks", icon: ListChecks },
   ] as const;
 
   function newFolder() {
@@ -46,8 +48,10 @@
       <FileTree />
       <TagsSection />
     </div>
-  {:else}
+  {:else if app.sidebarMode === "search"}
     <SearchPanel />
+  {:else}
+    <TasksPanel />
   {/if}
 
   <div class="bottom">

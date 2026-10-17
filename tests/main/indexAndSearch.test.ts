@@ -179,3 +179,29 @@ describe("Search and replace", () => {
     expect(vault.toast?.message).toBe("Nothing to replace");
   });
 });
+
+describe("Tasks view", () => {
+  it("toggles a task in a closed note on disk and in an open note through its document", async () => {
+    temp.write("Plan.md", "- [ ] one\r\n- [x] two\r\n");
+    temp.write("Open.md", "- [ ] three\n");
+    const editor = recordingEditor();
+    const vault = temp.open({ editor });
+    await vault.indexingFinished();
+    vault.open("Open.md");
+
+    vault.toggleTask("Plan.md", 1);
+    expect(temp.read("Plan.md")).toBe("- [x] one\r\n- [x] two\r\n");
+    vault.toggleTask("Plan.md", 2);
+    expect(temp.read("Plan.md")).toBe("- [x] one\r\n- [ ] two\r\n");
+    expect(vault.index.allTasks().map((note) => [note.path, note.tasks.map((t) => t.text)])).toEqual([
+      ["Open.md", ["three"]],
+      ["Plan.md", ["two"]],
+    ]);
+
+    vault.toggleTask("Open.md", 1);
+    expect(vault.documents.get("Open.md")?.text).toBe("- [x] three\n");
+    expect(editor.calls.some((call) => call.method === "externalChange" && call.args[2] === "- [x] three\n")).toBe(true);
+    vault.toggleTask("Open.md", 7); // not a task line: nothing happens
+    expect(vault.documents.get("Open.md")?.text).toBe("- [x] three\n");
+  });
+});

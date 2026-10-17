@@ -8,7 +8,7 @@ import fs from "node:fs";
 import nodePath from "node:path";
 import os from "node:os";
 import * as P from "@core/paths";
-import { LinkResolver, parse as parseNote } from "@core/noteParser";
+import { LinkResolver, parse as parseNote, toggleTaskLine } from "@core/noteParser";
 import { rewrite as rewriteLinks, relativePath as relativeLinkPath } from "@core/linkRewriter";
 import * as Attachments from "@core/attachments";
 import {
@@ -446,6 +446,24 @@ export class Vault {
     if (fragment === null || !document || !path) return;
     const line = lineOfFragment(fragment, document.text);
     if (line !== null) this.editor.reveal(path, line, 0, 0);
+  }
+
+  // MARK: Tasks (TSK-03)
+
+  /**
+   * Toggles the checklist item on a line of a note from the Tasks view: an
+   * open note changes through its document (the editor follows), others are
+   * rewritten atomically. The index is updated at once so the view follows.
+   */
+  toggleTask(path: string, line: number) {
+    if (!this.index.hasPath(path)) return;
+    const text = this.textFor(path);
+    if (text === null) return;
+    const toggled = toggleTaskLine(text, line);
+    if (toggled === null || toggled === text) return;
+    this.writeUpdatedLinks(path, toggled);
+    this.indexRevision++;
+    this.changed();
   }
 
   // MARK: Bookmarks (UI-14a)

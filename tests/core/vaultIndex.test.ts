@@ -113,3 +113,22 @@ describe("containsWord", () => {
     expect(VaultIndex.title("Specs/v1.2 notes.markdown")).toBe("v1.2 notes");
   });
 });
+
+describe("VaultIndex.allTasks", () => {
+  test("lists open tasks per note, optionally done ones too, filtered by tag", () => {
+    const index = build({
+      "B.md": "#lore\n- [ ] two\n- [x] done\n",
+      "A.md": "- [ ] one\n  - [ ] nested\n",
+      "C.md": "- [x] all done\n",
+      "D.md": "nothing\n",
+    });
+    const open = index.allTasks();
+    expect(open.map((note) => [note.path, note.tasks.map((task) => task.text), note.open, note.total])).toEqual([
+      ["A.md", ["one", "nested"], 2, 2],
+      ["B.md", ["two"], 1, 2],
+    ]);
+    expect(index.allTasks({ includeDone: true }).map((note) => note.path)).toEqual(["A.md", "B.md", "C.md"]);
+    expect(index.allTasks({ tag: "#lore" }).map((note) => note.path)).toEqual(["B.md"]);
+    expect(index.allTasks({ tag: "nope" })).toEqual([]);
+  });
+});

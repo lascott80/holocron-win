@@ -30,6 +30,47 @@ export interface Property {
   values: string[];
 }
 
+/** A checklist item: `- [ ] text`, `1. [x] text`, `* [!] text`… (TSK-01). */
+export interface Task {
+  /** 1-based line number. */
+  line: number;
+  /** The text after the box, markdown kept. */
+  text: string;
+  /** The character inside the box: " " open, "x"/"X" done, anything else a custom status. */
+  status: string;
+  done: boolean;
+  /** Leading spaces/tabs, for nesting. */
+  indent: number;
+}
+
+/** `- [ ] text` with any list marker; group 1 is everything up to the box, group 2 the status, group 3 the text. */
+export const TASK_PATTERN = /^(\s*(?:[-*+]|\d+[.)]) \[)([^\]\n])\](?=\s|$)\s?(.*)$/;
+
+/** A task box's status after a toggle: done ([x]/[X]) → open, anything else ([ ], [!], [/]…) → done. */
+export function toggledTaskStatus(status: string): string {
+  return status === "x" || status === "X" ? " " : "x";
+}
+
+/**
+ * Toggles the task on `lineNumber` (1-based) of `text`, keeping line
+ * endings; null when that line isn't a task.
+ */
+export function toggleTaskLine(text: string, lineNumber: number): string | null {
+  let start = 0;
+  for (let number = 1; number < lineNumber; number++) {
+    const next = text.indexOf("\n", start);
+    if (next < 0) return null;
+    start = next + 1;
+  }
+  let end = text.indexOf("\n", start);
+  if (end < 0) end = text.length;
+  const line = text.slice(start, end).replace(/\r$/, "");
+  const match = TASK_PATTERN.exec(line);
+  if (!match) return null;
+  const at = start + match[1].length;
+  return text.slice(0, at) + toggledTaskStatus(match[2]) + text.slice(at + 1);
+}
+
 /** What Holocron knows about a note's content: its structure and connections. */
 export interface NoteInfo {
   headings: Heading[];
@@ -45,6 +86,8 @@ export interface NoteInfo {
   properties: Property[];
   /** Whitespace-separated words in the body (outside code blocks and frontmatter). */
   wordCount: number;
+  /** Checklist items, in order (TSK-01). */
+  tasks: Task[];
 }
 
 /**
@@ -83,7 +126,7 @@ const tagPattern = /(^|\s)#([\p{L}\p{N}_\-\/]+)/gu;
  * end at "\n"; a trailing "\r" (CRLF) is dropped from each line.
  */
 export function parse(text: string): NoteInfo {
-  const info: NoteInfo = { headings: [], links: [], tags: [], aliases: [], properties: [], wordCount: 0 };
+  const info: NoteInfo = { headings: [], links: [], tags: [], aliases: [], properties: [], wordCount: 0, tasks: [] };
   const seenTags = new Set<string>();
   const addTag = (tag: string) => {
     const trimmed = tag.replace(/^[#\p{Zs}\t]+|[#\p{Zs}\t]+$/gu, "");
@@ -135,6 +178,12 @@ export function parse(text: string): NoteInfo {
 
     const heading = parseHeading(content, lineNumber);
     if (heading) info.headings.push(heading);
+
+    const task = TASK_PATTERN.exec(line);
+    if (task) {
+      const status = task[2];
+      info.tasks.push({ line: lineNumber, text: trimWhitespace(task[3]), status, done: status === "x" || status === "X", indent: /^\s*/.exec(line)![0].length });
+    }
 
     const context = trimWhitespace(line);
     for (const match of content.matchAll(wikiLinkPattern)) {

@@ -3,7 +3,7 @@
 // feeds it the vault's note paths (`setPaths`) and each note's text (`update`).
 
 import { isAttachmentTarget } from "./attachments";
-import { LinkResolver, parse, trimWhitespace, type NoteInfo } from "./noteParser";
+import { LinkResolver, parse, trimWhitespace, type NoteInfo, type Task } from "./noteParser";
 import { naturalCompare, title as pathTitle } from "./paths";
 
 export interface Backlink {
@@ -30,6 +30,16 @@ export interface OutgoingLink {
   target: string;
   /** The note it resolves to, or null when it doesn't exist yet. */
   resolved: string | null;
+}
+
+/** One note's checklist items for the Tasks view (TSK-02). */
+export interface NoteTasks {
+  path: string;
+  title: string;
+  tasks: Task[];
+  /** Open and total items in the note, whatever the filter shows. */
+  open: number;
+  total: number;
 }
 
 /** A note's text and tags, for full-text search. */
@@ -168,6 +178,24 @@ export class VaultIndex {
       result.push({ target, resolved: this._resolver.resolve(link, path) });
     }
     return result;
+  }
+
+  /**
+   * Every note's checklist items (TSK-02): notes in path order, tasks in
+   * line order. `includeDone` keeps finished items; `tag` keeps only notes
+   * carrying that tag (or a nested one). Notes without matching tasks are
+   * left out.
+   */
+  allTasks(options: { includeDone?: boolean; tag?: string | null } = {}): NoteTasks[] {
+    const wanted = options.tag ? options.tag.toLowerCase().replace(/^#+|#+$/g, "") : null;
+    const result: NoteTasks[] = [];
+    for (const [path, info] of this.notes) {
+      if (wanted && !info.tags.some((t) => t.toLowerCase() === wanted || t.toLowerCase().startsWith(wanted + "/"))) continue;
+      const tasks = options.includeDone ? info.tasks : info.tasks.filter((task) => !task.done);
+      if (tasks.length === 0) continue;
+      result.push({ path, title: VaultIndex.title(path), tasks, open: info.tasks.filter((task) => !task.done).length, total: info.tasks.length });
+    }
+    return result.sort((a, b) => naturalCompare(a.path, b.path));
   }
 
   /** Every tag with the number of notes using it, most used first. */
