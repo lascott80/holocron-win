@@ -56,6 +56,8 @@ export class NoteDocument {
   onExternalTextChange: ((oldText: string, newText: string) => void) | null = null;
   /** Called whenever anything observable changes (dirty, saved, error, conflict…). */
   onStateChange: (() => void) | null = null;
+  /** Called with (previous saved text, written text) after each successful write, for version history. */
+  onDidWrite: ((previous: string, contents: string) => void) | null = null;
 
   constructor(file: string, options: NoteDocumentOptions = {}) {
     this._file = file;
@@ -125,9 +127,11 @@ export class NoteDocument {
   }
 
   private write(contents: string) {
+    const previous = this._savedText;
     try {
       fsx.writeAtomic(this._file, contents);
       this._savedText = contents;
+      if (previous !== contents) this.onDidWrite?.(previous, contents);
       this._isDirty = this._text !== this._savedText;
       this._isMissingOnDisk = false;
       this._saveError = null;
@@ -296,6 +300,7 @@ export class NoteDocument {
     this.onTextChange = null;
     this.onExternalTextChange = null;
     this.onStateChange = null;
+    this.onDidWrite = null;
   }
 
   // MARK: Helpers

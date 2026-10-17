@@ -77,6 +77,8 @@ export interface Settings {
   lastEditingMode: EditorMode;
   /** File tree order (UI-10a). */
   fileSort: FileSort;
+  /** Keep snapshots of notes as they're saved, for File › Version History (HIS-01). */
+  keepHistory: boolean;
   // Remembered UI state
   showInspector: boolean;
   showSidebar: boolean;
@@ -128,6 +130,7 @@ export const defaultSettings: Settings = {
   editorMode: "livePreview",
   lastEditingMode: "livePreview",
   fileSort: "name",
+  keepHistory: true,
   showInspector: true,
   showSidebar: true,
   inspectorTab: "outline",

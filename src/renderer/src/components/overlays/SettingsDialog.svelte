@@ -25,7 +25,7 @@
   } from "@shared/settings";
   import { app } from "../../lib/app.svelte";
   import { commands } from "../../lib/commands";
-  import { run } from "../../lib/host";
+  import { call, run } from "../../lib/host";
   import { accents, activeTheme, darkThemes, lightThemes } from "../../lib/theme";
   import { accentColors } from "@shared/themes";
   import ThemePicker from "./ThemePicker.svelte";
@@ -224,9 +224,29 @@
         | "codeLineNumbers"
         | "showHeadingTrail"
         | "spellCheck"
+        | "keepHistory"
       ),
   ) {
     return (checked: boolean) => app.setSetting(key, checked);
+  }
+
+  // ---- Version history ----
+  let historySize = $state<number | null>(null);
+  $effect(() => {
+    if (!app.vault || tab !== "general") return;
+    void app.vault.indexRevision;
+    call<number | undefined>("historySize")
+      .then((size) => (historySize = size ?? 0))
+      .catch(() => (historySize = null));
+  });
+  function sizeText(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  async function clearHistory() {
+    await call("clearHistory");
+    historySize = 0;
   }
 
   // ---- Spelling ----
@@ -442,6 +462,18 @@
         <div class="group">
           {@render switchRow("Update links when renaming or moving notes", s.updateLinksOnMove, toggle("updateLinksOnMove"))}
           {@render switchRow("Name new notes from their first line", s.nameNotesFromFirstLine, toggle("nameNotesFromFirstLine"))}
+          {@render switchRow(
+            "Keep a history of note versions",
+            s.keepHistory,
+            toggle("keepHistory"),
+            "A copy of each note as Holocron saves it, at most one every 5 minutes, kept for 30 days in Holocron’s app data folder (not in the vault). File › Version History… shows and restores them.",
+          )}
+          {#if app.vault}
+            {#snippet historyControl()}
+              <button class="button" disabled={historySize === 0} onclick={clearHistory}>Clear History</button>
+            {/snippet}
+            {@render row("Saved versions of this vault", historyControl, historySize === null ? "" : historySize === 0 ? "None yet." : `${sizeText(historySize)} on disk.`)}
+          {/if}
         </div>
         <h3 class="section-label">Sync</h3>
         <div class="group">

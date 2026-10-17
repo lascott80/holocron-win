@@ -121,6 +121,7 @@ export const commands: Command[] = [
   { id: "emptyUnusedAttachments", title: "Empty Unused Attachments…", enabled: hasVault, run: () => run("requestEmptyUnused") },
   { id: "undoAttachmentChange", title: "Undo Last Attachment Change…", enabled: hasVault, run: () => run("requestAttachmentUndo") },
   { id: "showNoteInExplorer", title: "Show Note in File Explorer", enabled: hasNote, run: () => app.doc && run("showInFolder", app.doc.path) },
+  { id: "versionHistory", title: "Version History…", enabled: hasNote, run: () => (app.historyOpen = true) },
   { id: "settings", title: "Settings…", shortcut: "Ctrl+,", run: () => (app.settingsOpen = true) },
   // Quits even when Holocron keeps running in the background (closing the window only hides it).
   { id: "quitApp", title: "Exit Holocron", run: () => run("quitApp") },
@@ -264,7 +265,7 @@ export function runCommand(id: string) {
 export const menus: { title: string; items: (string | { title: string; items: string[] })[] }[] = [
   {
     title: "File",
-    items: ["newNote", "newNoteFromTemplate", "newFolder", "newTab", "pinTab", "bookmark", "-", "quickCapture", "quickOpen", "commandPalette", "-", "openVault", "createVault", "-", "save", "closeTab", "closeVault", "-", "showNoteInExplorer", "showVaultInExplorer", "-", "exportPdf", "exportHtml", "print", "-", { title: "Attachments", items: ["organiseAttachments", "organiseNoteAttachments", "-", "cleanUpAttachments", "emptyUnusedAttachments", "-", "undoAttachmentChange"] }, "-", "settings", "-", "quitApp"],
+    items: ["newNote", "newNoteFromTemplate", "newFolder", "newTab", "pinTab", "bookmark", "-", "quickCapture", "quickOpen", "commandPalette", "-", "openVault", "createVault", "-", "save", "closeTab", "closeVault", "-", "versionHistory", "showNoteInExplorer", "showVaultInExplorer", "-", "exportPdf", "exportHtml", "print", "-", { title: "Attachments", items: ["organiseAttachments", "organiseNoteAttachments", "-", "cleanUpAttachments", "emptyUnusedAttachments", "-", "undoAttachmentChange"] }, "-", "settings", "-", "quitApp"],
   },
   { title: "Edit", items: ["undo", "redo", "-", "copyMarkdown", "pastePlainText", "-", "find", "findNext", "findPrevious", "searchVault"] },
   {

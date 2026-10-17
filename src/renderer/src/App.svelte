@@ -23,6 +23,7 @@
   import SettingsDialog from "./components/overlays/SettingsDialog.svelte";
   import AboutDialog from "./components/overlays/AboutDialog.svelte";
   import ConflictSheet from "./components/overlays/ConflictSheet.svelte";
+  import HistorySheet from "./components/overlays/HistorySheet.svelte";
   import DeleteConfirm from "./components/overlays/DeleteConfirm.svelte";
   import AttachmentCleanup from "./components/overlays/AttachmentCleanup.svelte";
   import OrganiseAttachments from "./components/overlays/OrganiseAttachments.svelte";
@@ -135,6 +136,7 @@
 {#if app.templatePicker}<TemplatePicker />{/if}
 {#if app.settingsOpen}<SettingsDialog />{/if}
 {#if app.aboutOpen}<AboutDialog />{/if}
+{#if app.historyOpen && app.doc}<HistorySheet />{/if}
 {#if vault?.conflict}<ConflictSheet />{/if}
 {#if vault?.pendingDeletion}<DeleteConfirm />{/if}
 {#if vault?.attachmentCleanup}<AttachmentCleanup />{/if}

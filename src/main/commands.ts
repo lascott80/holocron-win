@@ -276,6 +276,12 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
     // Index queries
     details: withVault((vault, path) => vault.details(str(path))),
     allTags: withVault((vault) => vault.index.allTags()),
+    // Version history (HIS-02…HIS-04)
+    noteHistory: withVault((vault, path) => vault.noteHistory(str(path))),
+    historyText: withVault((vault, path, id) => vault.historyText(str(path), str(id))),
+    restoreVersion: withVault((vault, path, id) => vault.restoreVersion(str(path), str(id))),
+    historySize: withVault((vault) => vault.historySize()),
+    clearHistory: withVault((vault) => vault.clearHistory()),
     allTasks: withVault((vault, includeDone, tag) => vault.index.allTasks({ includeDone: bool(includeDone), tag: optStr(tag) })),
     toggleTask: withVault((vault, path, line) => vault.toggleTask(str(path), num(line))),
     notesTagged: withVault((vault, tag) => vault.index.notesTaggedWith(str(tag))),

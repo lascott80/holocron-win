@@ -47,6 +47,7 @@ import * as fsx from "./fsx";
 import { isServableAsset } from "./assets";
 import { EditorTab } from "./editorTab";
 import { IndexCache } from "./indexCache";
+import { historyFolder, NoteHistory, type VersionInfo } from "./history";
 import { NoteDocument } from "./noteDocument";
 import type { StateStore } from "./store";
 
@@ -100,6 +101,10 @@ export interface VaultOptions {
   onIndexChange?: (updated: { path: string; text: string }[], removed: string[]) => void;
   /** Folder for the on-disk index cache (none: every note is read on open). */
   indexCacheFolder?: string;
+  /** Folder for version history (none: no snapshots). */
+  historyFolder?: string;
+  /** The clock, for tests. */
+  now?: () => Date;
   saveDelay?: number;
   autoTitleDelay?: number;
   liveIndexDelay?: number;
@@ -178,6 +183,8 @@ export class Vault {
   private closed = false;
   /** Last session's note texts, so opening doesn't read every file again. */
   readonly indexCache: IndexCache | null;
+  /** Snapshots of notes as Holocron wrote them (HIS-01). */
+  readonly history: NoteHistory | null;
 
   constructor(root: string, options: VaultOptions) {
     this.root = nodePath.resolve(root);
@@ -186,6 +193,7 @@ export class Vault {
     this.recentNotes = options.store.get<string[]>(this.recentNotesKey) ?? [];
     this.bookmarks = (options.store.get<string[]>(this.bookmarksKey) ?? []).filter((path) => typeof path === "string" && path !== "");
     this.indexCache = options.indexCacheFolder ? new IndexCache(options.indexCacheFolder, this.root) : null;
+    this.history = options.historyFolder ? new NoteHistory(historyFolder(options.historyFolder, this.root), options.now) : null;
     this.reload();
     this.restoreTabs();
   }
@@ -798,6 +806,64 @@ export class Vault {
     };
     document.onExternalTextChange = (oldText, newText) => this.editor.externalChange(path, oldText, newText);
     document.onStateChange = () => this.changed();
+    // The document's own path can change (rename); look it up at write time.
+    document.onDidWrite = (previous, contents) => {
+      const current = [...this.documents].find(([, candidate]) => candidate === document)?.[0] ?? path;
+      this.recordVersion(current, previous, contents);
+    };
+  }
+
+  // MARK: Version history (HIS-01…HIS-04)
+
+  /** Snapshots a write when history is on. */
+  private recordVersion(path: string, previous: string | null, contents: string) {
+    if (!this.history || !this.settings.keepHistory) return;
+    this.history.record(path, previous, contents);
+  }
+
+  /** A note's saved versions, newest first. */
+  noteHistory(path: string): VersionInfo[] {
+    return this.history?.list(path) ?? [];
+  }
+
+  historyText(path: string, id: string): string | null {
+    return this.history?.read(path, id) ?? null;
+  }
+
+  /**
+   * Puts a saved version back: through the open document (the editor
+   * follows, undo kept) or by rewriting the file. The text being replaced
+   * is snapshotted first, and the toast's Undo brings it back.
+   */
+  restoreVersion(path: string, id: string): boolean {
+    const text = this.historyText(path, id);
+    if (text === null) {
+      this.showError("That version isn’t available any more.");
+      return false;
+    }
+    const current = this.textFor(path);
+    if (current === null || current === text) return false;
+    if (!this.documents.has(path)) this.recordVersion(path, null, current);
+    if (!this.writeUpdatedLinks(path, text)) return false;
+    this.reload([path]);
+    const when = new Date(Number(id));
+    this.showToast(`Restored the version from ${when.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`, () => {
+      if (this.textFor(path) === text) {
+        this.writeUpdatedLinks(path, current);
+        this.reload([path]);
+      }
+    });
+    return true;
+  }
+
+  /** Total size of this vault's history and how to clear it (Settings). */
+  historySize(): number {
+    return this.history?.size() ?? 0;
+  }
+
+  clearHistory() {
+    this.history?.clear();
+    this.changed();
   }
 
   /** Forgets a document without saving it. */
@@ -1240,6 +1306,9 @@ export class Vault {
     if (this.renaming) this.renaming = remap(this.renaming);
     this.recentNotes = this.recentNotes.map(remap);
     this.bookmarks = this.bookmarks.map(remap);
+    if (this.history) {
+      for (const [from, to] of mapping) if (P.isNote(from)) this.history.rename(from, to);
+    }
     this.options.store.set(this.bookmarksKey, this.bookmarks.length ? this.bookmarks : undefined);
     this.options.store.set(this.recentNotesKey, this.recentNotes);
 
@@ -1257,12 +1326,20 @@ export class Vault {
     const document = this.documents.get(path);
     if (document) document.replaceContents(text);
     else {
+      // The document records its own writes; a closed note is snapshotted here.
+      let previous: string | null = null;
+      try {
+        previous = fsx.readText(this.abs(path));
+      } catch {
+        previous = null;
+      }
       try {
         fsx.writeAtomic(this.abs(path), text);
       } catch (error) {
         this.showError(`Couldn’t update links in “${P.stem(path)}”: ${message(error)}`);
         return false;
       }
+      if (previous !== text) this.recordVersion(path, previous, text);
     }
     // Keep the index's links current right away: the next move (an Undo
     // straight after this one) filters notes by them before the

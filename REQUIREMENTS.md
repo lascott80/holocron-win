@@ -749,6 +749,7 @@ Stored per user (Mac: UserDefaults). Window with four tabs; the last tab is reme
 | General › Quick capture (*Windows*) | Inbox note (prompt "Inbox.md") | `quickCaptureInbox` | "Inbox.md" | A vault path; ".md" added if missing; created when needed. Paths that climb out of the vault or into a hidden folder are refused |
 | (View menu) | View mode | `editorMode` | livePreview | livePreview / source / reading |
 | (Files header, View menu) | Sort files | `fileSort` | name | name / nameDesc / modified / created (UI-10a) |
+| General › Files (*Windows*) | Keep a history of note versions | `keepHistory` | on | HIS-01. Below it: the vault's history size and a Clear History button |
 
 UI state also persisted: inspector visible (`showInspector`), inspector tab, tags and bookmarks sections expanded, settings tab, per-vault tabs and recents (§7).
 
@@ -815,6 +816,12 @@ Modal (cannot be dismissed by clicking outside), 740 wide. Header icon, title, s
 **Acceptance** (from the sync tests): a clean note reloads quietly; our own save isn't an outside change; non-overlapping edits auto-merge and save; overlapping edits raise a conflict and block saving; auto-merge off always asks; saving checks the disk first; each resolution writes what it says; a deleted file is reported missing and can be restored; the watcher reports relative paths, ignores hidden ones, picks up outside edits and new files, and closes notes deleted elsewhere after the grace period.
 
 ---
+### 14.6 Version history (*Windows*)
+
+- **HIS-01 Snapshots**: whenever Holocron writes a note — an autosave, Ctrl+S, a link rewrite, Replace All, a task toggle, a restored version — the written text is saved as a snapshot in `%APPDATA%\Holocron\history\<hash of the vault path>\<hash of the note path>\<ms since epoch>.md` (a `path.txt` beside them names the note). Writes within **5 minutes** of the newest snapshot made this session replace it, so a typing session leaves one version; the first write of a session also keeps the text the note had before (unless the newest snapshot already holds it), so the starting point can always be restored. At most **100** snapshots per note; snapshots older than **30 days** are dropped as new ones are made. History follows renames and moves and survives deletion. Setting `keepHistory` (on) turns recording off; Settings › General › Files shows the vault's history size with **Clear History**. Snapshots never leave the app data folder and are never a source of truth: a missing or unreadable one is skipped.
+- **HIS-02 Sheet**: File › Version History… (palette too) for the open note: a 820-wide modal with the versions on the left grouped by day (time, "N minutes ago", size; ↑/↓ move) and two columns on the right in the conflict sheet's style — the chosen version and "Now", up to 60 differing blocks with one context line, "(not present)"/"(removed)" for empty sides, "Same as the note now" when identical.
+- **HIS-03 Restore**: **Restore This Version** (disabled when identical) replaces the note's text: through the open document (editor updated in place, undo kept, saved as usual — §14 applies) or by rewriting the file. The text being replaced is snapshotted first. Toast "Restored the version from <date>" with **Undo** (only while the note still shows the restored text). "That version isn't available any more." if the snapshot is gone.
+
 
 ## 15. Cloud-synced vaults
 
@@ -1111,9 +1118,9 @@ Found while documenting the Mac app (0.1). The last column says how the Windows 
 
 See `Holocron Roadmap.md` for the full roadmap. Not part of the current product (don't treat as requirements for parity): quick capture, Shortcuts/Siri, Spotlight, Share/Services, tasks view, daily-notes calendar, version history, editing properties inline, vault-wide search & replace, editing inside embeds, split view, bookmarks, sidebar sort options, note icons, export & print, themes/CSS snippets, vault health, large-vault caching, multiple windows, a dedicated Holocron iCloud folder, signing/notarisation/auto-updates.
 
-*Built in the Windows port since this list was written:* quick capture (with a tray icon and taskbar jump list, §22), maths (ED-53), Mermaid (ED-52), PDF/audio/video embeds (ED-56), heading folding (ED-38a), HTML rendering (ED-55), emoji shortcodes (ED-54), more code languages (ED-37), and reduce-motion support (animations and transitions are cut to near zero when Windows' "Animation effects" is off).
+*Built in the Windows port since this list was written:* quick capture (with a tray icon and taskbar jump list, §22), maths (ED-53), Mermaid (ED-52), PDF/audio/video embeds (ED-56), heading folding (ED-38a), HTML rendering (ED-55), emoji shortcodes (ED-54), more code languages (ED-37), reduce-motion support (animations and transitions are cut to near zero when Windows' "Animation effects" is off), and — from 0.8.0 — vault-wide search & replace (SRCH-10), sidebar sort options (UI-10a), multi-select in the file tree (UI-10b), bookmarks (UI-14a) and pinned tabs (TAB-12), a tasks view (§9.4), a daily-notes calendar (DAY-07), version history (§14.6), a disk cache for the index (NFR-03), crash recovery (§22, Failures) and spell-check languages (§13).
 
-*Not built in the Windows port yet:* everything above that's still listed, plus §15 cloud handling (iCloud doesn't apply; OneDrive/Dropbox placeholders and conflict-copy detection from §17.4 aren't built), dragging notes out of the sidebar to File Explorer, multi-select in the file tree, math inside callouts/blockquotes, inline HTML inside rendered table cells, remote (https) media, and code signing.
+*Not built in the Windows port yet:* everything above that's still listed, plus §15 cloud handling (iCloud doesn't apply; OneDrive/Dropbox placeholders and conflict-copy detection from §17.4 aren't built), dragging notes out of the sidebar to File Explorer, math inside callouts/blockquotes, inline HTML inside rendered table cells, remote (https) media, and code signing.
 
 ---
 
