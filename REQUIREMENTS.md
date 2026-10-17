@@ -727,6 +727,8 @@ Stored per user (Mac: UserDefaults). Window with four tabs; the last tab is reme
 | Templates | Daily note template (prompt "None") | `dailyNoteTemplate` | "" | "It can use {{date}}, {{date:dddd, MMMM D}}, {{time}}, {{title}}, {{yesterday}} and {{tomorrow}}." |
 | Templates | Open today’s note when Holocron starts | `openDailyNoteOnLaunch` | off | |
 | General › Updates (*Windows*) | Check for updates automatically | `checkForUpdates` | on | Also shows the version, update status and a Check for Updates / Restart to Update button |
+| General › Spelling (*Windows*) | Check spelling as you type | `spellCheck` | on | Chromium's spell checker in notes and the capture window. Help text says which dictionaries are in use |
+| General › Spelling (*Windows*) | Dictionaries (a tick list of every dictionary Chromium offers, shown by name with its tag) | `spellCheckLanguages` | `[]` | BCP 47 tags, at most 5. Empty = the Windows display languages that have a dictionary (else en-US). Ticking starts from the ones in use; unticking all follows Windows again |
 | General (*Windows*) | Keep Holocron running in the background when the window is closed | `runInBackground` | on | "Closing the window hides Holocron in the notification area, so quick capture keeps working. Quit from the tray icon or File › Exit Holocron." Off: closing the window quits and there's no tray icon |
 | General (*Windows*) | Start Holocron when you sign in to Windows | `launchAtLogin` | off | Registers a sign-in item running `Holocron.exe --hidden` (installed app only); starts hidden in the tray when running in the background is on |
 | General › Quick capture (*Windows*) | Open quick capture with a keyboard shortcut from any app | `quickCaptureEnabled` | on | |

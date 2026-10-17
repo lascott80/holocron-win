@@ -9,6 +9,7 @@
     FONT_SIZE_RANGE,
     LINE_WIDTH_RANGE,
     LINE_HEIGHT_RANGE,
+    MAX_SPELL_CHECK_LANGUAGES,
     normalizeShortcut,
     shortcutLabel,
     type Accent,
@@ -29,6 +30,7 @@
   import { accentColors } from "@shared/themes";
   import ThemePicker from "./ThemePicker.svelte";
   import Modal from "./Modal.svelte";
+  import Checkbox from "./Checkbox.svelte";
   import Segmented from "./Segmented.svelte";
   import Switch from "./Switch.svelte";
 
@@ -221,10 +223,39 @@
         | "launchAtLogin"
         | "codeLineNumbers"
         | "showHeadingTrail"
+        | "spellCheck"
       ),
   ) {
     return (checked: boolean) => app.setSetting(key, checked);
   }
+
+  // ---- Spelling ----
+  const languageNames = new Intl.DisplayNames(undefined, { type: "language" });
+  /** "English (United Kingdom)" for "en-GB"; the tag itself if unknown. */
+  function languageName(tag: string): string {
+    try {
+      return languageNames.of(tag) ?? tag;
+    } catch {
+      return tag;
+    }
+  }
+  const spelling = $derived(app.state.spelling);
+  /** The dictionaries shown ticked: the chosen ones, or (when none chosen) the ones in use. */
+  const tickedLanguages = $derived(new Set((s.spellCheckLanguages.length ? s.spellCheckLanguages : spelling.active).map((tag) => tag.toLowerCase())));
+  const languageRows = $derived(spelling.available.map((tag) => ({ tag, name: languageName(tag) })).sort((a, b) => a.name.localeCompare(b.name)));
+  const languageLimitReached = $derived(s.spellCheckLanguages.length >= MAX_SPELL_CHECK_LANGUAGES);
+  function toggleLanguage(tag: string, on: boolean) {
+    // Ticking starts from what's in use, so the automatic choice becomes explicit.
+    const current = s.spellCheckLanguages.length ? s.spellCheckLanguages : spelling.active;
+    const next = on ? [...current.filter((t) => t.toLowerCase() !== tag.toLowerCase()), tag] : current.filter((t) => t.toLowerCase() !== tag.toLowerCase());
+    app.setSetting("spellCheckLanguages", next);
+  }
+  const spellingHelp = $derived.by(() => {
+    if (!s.spellCheck) return "Misspelled words aren’t underlined.";
+    if (spelling.active.length === 0) return "No dictionary is available for your Windows language.";
+    const names = spelling.active.map(languageName).join(", ");
+    return s.spellCheckLanguages.length ? `Checking ${names}.` : `Following your Windows display language: ${names}.`;
+  });
 
   const percent = (value: number, [lo, hi]: readonly [number, number]) => ((value - lo) / (hi - lo)) * 100;
 
@@ -382,6 +413,30 @@
           {/snippet}
           {@render row("Save captures to", captureTarget, "Each capture is added at the end as a bullet with the time, e.g. “- 14:32 Call Ahsoka”. You can switch for one capture in its window.")}
           {@render textRow("quickCaptureInbox", "Inbox note", "Inbox.md", "A note in the vault, e.g. Inbox.md or Notes/Inbox. It’s created if it doesn’t exist.")}
+        </div>
+        <h3 class="section-label">Spelling</h3>
+        <div class="group">
+          {@render switchRow("Check spelling as you type", s.spellCheck, toggle("spellCheck"), spellingHelp)}
+          {#if s.spellCheck && languageRows.length > 0}
+            <div class="row stacked">
+              <div class="row-text">
+                <span class="row-label" id="spelling-languages-label">Dictionaries</span>
+                <span class="row-help">
+                  Tick up to {MAX_SPELL_CHECK_LANGUAGES}. Untick them all to follow your Windows display language again.
+                  {#if languageLimitReached}That’s the most that can be checked at once.{/if}
+                </span>
+              </div>
+              <div class="languages" role="group" aria-labelledby="spelling-languages-label">
+                {#each languageRows as { tag, name } (tag)}
+                  {@const ticked = tickedLanguages.has(tag.toLowerCase())}
+                  <div class="language" class:dimmed={!ticked && languageLimitReached}>
+                    <Checkbox label={name} checked={ticked} onchange={(on) => toggleLanguage(tag, on)} />
+                    <span class="language-tag">{tag}</span>
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/if}
         </div>
         <h3 class="section-label">Files</h3>
         <div class="group">
@@ -674,6 +729,34 @@
   }
   .row-help.error {
     color: var(--ui-danger);
+  }
+  .languages {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 2px 16px;
+    max-height: 220px;
+    overflow-y: auto;
+    padding: 6px 8px;
+    border: 1px solid var(--ui-border);
+    border-radius: 6px;
+    background: var(--ui-bg);
+  }
+  .language {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
+    padding: 3px 2px;
+  }
+  .language.dimmed {
+    opacity: 0.6;
+  }
+  .language-tag {
+    flex: none;
+    font-size: 11px;
+    color: var(--ui-text-3);
+    font-variant-numeric: tabular-nums;
   }
   .shortcut {
     gap: 8px;

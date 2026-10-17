@@ -136,6 +136,15 @@ export interface AppState {
   update: UpdateView;
   /** Quick capture's system-wide shortcut (src/main/capture.ts). */
   quickCapture: QuickCaptureView;
+  /** The spell checker: dictionaries Chromium offers, and the ones in use right now. */
+  spelling: SpellingView;
+}
+
+export interface SpellingView {
+  /** BCP 47 tags of every dictionary available, sorted. */
+  available: string[];
+  /** The dictionaries in use (what the setting resolves to; empty when spell check is off). */
+  active: string[];
 }
 
 export interface QuickCaptureView {

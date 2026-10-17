@@ -54,6 +54,10 @@ export interface Settings {
   openDailyNoteOnLaunch: boolean;
   /** Check GitHub for a newer Holocron at launch and every 6 hours. */
   checkForUpdates: boolean;
+  /** Underline misspelled words while typing (notes and quick capture). */
+  spellCheck: boolean;
+  /** Dictionaries (BCP 47 tags such as "en-GB"); empty = follow the Windows display language. */
+  spellCheckLanguages: string[];
   /** Quick capture: a system-wide shortcut opens a small capture window (Windows). */
   quickCaptureEnabled: boolean;
   /** An Electron accelerator in canonical form ("Super+Alt+N" = Win+Alt+N); see `normalizeShortcut`. */
@@ -105,6 +109,8 @@ export const defaultSettings: Settings = {
   dailyNoteTemplate: "",
   openDailyNoteOnLaunch: false,
   checkForUpdates: true,
+  spellCheck: true,
+  spellCheckLanguages: [],
   quickCaptureEnabled: true,
   // Win+Alt+N: not a Windows 11 shortcut, and no Holocron shortcut uses the
   // Windows key, so taking it system-wide never steals a key from the app or
@@ -158,6 +164,23 @@ export function sanitizeSettings(raw: Partial<Record<keyof Settings, unknown>>):
   result.attachmentLayout = oneOf<AttachmentLayout>(result.attachmentLayout, ["perNote", "single"], "perNote");
   result.quickCaptureTarget = oneOf(result.quickCaptureTarget, ["daily", "inbox"], "daily");
   result.quickCaptureShortcut = normalizeShortcut(result.quickCaptureShortcut) ?? defaultSettings.quickCaptureShortcut;
+  result.spellCheckLanguages = sanitizeLanguageTags(result.spellCheckLanguages);
+  return result;
+}
+
+/** Most dictionaries that can be on at once (Chromium's spell checker gets slow with many). */
+export const MAX_SPELL_CHECK_LANGUAGES = 5;
+
+/** Keeps well-formed, distinct BCP 47 tags ("en", "en-GB", "sr-Latn-RS"), at most MAX_SPELL_CHECK_LANGUAGES. */
+export function sanitizeLanguageTags(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const result: string[] = [];
+  for (const tag of value) {
+    if (typeof tag !== "string" || !/^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(tag)) continue;
+    if (result.some((seen) => seen.toLowerCase() === tag.toLowerCase())) continue;
+    result.push(tag);
+    if (result.length === MAX_SPELL_CHECK_LANGUAGES) break;
+  }
   return result;
 }
 

@@ -3,7 +3,7 @@
 // read-modify-write of the file. REQUIREMENTS §22, §14 (P2).
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { defaultSettings, normalizeShortcut, sanitizeSettings, shortcutLabel } from "@shared/settings";
+import { defaultSettings, normalizeShortcut, sanitizeLanguageTags, sanitizeSettings, shortcutLabel } from "@shared/settings";
 import { appendEntry, formatCapture, inboxNotePath, type Vault } from "../../src/main/vault";
 import { recordingEditor, TempVault, waitFor } from "./helpers";
 
@@ -225,5 +225,20 @@ describe("Quick capture settings", () => {
 
   it("labels the Windows key as Win", () => {
     expect(shortcutLabel("Super+Alt+N")).toBe("Win+Alt+N");
+  });
+});
+
+describe("Spell check settings", () => {
+  it("default to on, following the Windows language", () => {
+    expect(defaultSettings.spellCheck).toBe(true);
+    expect(defaultSettings.spellCheckLanguages).toEqual([]);
+  });
+
+  it("keep only well-formed, distinct language tags, at most five", () => {
+    expect(sanitizeLanguageTags(["en-GB", "fr", "sr-Latn-RS", "EN-gb", "nope!", 7, "x", "toolongsubtag-abcdefghij"])).toEqual(["en-GB", "fr", "sr-Latn-RS"]);
+    expect(sanitizeLanguageTags(["a1", "b2", "en", "de", "fr", "es", "it", "pt"])).toEqual(["en", "de", "fr", "es", "it"]);
+    expect(sanitizeLanguageTags("en")).toEqual([]);
+    expect(sanitizeSettings({ spellCheckLanguages: ["de-DE", "bad tag"] as never }).spellCheckLanguages).toEqual(["de-DE"]);
+    expect(sanitizeSettings({ spellCheck: "yes" as never }).spellCheck).toBe(true);
   });
 });

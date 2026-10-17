@@ -3,9 +3,9 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { app, autoUpdater as nativeAutoUpdater, BrowserWindow, dialog, globalShortcut, nativeTheme, Notification, protocol, shell, ipcMain } from "electron";
+import { app, autoUpdater as nativeAutoUpdater, BrowserWindow, dialog, globalShortcut, nativeTheme, Notification, protocol, session, shell, ipcMain } from "electron";
 import { assetResponse } from "./assets";
-import { Channels, type AppState, type CaptureInfo, type CaptureResult, type EditorMessage, type QuickCaptureView, type RecentVault, type UiRequest } from "@shared/ipc";
+import { Channels, type AppState, type CaptureInfo, type CaptureResult, type EditorMessage, type QuickCaptureView, type RecentVault, type SpellingView, type UiRequest } from "@shared/ipc";
 import { normalizeShortcut, sanitizeSettings, shortcutLabel, type CaptureTarget, type Settings } from "@shared/settings";
 import { resolveTheme, windowColors } from "@shared/themes";
 import { stem } from "@core/paths";
@@ -134,7 +134,36 @@ export class HolocronApp {
       isDark: nativeTheme.shouldUseDarkColors,
       update: this.updater.view(),
       quickCapture: this.quickCapture,
+      spelling: this.spelling,
     };
+  }
+
+  // MARK: Spelling
+
+  spelling: SpellingView = { available: [], active: [] };
+
+  /**
+   * Applies the spell-check settings to the shared session (the main and
+   * capture windows). With no languages chosen, the Windows display
+   * languages that have a dictionary are used, else US English.
+   */
+  applySpellCheck() {
+    const spellSession = session.defaultSession;
+    const available = [...spellSession.availableSpellCheckerLanguages].sort();
+    const has = (tag: string) => available.find((candidate) => candidate.toLowerCase() === tag.toLowerCase());
+    let languages = this.settings.spellCheckLanguages.map(has).filter((tag): tag is string => tag !== undefined);
+    if (languages.length === 0) {
+      const preferred = app.getPreferredSystemLanguages().map((tag) => has(tag) ?? has(tag.split("-")[0]));
+      languages = [...new Set(preferred.filter((tag): tag is string => tag !== undefined))].slice(0, 3);
+    }
+    if (languages.length === 0 && has("en-US")) languages = ["en-US"];
+    try {
+      spellSession.setSpellCheckerEnabled(this.settings.spellCheck);
+      if (languages.length) spellSession.setSpellCheckerLanguages(languages);
+    } catch (error) {
+      log.warn(`Couldn’t set the spell checker: ${errorText(error)}`);
+    }
+    this.spelling = { available, active: this.settings.spellCheck ? languages : [] };
   }
 
   dismissError() {
@@ -160,6 +189,7 @@ export class HolocronApp {
     if (key === "quickCaptureEnabled" || key === "quickCaptureShortcut") this.registerCaptureShortcut();
     if (key === "runInBackground") this.updateTray();
     if (key === "launchAtLogin") this.applyLoginItem();
+    if (key === "spellCheck" || key === "spellCheckLanguages") this.applySpellCheck();
     if (key === "accent" || key === "appearance" || key === "darkTheme" || key === "lightTheme" || key === "quickCaptureTarget" || key === "quickCaptureInbox") this.capture.refresh();
     this.pushState();
   }
@@ -685,7 +715,6 @@ export class HolocronApp {
         event.preventDefault();
       }
     });
-    contents.session.setSpellCheckerLanguages(["en-US"]);
     // Right-click: the renderer draws the menu (spelling suggestions, Cut/Copy/Paste, link items).
     contents.on("context-menu", (_event, params) => {
       const request: UiRequest = {
@@ -854,6 +883,7 @@ if (!app.requestSingleInstanceLock()) {
     holocron.startHidden = holocron.settings.runInBackground && (launch.hidden || captureOnly);
 
     holocron.registerAssetProtocol();
+    holocron.applySpellCheck();
     holocron.updateTray();
     holocron.createWindow();
     holocron.registerCaptureShortcut();
