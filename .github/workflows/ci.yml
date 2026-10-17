@@ -1,0 +1,72 @@
+# Type-checks and tests every push and pull request on Windows (the tests
+# exercise real NTFS behaviour: case-insensitive renames, EPERM retries,
+# junctions). Tagged releases (v1.2.3) also build the installer and attach
+# it to a draft GitHub release, ready for the release notes; publishing the
+# draft is what the installed app's updater then sees (README › Updates).
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+jobs:
+  test:
+    name: Check and test
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+
+  installer:
+    name: Build installer
+    if: github.ref_type == 'tag'
+    needs: test
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Check the tag matches package.json
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          if ("v$version" -ne "${{ github.ref_name }}") { throw "Tag ${{ github.ref_name }} doesn't match package.json version $version" }
+      - run: npm run predist
+      - run: npm run dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer
+          path: |
+            dist/Holocron-Setup-*.exe
+            dist/Holocron-Setup-*.exe.blockmap
+            dist/latest.yml
+          if-no-files-found: error
+      - name: Attach to a draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            dist/Holocron-Setup-*.exe
+            dist/Holocron-Setup-*.exe.blockmap
+            dist/latest.yml

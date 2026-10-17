@@ -66,9 +66,11 @@ silently, or Later installs it when Holocron quits. Because the app downloads
 the installer itself, SmartScreen doesn't interrupt. Logs go to
 `%APPDATA%\Holocron\logs\updater.log`.
 
-To publish a release, bump `version`, run `npm run dist` (it never publishes
-by itself), and upload all three files from `dist/` to a GitHub release
-tagged `v<version>` (not a draft or prerelease):
+To publish a release, bump `version`, commit, and push a tag `v<version>`.
+GitHub Actions (`.github/workflows/ci.yml`) type-checks and tests every
+push, and for a tag also builds the installer and attaches these three
+files to a **draft** release; write the release notes and publish it (not as
+a prerelease), which is when the installed app's updater sees it:
 
 - `Holocron-Setup-<version>.exe`
 - `Holocron-Setup-<version>.exe.blockmap`
