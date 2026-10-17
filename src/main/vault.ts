@@ -45,6 +45,7 @@ import type {
 import * as fsx from "./fsx";
 import { isServableAsset } from "./assets";
 import { EditorTab } from "./editorTab";
+import { IndexCache } from "./indexCache";
 import { NoteDocument } from "./noteDocument";
 import type { StateStore } from "./store";
 
@@ -96,6 +97,8 @@ export interface VaultOptions {
   onTreeChange?: () => void;
   /** Called when the index changed (notes re-parsed); `texts` lists updated notes. */
   onIndexChange?: (updated: { path: string; text: string }[], removed: string[]) => void;
+  /** Folder for the on-disk index cache (none: every note is read on open). */
+  indexCacheFolder?: string;
   saveDelay?: number;
   autoTitleDelay?: number;
   liveIndexDelay?: number;
@@ -170,12 +173,15 @@ export class Vault {
   private readonly missingTimers = new Set<NodeJS.Timeout>();
   private indexQueue: Promise<void> = Promise.resolve();
   private closed = false;
+  /** Last session's note texts, so opening doesn't read every file again. */
+  readonly indexCache: IndexCache | null;
 
   constructor(root: string, options: VaultOptions) {
     this.root = nodePath.resolve(root);
     this.options = options;
     this.editor = options.editor ?? nullEditor;
     this.recentNotes = options.store.get<string[]>(this.recentNotesKey) ?? [];
+    this.indexCache = options.indexCacheFolder ? new IndexCache(options.indexCacheFolder, this.root) : null;
     this.reload();
     this.restoreTabs();
   }
@@ -239,6 +245,8 @@ export class Vault {
     if (this.liveIndexTimer) clearTimeout(this.liveIndexTimer);
     if (this.toastTimer) clearTimeout(this.toastTimer);
     for (const document of this.documents.values()) document.dispose();
+    this.indexCache?.flush();
+    this.indexCache?.dispose();
   }
 
   // MARK: Scanning
@@ -283,6 +291,7 @@ export class Vault {
     if (this.closed) return;
     const present = new Set(paths);
     const removed = [...this.index.allNotes.keys()].filter((path) => !present.has(path));
+    this.indexCache?.keepOnly(present);
     const unread = new Set(this.index.setPaths(paths));
     const toRead = paths.filter((path) => unread.has(path) || reread.has(path));
     const updated: { path: string; text: string }[] = [];
@@ -299,9 +308,20 @@ export class Vault {
         if (this.closed) return;
         const batch = toRead.slice(start, start + 64);
         const texts = batch.map((path) => {
+          const file = this.abs(path);
+          // Notes the watcher reported changed are always re-read; the
+          // cache only stands in for a note not indexed yet whose file is
+          // unchanged since it was cached.
+          if (!reread.has(path)) {
+            const cached = this.indexCache?.textIfCurrent(path, file);
+            if (cached !== null && cached !== undefined) return cached;
+          }
           try {
-            return fsx.readText(this.abs(path));
+            const text = fsx.readText(file);
+            this.indexCache?.remember(path, file, text);
+            return text;
           } catch {
+            this.indexCache?.forget(path);
             return null;
           }
         });

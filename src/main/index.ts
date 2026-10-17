@@ -191,6 +191,7 @@ export class HolocronApp {
       settings: () => this.settings,
       editor: this.editor,
       trash: (file) => this.trash.trash(file),
+      indexCacheFolder: path.join(app.getPath("userData"), "index-cache"),
       openPath: (file) => void shell.openPath(file),
       ui: (request) => {
         if (request.type === "beep") shell.beep();
