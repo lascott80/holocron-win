@@ -3,7 +3,7 @@
 
 import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { scanVault } from "../../src/main/vault";
+import { sameTree, scanVault } from "../../src/main/vault";
 import { TempVault, waitFor } from "./helpers";
 
 let temp: TempVault;
@@ -211,5 +211,22 @@ describe("Vault", () => {
     vault.open("Missing.md");
     expect(vault.tabs).toEqual([]);
     expect(vault.errorMessage).toMatch(/^Couldn’t open “Missing.md”/);
+  });
+});
+
+describe("sameTree", () => {
+  it("compares scans node by node", () => {
+    temp.write("Ilum.md");
+    temp.write("Lore/Kyber.md");
+    const first = scanVault(temp.root).tree;
+    expect(sameTree(first, scanVault(temp.root).tree)).toBe(true);
+    temp.write("Lore/Crystals/Deep.md");
+    const second = scanVault(temp.root).tree;
+    expect(sameTree(first, second)).toBe(false);
+    // The same shape with a renamed note differs too.
+    temp.remove("Lore/Crystals/Deep.md");
+    fs.renameSync(temp.abs("Ilum.md"), temp.abs("Ilum 2.md"));
+    expect(sameTree(first, scanVault(temp.root).tree)).toBe(false);
+    expect(sameTree([], [])).toBe(true);
   });
 });

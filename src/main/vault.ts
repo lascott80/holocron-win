@@ -260,7 +260,7 @@ export class Vault {
     const scan = scanVault(this.root);
     this.attachments = scan.attachments;
     const changed = new Set(changedPaths);
-    const treeChanged = JSON.stringify(scan.tree) !== JSON.stringify(this.tree);
+    const treeChanged = !sameTree(scan.tree, this.tree);
     if (treeChanged) {
       this.tree = scan.tree;
       this.noteCount = scan.notes.length;
@@ -2353,6 +2353,23 @@ function wikiTarget(newTarget: string, original: string, resolver: LinkResolver)
   const name = P.basename(path);
   if (original.includes("/")) return path;
   return resolver.resolveWiki(name) === newTarget ? name : path;
+}
+
+/**
+ * Whether two scans describe the same tree. Compared node by node, so a
+ * rescan after every watcher batch doesn't serialise the whole tree twice
+ * (noticeable with thousands of notes).
+ */
+export function sameTree(a: TreeNode[], b: TreeNode[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (x.path !== y.path || x.name !== y.name || x.isDir !== y.isDir || x.noteCount !== y.noteCount) return false;
+    if (x.isDir && !sameTree(x.children ?? [], y.children ?? [])) return false;
+  }
+  return true;
 }
 
 /** Folders and notes (folders first, Finder order), plus every attachment's path. Hidden entries skipped. */
