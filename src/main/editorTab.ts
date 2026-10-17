@@ -9,10 +9,13 @@ export class EditorTab {
   readonly id: string = randomUUID();
   private history: string[];
   private index: number;
+  /** Pinned tabs sit at the left, can't be closed by accident and open links in a new tab (TAB-12). */
+  pinned = false;
 
-  constructor(path: string | null = null) {
+  constructor(path: string | null = null, pinned = false) {
     this.history = path === null ? [] : [path];
     this.index = path === null ? -1 : 0;
+    this.pinned = pinned;
   }
 
   get path(): string | null {

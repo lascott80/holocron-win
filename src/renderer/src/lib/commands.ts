@@ -95,6 +95,21 @@ export const commands: Command[] = [
   { id: "createVault", title: "Create New Vault…", run: () => run("createVaultDialog") },
   { id: "save", title: "Save", shortcut: "Ctrl+S", enabled: hasVault, run: () => run("saveAll") },
   { id: "closeTab", title: "Close Tab", shortcut: "Ctrl+W", alsoKeys: ["Ctrl+F4"], enabled: () => (app.vault?.tabs.length ?? 0) > 0, run: () => run("closeActiveTab") },
+  {
+    id: "pinTab",
+    title: "Pin Tab",
+    enabled: hasNote,
+    checked: () => app.vault?.tabs.find((tab) => tab.id === app.vault?.activeTabId)?.pinned ?? false,
+    run: () => app.vault?.activeTabId && run("togglePinTab", app.vault.activeTabId),
+  },
+  {
+    id: "bookmark",
+    title: "Bookmark This Note",
+    shortcut: "Ctrl+D",
+    enabled: hasNote,
+    checked: () => (app.doc ? app.vault?.bookmarks.includes(app.doc.path) ?? false : false),
+    run: () => app.doc && run("toggleBookmark", app.doc.path),
+  },
   { id: "closeVault", title: "Close Vault", shortcut: "Ctrl+Shift+W", enabled: hasVault, run: () => run("closeVault") },
   { id: "showVaultInExplorer", title: "Show Vault in File Explorer", enabled: hasVault, run: () => run("showVaultInFolder") },
   { id: "exportPdf", title: "Export as PDF…", enabled: hasNote, run: () => void exportNote("pdf") },
@@ -247,7 +262,7 @@ export function runCommand(id: string) {
 export const menus: { title: string; items: (string | { title: string; items: string[] })[] }[] = [
   {
     title: "File",
-    items: ["newNote", "newNoteFromTemplate", "newFolder", "newTab", "-", "quickCapture", "quickOpen", "commandPalette", "-", "openVault", "createVault", "-", "save", "closeTab", "closeVault", "-", "showNoteInExplorer", "showVaultInExplorer", "-", "exportPdf", "exportHtml", "print", "-", { title: "Attachments", items: ["organiseAttachments", "organiseNoteAttachments", "-", "cleanUpAttachments", "emptyUnusedAttachments", "-", "undoAttachmentChange"] }, "-", "settings", "-", "quitApp"],
+    items: ["newNote", "newNoteFromTemplate", "newFolder", "newTab", "pinTab", "bookmark", "-", "quickCapture", "quickOpen", "commandPalette", "-", "openVault", "createVault", "-", "save", "closeTab", "closeVault", "-", "showNoteInExplorer", "showVaultInExplorer", "-", "exportPdf", "exportHtml", "print", "-", { title: "Attachments", items: ["organiseAttachments", "organiseNoteAttachments", "-", "cleanUpAttachments", "emptyUnusedAttachments", "-", "undoAttachmentChange"] }, "-", "settings", "-", "quitApp"],
   },
   { title: "Edit", items: ["undo", "redo", "-", "copyMarkdown", "pastePlainText", "-", "find", "findNext", "findPrevious", "searchVault"] },
   {

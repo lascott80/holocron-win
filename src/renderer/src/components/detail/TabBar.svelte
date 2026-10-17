@@ -2,7 +2,7 @@
      (120–240 px each) and scroll horizontally; middle-click closes, drag
      reorders, right-click offers the close/show commands. -->
 <script lang="ts">
-  import { Plus, SquareDashedPlus, TriangleAlert, X } from "@lucide/svelte";
+  import { Pin, Plus, SquareDashedPlus, TriangleAlert, X } from "@lucide/svelte";
   import { tick } from "svelte";
   import type { TabView } from "@shared/ipc";
   import { app } from "../../lib/app.svelte";
@@ -49,13 +49,20 @@
 
   function onContextMenu(event: MouseEvent, tab: TabView) {
     const index = indexOf(tab.id);
+    const others = tabs.filter((other) => other.id !== tab.id && !other.pinned);
+    const toTheRight = tabs.slice(index + 1).filter((other) => !other.pinned);
     const entries: MenuEntry[] = [
-      { label: "Close Tab", shortcut: tab.id === activeId ? "Ctrl+W" : undefined, run: () => run("closeTab", tab.id) },
-      { label: "Close Other Tabs", disabled: tabs.length < 2, run: () => run("closeOtherTabs", tab.id) },
-      { label: "Close Tabs to the Right", disabled: index === tabs.length - 1, run: () => run("closeTabsToTheRight", tab.id) },
+      { label: tab.pinned ? "Unpin Tab" : "Pin Tab", disabled: !tab.path, run: () => run("togglePinTab", tab.id) },
+      "-",
+      { label: "Close Tab", shortcut: tab.id === activeId ? "Ctrl+W" : undefined, disabled: tab.pinned, run: () => run("closeTab", tab.id) },
+      { label: "Close Other Tabs", disabled: others.length === 0, run: () => run("closeOtherTabs", tab.id) },
+      { label: "Close Tabs to the Right", disabled: toTheRight.length === 0, run: () => run("closeTabsToTheRight", tab.id) },
     ];
     const path = tab.path;
-    if (path) entries.push("-", { label: "Show in File Explorer", run: () => run("showInFolder", path) });
+    if (path) {
+      const bookmarked = app.vault?.bookmarks.includes(path) ?? false;
+      entries.push("-", { label: bookmarked ? "Remove Bookmark" : "Add Bookmark", run: () => run("toggleBookmark", path) }, { label: "Show in File Explorer", run: () => run("showInFolder", path) });
+    }
     menu.openAt(event, entries);
   }
 
@@ -95,6 +102,7 @@
       <div
         class="tab"
         class:active={isActive}
+        class:pinned={tab.pinned}
         class:dragging={dragging === tab.id}
         class:drop-before={dropTarget === tab.id && !dropAfter}
         class:drop-after={dropTarget === tab.id && dropAfter}
@@ -123,7 +131,22 @@
         {/if}
         <span class="title">{tab.title || "New Tab"}</span>
         <span class="trailing">
-          {#if isHovered || isActive}
+          {#if tab.pinned}
+            <button
+              class="close pin"
+              tabindex="-1"
+              aria-label="Unpin {tab.title}"
+              title="Pinned — click to unpin"
+              draggable="false"
+              onclick={(event) => {
+                event.stopPropagation();
+                run("togglePinTab", tab.id);
+              }}
+            >
+              <Pin size={11} strokeWidth={2.2} />
+              {#if tab.isDirty}<span class="dot small" aria-label="Unsaved changes"></span>{/if}
+            </button>
+          {:else if isHovered || isActive}
             <button
               class="close"
               tabindex="-1"
@@ -272,6 +295,20 @@
     height: 7px;
     border-radius: 50%;
     background: var(--ui-accent);
+  }
+  .pin {
+    position: relative;
+    color: var(--ui-text-3);
+  }
+  .tab.active .pin {
+    color: var(--ui-accent);
+  }
+  .dot.small {
+    position: absolute;
+    right: 1px;
+    bottom: 1px;
+    width: 5px;
+    height: 5px;
   }
   .new-tab {
     flex: none;

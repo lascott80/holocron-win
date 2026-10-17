@@ -5,6 +5,7 @@
   import { app } from "../../lib/app.svelte";
   import { runCommand } from "../../lib/commands";
   import VaultSwitcher from "./VaultSwitcher.svelte";
+  import BookmarksSection from "./BookmarksSection.svelte";
   import FileTree from "./FileTree.svelte";
   import TagsSection from "./TagsSection.svelte";
   import SearchPanel from "./SearchPanel.svelte";
@@ -41,6 +42,7 @@
 
   {#if app.sidebarMode === "files"}
     <div class="scroll">
+      <BookmarksSection />
       <FileTree />
       <TagsSection />
     </div>

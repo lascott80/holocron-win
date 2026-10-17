@@ -82,6 +82,7 @@ export interface Settings {
   showSidebar: boolean;
   inspectorTab: InspectorTab;
   tagsExpanded: boolean;
+  bookmarksExpanded: boolean;
   settingsTab: SettingsTab;
 }
 
@@ -131,6 +132,7 @@ export const defaultSettings: Settings = {
   showSidebar: true,
   inspectorTab: "outline",
   tagsExpanded: true,
+  bookmarksExpanded: true,
   settingsTab: "general",
 };
 

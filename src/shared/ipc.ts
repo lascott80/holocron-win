@@ -27,6 +27,8 @@ export interface TabView {
   isDirty: boolean;
   /** Conflict or missing file: shows a warning triangle. */
   hasWarning: boolean;
+  /** Pinned: leftmost, can't be closed by accident, links open beside it (TAB-12). */
+  pinned: boolean;
 }
 
 export interface DocView {
@@ -86,6 +88,8 @@ export interface VaultView {
   /** Empty Unused Attachments… / Undo Last Attachment Change… asking for confirmation. */
   attachmentConfirm: AttachmentConfirmView | null;
   recentNotes: string[];
+  /** Bookmarked note and folder paths, in the user's order (UI-14a). */
+  bookmarks: string[];
   toast: ToastView | null;
   doc: DocView | null;
   conflict: ConflictView | null;

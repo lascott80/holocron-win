@@ -142,6 +142,8 @@ export class Vault {
   /** Loaded notes, one per file, shared by every tab showing it. */
   readonly documents = new Map<string, NoteDocument>();
   recentNotes: string[];
+  /** Bookmarked note and folder paths, in the user's order (UI-14a). */
+  bookmarks: string[];
   selection: string | null = null;
   renaming: string | null = null;
   pendingDeletion: string[] | null = null;
@@ -182,6 +184,7 @@ export class Vault {
     this.options = options;
     this.editor = options.editor ?? nullEditor;
     this.recentNotes = options.store.get<string[]>(this.recentNotesKey) ?? [];
+    this.bookmarks = (options.store.get<string[]>(this.bookmarksKey) ?? []).filter((path) => typeof path === "string" && path !== "");
     this.indexCache = options.indexCacheFolder ? new IndexCache(options.indexCacheFolder, this.root) : null;
     this.reload();
     this.restoreTabs();
@@ -271,6 +274,9 @@ export class Vault {
       const before = this.recentNotes.length;
       this.recentNotes = this.recentNotes.filter((path) => fsx.exists(this.abs(path)));
       if (this.recentNotes.length !== before) this.options.store.set(this.recentNotesKey, this.recentNotes);
+      const bookmarksBefore = this.bookmarks.length;
+      this.bookmarks = this.bookmarks.filter((path) => fsx.exists(this.abs(path)));
+      if (this.bookmarks.length !== bookmarksBefore) this.options.store.set(this.bookmarksKey, this.bookmarks.length ? this.bookmarks : undefined);
       this.treeRevision++;
       this.options.onTreeChange?.();
       this.changed();
@@ -442,6 +448,37 @@ export class Vault {
     if (line !== null) this.editor.reveal(path, line, 0, 0);
   }
 
+  // MARK: Bookmarks (UI-14a)
+
+  private get bookmarksKey() {
+    return "bookmarks:" + this.root;
+  }
+
+  isBookmarked(path: string): boolean {
+    return this.bookmarks.includes(path);
+  }
+
+  /** Adds a note or folder to the vault's bookmarks, or removes it. */
+  toggleBookmark(path: string) {
+    if (path === "" || (!this.isBookmarked(path) && !fsx.exists(this.abs(path)))) return;
+    this.bookmarks = this.isBookmarked(path) ? this.bookmarks.filter((item) => item !== path) : [...this.bookmarks, path];
+    this.options.store.set(this.bookmarksKey, this.bookmarks.length ? this.bookmarks : undefined);
+    this.changed();
+  }
+
+  /** Puts a bookmark where `target` is now (drag to reorder). */
+  moveBookmark(path: string, target: string) {
+    const from = this.bookmarks.indexOf(path);
+    const to = this.bookmarks.indexOf(target);
+    if (from < 0 || to < 0 || from === to) return;
+    const next = [...this.bookmarks];
+    next.splice(from, 1);
+    next.splice(to, 0, path);
+    this.bookmarks = next;
+    this.options.store.set(this.bookmarksKey, next);
+    this.changed();
+  }
+
   // MARK: Search and replace
 
   /**
@@ -540,22 +577,32 @@ export class Vault {
     }
     if (!this.loadDocument(path)) return;
     const index = this.activeIndex;
-    if (index !== null && (!inNewTab || this.tabs[index].path === null)) {
+    // A pinned tab keeps its note: anything else opens beside it (TAB-12).
+    const reuse = index !== null && (!inNewTab || this.tabs[index].path === null) && !this.tabs[index].pinned;
+    if (reuse) {
       this.document?.save();
       this.tabs[index].navigate(path);
     } else {
       const tab = new EditorTab(path);
-      this.tabs.splice(index === null ? this.tabs.length : index + 1, 0, tab);
+      this.tabs.splice(this.insertionIndex(index), 0, tab);
       this.activeTabId = tab.id;
     }
     this.didChangeTabs();
+  }
+
+  /** Where a new tab goes: after the active one, but never among the pinned tabs. */
+  private insertionIndex(active: number | null): number {
+    const firstUnpinned = this.tabs.findIndex((tab) => !tab.pinned);
+    const afterPinned = firstUnpinned < 0 ? this.tabs.length : firstUnpinned;
+    if (active === null) return this.tabs.length;
+    return Math.max(active + 1, afterPinned);
   }
 
   /** Opens an empty tab after the active one. */
   newTab() {
     const tab = new EditorTab();
     const index = this.activeIndex;
-    this.tabs.splice(index === null ? this.tabs.length : index + 1, 0, tab);
+    this.tabs.splice(this.insertionIndex(index), 0, tab);
     this.activeTabId = tab.id;
     this.didChangeTabs();
   }
@@ -569,9 +616,17 @@ export class Vault {
     this.didChangeTabs();
   }
 
-  closeTab(id: string) {
+  /**
+   * Closes a tab. A pinned tab stays unless `force` (its note was deleted,
+   * the vault is closing): Ctrl+W and the close button just beep (TAB-12).
+   */
+  closeTab(id: string, force = false) {
     const index = this.tabs.findIndex((tab) => tab.id === id);
     if (index < 0) return;
+    if (this.tabs[index].pinned && !force) {
+      this.options.ui?.({ type: "beep" });
+      return;
+    }
     this.tabs.splice(index, 1);
     if (this.activeTabId === id) {
       this.activeTabId = (this.tabs[index] ?? this.tabs[this.tabs.length - 1])?.id ?? null;
@@ -586,23 +641,39 @@ export class Vault {
     if (this.activeTabId) this.closeTab(this.activeTabId);
   }
 
+  /** Closes every other tab except pinned ones. */
   closeOtherTabs(id: string) {
-    this.tabs = this.tabs.filter((tab) => tab.id === id);
+    this.tabs = this.tabs.filter((tab) => tab.id === id || tab.pinned);
     this.activateTab(id);
   }
 
+  /** Closes the tabs after this one, except pinned ones. */
   closeTabsToTheRight(id: string) {
     const index = this.tabs.findIndex((tab) => tab.id === id);
     if (index < 0) return;
-    const closing = new Set(this.tabs.slice(index + 1).map((tab) => tab.id));
+    const closing = new Set(
+      this.tabs
+        .slice(index + 1)
+        .filter((tab) => !tab.pinned)
+        .map((tab) => tab.id),
+    );
     this.tabs = this.tabs.filter((tab) => !closing.has(tab.id));
     if (this.activeTabId && closing.has(this.activeTabId)) this.activateTab(id);
     else this.didChangeTabs();
   }
 
+  /** Pins or unpins a tab: pinned tabs gather at the left, in the order they were pinned (TAB-12). */
+  togglePinTab(id: string) {
+    const tab = this.tabs.find((tab) => tab.id === id);
+    if (!tab || tab.path === null) return;
+    tab.pinned = !tab.pinned;
+    this.tabs = [...this.tabs.filter((tab) => tab.pinned), ...this.tabs.filter((tab) => !tab.pinned)];
+    this.didChangeTabs();
+  }
+
   /** Closes every tab showing `path` (e.g. after the file was deleted). */
   closeTabsShowing(path: string) {
-    for (const tab of this.tabs.filter((tab) => tab.path === path)) this.closeTab(tab.id);
+    for (const tab of this.tabs.filter((tab) => tab.path === path)) this.closeTab(tab.id, true);
   }
 
   /**
@@ -653,6 +724,8 @@ export class Vault {
     if (id === target || from < 0 || to < 0) return;
     const [tab] = this.tabs.splice(from, 1);
     this.tabs.splice(to, 0, tab);
+    // Pinned tabs stay together at the left whatever was dragged where.
+    this.tabs = [...this.tabs.filter((tab) => tab.pinned), ...this.tabs.filter((tab) => !tab.pinned)];
     this.saveTabs();
     this.changed();
   }
@@ -758,17 +831,23 @@ export class Vault {
   }
 
   private saveTabs() {
-    this.options.store.set(this.tabsKey, this.tabs.map((tab) => tab.path).filter((path) => path !== null));
+    const withPaths = this.tabs.filter((tab) => tab.path !== null);
+    this.options.store.set(this.tabsKey, withPaths.map((tab) => tab.path));
     this.options.store.set(this.tabsKey + ":active", this.activeIndex ?? 0);
+    // Pinned tabs are always the leftmost ones, so their number is enough.
+    this.options.store.set(this.tabsKey + ":pinned", withPaths.filter((tab) => tab.pinned).length || undefined);
   }
 
   /** Reopens the tabs that were open when this vault was last closed. */
   private restoreTabs() {
-    const paths = (this.options.store.get<string[]>(this.tabsKey) ?? []).filter(
-      (path) => typeof path === "string" && P.isNote(path) && fsx.exists(this.abs(path)),
-    );
+    const stored = (this.options.store.get<string[]>(this.tabsKey) ?? []).filter((path) => typeof path === "string" && P.isNote(path));
+    let pinnedCount = Math.max(0, Math.min(this.options.store.get<number>(this.tabsKey + ":pinned") ?? 0, stored.length));
+    const paths: { path: string; pinned: boolean }[] = [];
+    stored.forEach((path, index) => {
+      if (fsx.exists(this.abs(path))) paths.push({ path, pinned: index < pinnedCount });
+    });
     if (!paths.length) return;
-    this.tabs = paths.map((path) => new EditorTab(path));
+    this.tabs = paths.map(({ path, pinned }) => new EditorTab(path, pinned));
     const active = Math.min(this.options.store.get<number>(this.tabsKey + ":active") ?? 0, this.tabs.length - 1);
     this.activateTab(this.tabs[Math.max(0, active)].id);
   }
@@ -1142,6 +1221,8 @@ export class Vault {
     if (this.selection) this.selection = remap(this.selection);
     if (this.renaming) this.renaming = remap(this.renaming);
     this.recentNotes = this.recentNotes.map(remap);
+    this.bookmarks = this.bookmarks.map(remap);
+    this.options.store.set(this.bookmarksKey, this.bookmarks.length ? this.bookmarks : undefined);
     this.options.store.set(this.recentNotesKey, this.recentNotes);
 
     // Rewrite links in other notes.
@@ -2229,8 +2310,10 @@ export class Vault {
           title: tab.path ? P.stem(tab.path) : "New Tab",
           isDirty: doc?.isDirty ?? false,
           hasWarning: Boolean(doc && (doc.conflict || doc.isMissingOnDisk)),
+          pinned: tab.pinned,
         };
       }),
+      bookmarks: this.bookmarks,
       activeTabId: this.activeTabId,
       canGoBack: this.canGoBack,
       canGoForward: this.canGoForward,

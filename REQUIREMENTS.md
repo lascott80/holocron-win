@@ -286,6 +286,7 @@ All destructive or structural operations show an **undo toast** (§11.10). Error
 - **TAB-09 Recent vaults**: `recentVaultPaths`, max **8**, most recent first; missing folders dropped at launch; opening a missing one — "The folder “X” no longer exists." — removes it.
 - **TAB-10 Launch**: if "Reopen the last vault" is on (default) open the most recent vault; then, if "Open today’s note when Holocron starts" is on, open the daily note.
 - **TAB-11 Saving triggers on lifecycle**: app deactivation and quit save everything; closing a vault saves everything and stops watching.
+- **TAB-12 Pinned tabs** (*Windows*): a tab's context menu (or File › Pin Tab, palette) pins it. Pinned tabs gather at the left in the order pinned (a drag can't move one out of the group or an unpinned one in); they show a pin instead of the close button (click unpins; the unsaved dot moves onto it). Ctrl+W, middle-click and Close Other / to the Right skip them (beep for Ctrl+W); only deleting the note closes one. Opening another note while a pinned tab is active opens it in a new tab right after the pinned group, so the pinned note stays. Remembered with the open tabs (`openTabs:<root>:pinned` = how many of the leftmost are pinned).
 
 **Acceptance**: opening into the active tab vs new tab; empty tab reuse; closing picks the right neighbour; ⌘9 = last; back/forward skip deleted notes; switching saves; tabs restore with missing files dropped; unloading a conflicted note keeps both versions.
 
@@ -622,6 +623,7 @@ Added in the Windows port (0.2.0). All of it follows the live-preview rule: rend
 - **UI-10a Sort** (*Windows*): a sort button at the right of the Files header (and View › Sort Files, palette "Sort Files by …") orders the tree by **Name (A to Z)** (default), **Name (Z to A)**, **Last Modified** or **Created** (newest first); folders always come first, sorted the same way by their newest note. Setting `fileSort`. Time sorts make the rescan stat every note, so file times are only gathered then.
 - **UI-10b Multi-select** (*Windows*): Ctrl-click adds or removes a row (without opening it), Shift-click selects the range from the last plain click, Shift+↑/↓ grows it, Ctrl+A selects every visible row, Esc clears. The header shows "N selected". Delete, the context menu ("Move N Items to Recycle Bin") and dragging any selected row act on all of them (an item inside a selected folder isn’t moved twice). Main still knows one selected note — the one shown — so a plain click clears the rest.
 - **UI-14 Tags section** (collapsible, state persisted): up to 100 tags with counts; click → Quick Open "#tag".
+- **UI-14a Bookmarks section** (*Windows*; collapsible, `bookmarksExpanded`, above Files, hidden while empty): notes and folders bookmarked from their context menu (file tree or tab: "Add Bookmark" / "Remove Bookmark"), File › Bookmark This Note (Ctrl+D, ticked when the open note is bookmarked) or the palette. Rows show a note/folder icon, the title and a small bookmark glyph; the open note is highlighted. Click opens a note (Ctrl/middle-click: new tab) or selects a folder; drag reorders; right-click: Open in New Tab, Remove Bookmark, Show in File Explorer. Stored per vault (`bookmarks:<root>`), renamed/moved with the files, dropped when they disappear.
 - **UI-15 Bottom bar**: "+ New Note" and a New Folder button ("New Folder (⌥⌘N)").
 
 ### 11.3 Inspector
@@ -741,7 +743,7 @@ Stored per user (Mac: UserDefaults). Window with four tabs; the last tab is reme
 | (View menu) | View mode | `editorMode` | livePreview | livePreview / source / reading |
 | (Files header, View menu) | Sort files | `fileSort` | name | name / nameDesc / modified / created (UI-10a) |
 
-UI state also persisted: inspector visible (`showInspector`), inspector tab, tags section expanded, settings tab, per-vault tabs and recents (§7).
+UI state also persisted: inspector visible (`showInspector`), inspector tab, tags and bookmarks sections expanded, settings tab, per-vault tabs and recents (§7).
 
 ---
 

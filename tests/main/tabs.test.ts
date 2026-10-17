@@ -310,3 +310,86 @@ describe("EditorTab", () => {
     expect(tab.goBack(() => false)).toBe("New/a.md");
   });
 });
+
+describe("Pinned tabs", () => {
+  it("stay at the left, survive Ctrl+W and Close Others, and open links beside themselves", () => {
+    vault.open(a);
+    vault.open(b, true);
+    vault.open(c, true);
+    expect(tabPaths()).toEqual([a, b, c]);
+    const tabC = vault.tabs[2]!;
+    vault.togglePinTab(tabC.id);
+    expect(tabPaths()).toEqual([c, a, b]);
+    expect(vault.tabs[0]!.pinned).toBe(true);
+
+    vault.activateTab(tabC.id);
+    vault.closeActiveTab();
+    expect(tabPaths()).toEqual([c, a, b]); // refused
+
+    // Opening another note from a pinned tab opens a new tab after the pinned group.
+    vault.open(a);
+    expect(vault.activeTab?.path).toBe(a);
+    vault.activateTab(tabC.id);
+    temp.write("D.md", "d\n");
+    vault.open("D.md");
+    expect(tabPaths()).toEqual([c, "D.md", a, b]);
+    expect(vault.tabs[1]!.pinned).toBe(false);
+
+    vault.closeOtherTabs(vault.tabs[1]!.id);
+    expect(tabPaths()).toEqual([c, "D.md"]);
+
+    // A drag can't pull a pinned tab out of the group.
+    vault.moveTab(tabC.id, vault.tabs[1]!.id);
+    expect(tabPaths()).toEqual([c, "D.md"]);
+
+    vault.togglePinTab(tabC.id);
+    expect(vault.tabs[0]!.pinned).toBe(false);
+    vault.closeTab(tabC.id);
+    expect(tabPaths()).toEqual(["D.md"]);
+  });
+
+  it("are remembered between sessions and closed when their note is deleted", async () => {
+    vault.open(a);
+    vault.open(b, true);
+    vault.togglePinTab(vault.tabs[1]!.id);
+    expect(tabPaths()).toEqual([b, a]);
+    vault.close();
+    const again = temp.open({ saveDelay: 60_000 });
+    expect(again.tabs.map((tab) => [tab.path, tab.pinned])).toEqual([
+      [b, true],
+      [a, false],
+    ]);
+    again.closeTabsShowing(b);
+    expect(again.tabs.map((tab) => tab.path)).toEqual([a]);
+    again.close();
+  });
+});
+
+describe("Bookmarks", () => {
+  it("toggle, reorder, follow renames and drop deleted items", () => {
+    vault.toggleBookmark(a);
+    vault.toggleBookmark("Folder");
+    vault.toggleBookmark(c);
+    expect(vault.bookmarks).toEqual([a, "Folder", c]);
+    expect(vault.isBookmarked("Folder")).toBe(true);
+    vault.toggleBookmark("Folder");
+    expect(vault.bookmarks).toEqual([a, c]);
+    vault.moveBookmark(c, a);
+    expect(vault.bookmarks).toEqual([c, a]);
+    vault.toggleBookmark("Missing.md"); // can't bookmark what isn't there
+    expect(vault.bookmarks).toEqual([c, a]);
+
+    vault.rename(a, "Renamed");
+    expect(vault.bookmarks).toEqual([c, "Renamed.md"]);
+
+    temp.remove(c);
+    vault.reload();
+    expect(vault.bookmarks).toEqual(["Renamed.md"]);
+
+    // Stored per vault.
+    vault.close();
+    const again = temp.open({ saveDelay: 60_000 });
+    expect(again.bookmarks).toEqual(["Renamed.md"]);
+    again.close();
+  });
+});

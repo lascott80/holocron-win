@@ -368,7 +368,9 @@
         { label: `Move ${items.length} Items to Recycle Bin`, destructive: true, run: () => run("requestDeletion", items) },
       ];
     }
+    const bookmarked = app.vault?.bookmarks.includes(path) ?? false;
     const trash: MenuEntry[] = [
+      { label: bookmarked ? "Remove Bookmark" : "Add Bookmark", run: () => run("toggleBookmark", path) },
       { label: "Show in File Explorer", run: () => run("showInFolder", path) },
       "-",
       { label: "Move to Recycle Bin", destructive: true, run: () => run("requestDeletion", [path]) },
