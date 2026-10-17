@@ -7,13 +7,18 @@
   import { app } from "../lib/app.svelte";
   import { call, editor } from "../lib/host";
   import { editorVariables } from "../lib/theme";
+  import { zoomText } from "../lib/commands";
 
   let { visible }: { visible: boolean } = $props();
   let dragging = $state(false);
+  let host: HTMLDivElement;
 
   onMount(() => {
     // The editor module looks up #editor and announces "ready" when it loads.
     void import("@editor/main.js");
+    // Not passive: it has to stop Chromium's own page zoom.
+    host.addEventListener("wheel", onWheel, { passive: false });
+    return () => host.removeEventListener("wheel", onWheel);
   });
 
   $effect(() => {
@@ -44,6 +49,19 @@
     dragging = true;
   }
 
+  // Ctrl+scroll (or a touchpad pinch, which Chromium reports as Ctrl+wheel) zooms the text.
+  let wheelZoom = 0;
+  function onWheel(event: WheelEvent) {
+    if (!event.ctrlKey || (event.target as Element | null)?.closest?.(".hc-diagram-viewer")) return;
+    event.preventDefault();
+    wheelZoom += event.deltaY;
+    // A mouse notch is ~100; pinches send many small deltas.
+    while (Math.abs(wheelZoom) >= 50) {
+      zoomText(wheelZoom > 0 ? -1 : 1);
+      wheelZoom -= Math.sign(wheelZoom) * 50;
+    }
+  }
+
   async function onDrop(event: DragEvent) {
     dragging = false;
     if (!hasFiles(event) || app.readingView) return;
@@ -65,6 +83,7 @@
   ondragovercapture={onDragOver}
   ondragleave={() => (dragging = false)}
   ondropcapture={onDrop}
+  bind:this={host}
 >
   <div id="editor"></div>
 </div>

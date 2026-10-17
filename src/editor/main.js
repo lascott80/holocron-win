@@ -41,6 +41,11 @@ import { Prec } from "@codemirror/state";
 import { mergeFrontmatterChanges, properties } from "./properties.js";
 import { linkAutocomplete, setVaultData, vaultDataSummary } from "./completions.js";
 import { holocronHighlight, holocronTheme } from "./theme.js";
+import { paragraphSpacing } from "./typography.js";
+import { footnotes } from "./footnotes.js";
+import { headingNavigation } from "./headings.js";
+import { tidyNote } from "./tidy.js";
+import { exportHtml } from "./exporter.js";
 import {
   insertLink,
   setHeading,
@@ -191,6 +196,8 @@ const rendering = [
   htmlRendering,
   properties,
   hoverPreview,
+  footnotes,
+  headingNavigation,
   richCopy({ post }), // copies rendered HTML alongside the markdown
 ];
 
@@ -233,6 +240,7 @@ const extensions = (mode) => [
   syntaxHighlighting(holocronHighlight),
   syntaxHighlighting(codeHighlight),
   firstLineHeading,
+  paragraphSpacing,
   tableEditing,
   closeBrackets(),
   linkAutocomplete,
@@ -308,6 +316,7 @@ const commands = {
   unfoldAll,
   copyMarkdown: copyMarkdown((text) => post({ type: "copy", text })),
   pastePlainText,
+  tidyNote,
 };
 
 window.holocron = {
@@ -508,6 +517,11 @@ window.holocron = {
 
   getText() {
     return view.state.doc.toString();
+  },
+
+  /** The note as a standalone HTML page for Export as PDF / HTML and Print (exporter.js). */
+  exportHtml(title) {
+    return exportHtml(view.state.doc.toString(), title);
   },
 };
 

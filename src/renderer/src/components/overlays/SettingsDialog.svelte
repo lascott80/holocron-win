@@ -8,12 +8,16 @@
     defaultSettings,
     FONT_SIZE_RANGE,
     LINE_WIDTH_RANGE,
+    LINE_HEIGHT_RANGE,
     normalizeShortcut,
     shortcutLabel,
     type Accent,
     type Appearance,
     type AttachmentLayout,
     type CaptureTarget,
+    type DarkImages,
+    type ParagraphSpacing,
+    type ReadingFont,
     type EditorFont,
     type Settings,
     type SettingsTab,
@@ -185,6 +189,17 @@
     { value: "serif", label: "Serif" },
     { value: "mono", label: "Monospaced" },
   ];
+  const readingFontOptions: { value: ReadingFont; label: string }[] = [{ value: "same", label: "Same" }, ...fontOptions];
+  const spacingOptions: { value: ParagraphSpacing; label: string }[] = [
+    { value: "compact", label: "Compact" },
+    { value: "normal", label: "Normal" },
+    { value: "relaxed", label: "Relaxed" },
+  ];
+  const darkImageOptions: { value: DarkImages; label: string }[] = [
+    { value: "normal", label: "As they are" },
+    { value: "dim", label: "Dimmed" },
+    { value: "invertLight", label: "Invert light ones" },
+  ];
   const accentKeys = ["theme", ...Object.keys(accents)] as Accent[];
   /** The theme on screen: its accent is what "Theme default" shows. */
   const shownTheme = $derived(activeTheme(app.state.isDark, s));
@@ -204,6 +219,8 @@
         | "quickCaptureEnabled"
         | "runInBackground"
         | "launchAtLogin"
+        | "codeLineNumbers"
+        | "showHeadingTrail"
       ),
   ) {
     return (checked: boolean) => app.setSetting(key, checked);
@@ -272,7 +289,7 @@
   {@render row(label, control, help, `setting-${key}`, Boolean(help))}
 {/snippet}
 
-{#snippet slider(key: "editorFontSize" | "editorLineWidth", range: readonly [number, number], step: number, label: string)}
+{#snippet slider(key: "editorFontSize" | "editorLineWidth" | "editorLineHeight", range: readonly [number, number], step: number, label: string, unit = " pt")}
   <div class="slider">
     <input
       type="range"
@@ -284,7 +301,7 @@
       style:--pct="{percent(s[key], range)}%"
       oninput={(event) => app.setSetting(key, Number(event.currentTarget.value))}
     />
-    <span class="slider-value">{s[key]} pt</span>
+    <span class="slider-value">{key === "editorLineHeight" ? s[key].toFixed(2) : s[key]}{unit}</span>
   </div>
 {/snippet}
 
@@ -438,6 +455,24 @@
             {#snippet width()}{@render slider("editorLineWidth", LINE_WIDTH_RANGE, 20, "Line width")}{/snippet}
             {@render row("Line width", width)}
           {/if}
+          {#snippet lineHeight()}{@render slider("editorLineHeight", LINE_HEIGHT_RANGE, 0.05, "Line spacing", "×")}{/snippet}
+          {@render row("Line spacing", lineHeight)}
+          {#snippet spacing()}
+            <Segmented label="Paragraph spacing" options={spacingOptions} value={s.paragraphSpacing} onchange={(value) => app.setSetting("paragraphSpacing", value)} />
+          {/snippet}
+          {@render row("Paragraph spacing", spacing, "How tall the blank lines between paragraphs are. Your notes don’t change.")}
+          {#snippet readingFont()}
+            <Segmented label="Reading view font" options={readingFontOptions} value={s.readingFont} onchange={(value) => app.setSetting("readingFont", value)} />
+          {/snippet}
+          {@render row("Reading view font", readingFont)}
+        </div>
+        <div class="group">
+          {#snippet darkImages()}
+            <Segmented label="Images in dark themes" options={darkImageOptions} value={s.darkImages} onchange={(value) => app.setSetting("darkImages", value)} />
+          {/snippet}
+          {@render row("Images in dark themes", darkImages, "Dimmed tones images down; Invert light ones flips mostly-white screenshots and diagrams so they don’t glare. Hover an image to see it as it is.")}
+          {@render switchRow("Show line numbers in code blocks (a block can also ask with “linenos”)", s.codeLineNumbers, toggle("codeLineNumbers"))}
+          {@render switchRow("Show the headings you’re in above the note while scrolling", s.showHeadingTrail, toggle("showHeadingTrail"))}
         </div>
         <div class="group">
           {@render textRow(

@@ -61,6 +61,10 @@ export function editorVariables(isDark: boolean, settings: Settings): Record<str
     "--hc-danger": p.danger,
     "--hc-font": editorFonts[settings.editorFont].css,
     "--hc-font-size": `${settings.editorFontSize}px`,
+    "--hc-line-height": String(settings.editorLineHeight),
+    // Blank lines between paragraphs, as a share of a full line.
+    "--hc-blank-scale": { compact: "0.45", normal: "1", relaxed: "1.6" }[settings.paragraphSpacing],
+    "--hc-reading-font": editorFonts[settings.readingFont === "same" ? settings.editorFont : settings.readingFont].css,
     // Off: the column grows with the window (the editor adds its 32 px side padding).
     "--hc-line-width": settings.readableLineLength ? `${settings.editorLineWidth}px` : "100vw",
   };
@@ -121,4 +125,9 @@ export function applyTheme(isDark: boolean, settings: Settings) {
   root.classList.toggle("hc-dark", isDark);
   root.classList.toggle("hc-light", !isDark);
   root.style.colorScheme = isDark ? "dark" : "light";
+  // Editor display options the editor's CSS reads (images.js, codeblocks.js, headingTrail.js).
+  root.classList.toggle("hc-images-dim", settings.darkImages === "dim");
+  root.classList.toggle("hc-images-invert", settings.darkImages === "invertLight");
+  root.classList.toggle("hc-code-line-numbers", settings.codeLineNumbers);
+  root.classList.toggle("hc-no-heading-trail", !settings.showHeadingTrail);
 }

@@ -455,8 +455,9 @@ function createMarked(options, state) {
   };
 
   const extensionRenderers = {
-    displayMath: ({ text }) => `<p style="${STYLES.displayMath}">${escapeHtml(text).replace(/\n/g, "<br>")}</p>\n`,
-    inlineMath: ({ text }) => `<code style="${STYLES.code}">${escapeHtml(text)}</code>`,
+    // options.math(tex, display) → HTML renders formulas (export); otherwise the TeX shows as code.
+    displayMath: ({ text }) => options.math?.(text, true) ?? `<p style="${STYLES.displayMath}">${escapeHtml(text).replace(/\n/g, "<br>")}</p>\n`,
+    inlineMath: ({ text }) => options.math?.(text, false) ?? `<code style="${STYLES.code}">${escapeHtml(text)}</code>`,
     callout(token) {
       const colours = calloutColours(token.kind);
       const title = token.title ? this.parser.parseInline(token.titleTokens) : escapeHtml(token.kind[0].toUpperCase() + token.kind.slice(1).toLowerCase());
@@ -509,6 +510,7 @@ function createMarked(options, state) {
  * - highlight(code, language) → HTML or null: syntax colours for code blocks.
  * - stripFrontmatter (default true): the text starts at the top of the note.
  * - context: the whole note, for footnote numbers and definitions outside the selection.
+ * - math(tex, display) → HTML: renders maths (export); without it the TeX shows as code.
  */
 export function markdownToHtml(markdown, options = {}) {
   const text = prepareMarkdown(markdown, options);

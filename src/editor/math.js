@@ -13,7 +13,15 @@ const FENCE = /^\s{0,3}(`{3,}|~{3,})/;
 const OPEN = /^\s{0,3}\$\$/;
 const CLOSE = /\$\$\s*$/;
 
-/** Every `$$ … $$` block (outside code and frontmatter): its range, the TeX and where the TeX starts. */
+/** A blockquote/callout line's `> ` markers: "> > $$" → "> > ". */
+const QUOTE = /^(?:\s{0,3}>[ \t]?)+/;
+
+/**
+ * Every `$$ … $$` block (outside code and frontmatter): its range, the TeX and
+ * where the TeX starts. Blocks inside blockquotes and callouts (every line
+ * starting with the same `>` markers) are found too, marked `quoted`; their
+ * range starts after the first line's markers so the quote stays drawn.
+ */
 export function findDisplayMath(doc) {
   const blocks = [];
   let n = 1;
@@ -22,6 +30,7 @@ export function findDisplayMath(doc) {
     while (end <= doc.lines && !/^(---|\.\.\.)\s*$/.test(doc.line(end).text)) end++;
     if (end <= doc.lines) n = end + 1;
   }
+  const depth = (prefix) => (prefix.match(/>/g) ?? []).length;
   for (; n <= doc.lines; n++) {
     const line = doc.line(n);
     const fence = FENCE.exec(line.text);
@@ -31,21 +40,39 @@ export function findDisplayMath(doc) {
       n++;
       continue;
     }
-    const open = OPEN.exec(line.text);
+    const prefix = QUOTE.exec(line.text)?.[0] ?? "";
+    const content = line.text.slice(prefix.length);
+    const open = OPEN.exec(content);
     if (!open) continue;
-    const sourceFrom = line.from + open[0].length;
-    const rest = line.text.slice(open[0].length);
+    const quoted = prefix !== "";
+    const from = line.from + prefix.length * Number(quoted);
+    const sourceFrom = from + open[0].length;
+    const rest = content.slice(open[0].length);
     if (CLOSE.test(rest)) {
       const source = rest.replace(CLOSE, "").trim();
-      if (source) blocks.push({ from: line.from, to: line.to, source, sourceFrom });
+      if (source) blocks.push({ from: quoted ? from : line.from, to: line.to, source, sourceFrom, quoted });
       continue;
     }
+    // Following lines, without their (matching) quote markers.
+    const parts = [rest];
     let end = n + 1;
-    while (end <= doc.lines && doc.line(end).text.trim() && !CLOSE.test(doc.line(end).text)) end++;
-    if (end > doc.lines || !doc.line(end).text.trim()) continue; // unclosed: leave it as text
+    let closed = false;
+    for (; end <= doc.lines; end++) {
+      const next = doc.line(end).text;
+      const nextPrefix = QUOTE.exec(next)?.[0] ?? "";
+      if (depth(nextPrefix) !== depth(prefix)) break;
+      const body = next.slice(nextPrefix.length);
+      if (!body.trim()) break;
+      parts.push(body);
+      if (CLOSE.test(body)) {
+        closed = true;
+        break;
+      }
+    }
+    if (!closed) continue; // unclosed: leave it as text
     const last = doc.line(end);
-    const source = doc.sliceString(sourceFrom, last.to).replace(CLOSE, "").trim();
-    if (source) blocks.push({ from: line.from, to: last.to, source, sourceFrom });
+    const source = parts.join("\n").replace(CLOSE, "").trim();
+    if (source) blocks.push({ from: quoted ? from : line.from, to: last.to, source, sourceFrom, quoted });
     n = end;
   }
   return blocks;
@@ -115,7 +142,7 @@ export function inlineMathIn(state, from, to, blocks = findDisplayMath(state.doc
   for (let pos = doc.lineAt(from).from; pos <= to; ) {
     const line = doc.lineAt(pos);
     pos = line.to + 1;
-    if (!line.text.includes("$") || blocks.some((b) => b.from <= line.from && b.to >= line.to)) continue;
+    if (!line.text.includes("$") || blocks.some((b) => doc.lineAt(b.from).from <= line.from && b.to >= line.to)) continue;
     const excluded = [];
     tree.iterate({
       from: line.from,
@@ -219,7 +246,8 @@ function buildBlocks(state) {
       continue;
     }
     const widget = new MathWidget(block.source, true, block.sourceFrom);
-    decorations.push(Decoration.replace({ widget, block: true }).range(block.from, block.to));
+    // Inside a quote or callout the first line's ">" stays, so the block sits in the quote's lines.
+    decorations.push(Decoration.replace({ widget, block: !block.quoted }).range(block.from, block.to));
   }
   return { blocks, editing, decorations: Decoration.set(decorations, true) };
 }

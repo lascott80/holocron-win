@@ -1,5 +1,7 @@
 // Fenced code blocks: syntax colouring for common languages, plus a
-// language label and a Copy button in the block's corner.
+// language label (or the block's title) and a Copy button in the block's
+// corner. The info string can also number the lines and highlight some:
+// ```ts title="sync.ts" {2,4-5} linenos``` (Settings can number every block).
 import { Decoration, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
 import { HighlightStyle, LanguageDescription, LanguageSupport, StreamLanguage, syntaxTree } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
@@ -127,21 +129,53 @@ export const codeHighlight = HighlightStyle.define([
   { tag: [t.meta, t.annotation, t.self, t.labelName], color: syn("meta", "#C3A6FF") },
 ]);
 
+// ---------- Info string ----------
+
+/**
+ * What a fence's info string asks for: `ts title="sync.ts" {2,4-5} linenos` →
+ * { language: "ts", title: "sync.ts", highlight: Set {2, 4, 5}, lineNumbers: true }.
+ */
+export function parseCodeInfo(info) {
+  const text = String(info ?? "").trim();
+  const language = /^[^\s{]+/.exec(text)?.[0] ?? "";
+  const title = /\btitle\s*=\s*(?:"([^"]*)"|'([^']*)'|(\S+))/.exec(text);
+  const highlight = new Set();
+  const ranges = /\{([\d,\s-]+)\}/.exec(text);
+  for (const part of ranges?.[1].split(",") ?? []) {
+    const [from, to] = part.split("-").map((n) => Number(n.trim()));
+    if (!(from > 0)) continue;
+    for (let n = from; n <= (to >= from ? Math.min(to, from + 2000) : from); n++) highlight.add(n);
+  }
+  return {
+    language: language.includes("=") ? "" : language,
+    title: title ? (title[1] ?? title[2] ?? title[3]) : null,
+    highlight,
+    lineNumbers: /(^|\s)(linenos|showLineNumbers|numbered)(\s|$)/.test(text),
+  };
+}
+
 // ---------- Label & copy button ----------
 
 class CodeToolsWidget extends WidgetType {
-  constructor(language, code, onCopy) {
+  constructor(language, code, onCopy, title = null) {
     super();
     this.language = language;
     this.code = code;
     this.onCopy = onCopy;
+    this.title = title;
   }
   eq(other) {
-    return other.language === this.language && other.code === this.code;
+    return other.language === this.language && other.code === this.code && other.title === this.title;
   }
   toDOM() {
     const tools = document.createElement("span");
     tools.className = "cm-code-tools";
+    if (this.title) {
+      const title = document.createElement("span");
+      title.className = "cm-code-title";
+      title.textContent = this.title;
+      tools.appendChild(title);
+    }
     if (this.language) {
       const label = document.createElement("span");
       label.className = "cm-code-language";
@@ -201,7 +235,19 @@ export function codeBlockTools(onCopy) {
               }
               const code = codeFrom === null ? "" : doc.sliceString(codeFrom, codeTo);
               const firstLine = doc.lineAt(node.from);
-              widgets.push(Decoration.widget({ widget: new CodeToolsWidget(info.split(/\s+/)[0], code, onCopy), side: 1 }).range(firstLine.to));
+              const parsed = parseCodeInfo(info);
+              widgets.push(Decoration.widget({ widget: new CodeToolsWidget(parsed.language, code, onCopy, parsed.title), side: 1 }).range(firstLine.to));
+              // Number (and highlight) the code lines, not the fences.
+              if (codeFrom !== null && parsed.language.toLowerCase() !== "mermaid") {
+                const first = doc.lineAt(codeFrom).number;
+                const last = doc.lineAt(codeTo).number;
+                for (let n = first; n <= last; n++) {
+                  const classes = ["cm-code-line"];
+                  if (parsed.lineNumbers) classes.push("cm-code-numbered");
+                  if (parsed.highlight.has(n - first + 1)) classes.push("cm-code-highlighted");
+                  widgets.push(Decoration.line({ class: classes.join(" "), attributes: { "data-ln": String(n - first + 1) } }).range(doc.line(n).from));
+                }
+              }
               return false;
             },
           });

@@ -1,6 +1,12 @@
 // Renders a single line of inline markdown to DOM, for places drawn outside
-// the editor's own live preview (table cells). Links and tags get the same
-// classes as in the editor, so clicking them works the same way.
+// the editor's own live preview (table cells, footnote previews). Links and
+// tags get the same classes as in the editor, so clicking them works the same
+// way. Other inline HTML (<span style>, <a href>, <img>, <abbr title>…) goes
+// through the notes' HTML sanitiser (html.js).
+import { sanitizeHtml } from "./html.js";
+
+/** Inline HTML elements a cell can hold, rendered by the sanitiser (attributes and all). */
+const INLINE_HTML = /^<(span|a|abbr|code|strong|em|b|i|u|s|del|ins|q|cite|small|mark|kbd|sup|sub|font|time|var|dfn)\b[^>]*>[\s\S]*?<\/\1\s*>|^<(?:img|wbr)\b[^>]*\/?>/i;
 
 const RULES = [
   // [pattern, build(match) → Node]
@@ -30,6 +36,7 @@ const RULES = [
   }],
   [/^<(kbd|mark|sup|sub|u|b|i|s|small)>(.+?)<\/\1>/i, (m) => wrap(m[1].toLowerCase(), m[2], `cm-html-${m[1].toLowerCase()}`)],
   [/^<br\s*\/?>/i, () => document.createElement("br")],
+  [INLINE_HTML, (m) => sanitizeHtml(m[0])],
 ];
 
 function element(tag, className, text) {

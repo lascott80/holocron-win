@@ -4,8 +4,8 @@
 
 import { app } from "./app.svelte";
 import { accents, activeTheme, themes } from "./theme";
-import { editor, run } from "./host";
-import { shortcutLabel, type Accent, type Appearance, type EditorMode } from "@shared/settings";
+import { call, editor, run } from "./host";
+import { defaultSettings, FONT_SIZE_RANGE, shortcutLabel, type Accent, type Appearance, type EditorMode } from "@shared/settings";
 import type { MenuEntry } from "./menu.svelte";
 
 export interface Command {
@@ -24,6 +24,20 @@ export interface Command {
   hidden?: boolean;
   /** The shortcut is a system-wide one (registered by main): shown, never bound in the window. */
   globalShortcut?: boolean;
+}
+
+/** Text zoom: one point bigger (1) or smaller (-1), or back to the default size (0). Also Ctrl+scroll over a note. */
+export function zoomText(step: -1 | 0 | 1) {
+  const [min, max] = FONT_SIZE_RANGE;
+  const size = step === 0 ? defaultSettings.editorFontSize : Math.min(max, Math.max(min, app.settings.editorFontSize + step));
+  if (size !== app.settings.editorFontSize) app.setSetting("editorFontSize", size);
+}
+
+/** Export as PDF / HTML and Print: the editor builds the page, the app saves or prints it (FOP-12). */
+async function exportNote(format: "pdf" | "html" | "print") {
+  const title = app.doc?.title ?? "Note";
+  const html = await editor()?.exportHtml(title);
+  if (html) await call("exportNote", format, html);
 }
 
 const hasVault = () => app.vault !== null;
@@ -75,6 +89,9 @@ export const commands: Command[] = [
   { id: "closeTab", title: "Close Tab", shortcut: "Ctrl+W", alsoKeys: ["Ctrl+F4"], enabled: () => (app.vault?.tabs.length ?? 0) > 0, run: () => run("closeActiveTab") },
   { id: "closeVault", title: "Close Vault", shortcut: "Ctrl+Shift+W", enabled: hasVault, run: () => run("closeVault") },
   { id: "showVaultInExplorer", title: "Show Vault in File Explorer", enabled: hasVault, run: () => run("showVaultInFolder") },
+  { id: "exportPdf", title: "Export as PDF…", enabled: hasNote, run: () => void exportNote("pdf") },
+  { id: "exportHtml", title: "Export as HTML…", enabled: hasNote, run: () => void exportNote("html") },
+  { id: "print", title: "Print…", shortcut: "Ctrl+P", enabled: hasNote, run: () => void exportNote("print") },
   { id: "organiseAttachments", title: "Organise Attachments…", enabled: hasVault, run: () => run("requestAttachmentOrganise") },
   { id: "organiseNoteAttachments", title: "Organise This Note’s Attachments…", enabled: hasNote, run: () => run("requestAttachmentOrganise", app.doc?.path) },
   { id: "cleanUpAttachments", title: "Clean Up Unused Attachments…", enabled: hasVault, run: () => run("requestAttachmentCleanup") },
@@ -101,6 +118,9 @@ export const commands: Command[] = [
   { id: "toggleInspector", title: "Toggle Inspector", shortcut: "Ctrl+Alt+I", enabled: hasVault, checked: () => app.settings.showInspector, run: () => app.setSetting("showInspector", !app.settings.showInspector) },
   { id: "readableLineLength", title: "Readable Line Length", checked: () => app.settings.readableLineLength, run: () => app.setSetting("readableLineLength", !app.settings.readableLineLength) },
   { id: "toggleFormattingBar", title: "Show Formatting Bar", checked: () => app.settings.showFormattingBar, run: () => app.setSetting("showFormattingBar", !app.settings.showFormattingBar) },
+  { id: "zoomIn", title: "Zoom In", shortcut: "Ctrl+=", alsoKeys: ["Ctrl+Shift++", "Ctrl++"], run: () => zoomText(1) },
+  { id: "zoomOut", title: "Zoom Out", shortcut: "Ctrl+-", run: () => zoomText(-1) },
+  { id: "zoomReset", title: "Actual Size", shortcut: "Ctrl+0", run: () => zoomText(0) },
   ...modes.map(({ mode, title }): Command => ({
     id: `mode:${mode}`,
     title: `View Mode: ${title}`,
@@ -148,6 +168,7 @@ export const commands: Command[] = [
   { id: "codeBlock", title: "Code Block", enabled: canFormat, run: ed("codeBlock") },
   { id: "callout", title: "Callout", enabled: canFormat, run: ed("callout") },
   { id: "divider", title: "Divider", enabled: canFormat, run: ed("divider") },
+  { id: "tidyNote", title: "Tidy Note", shortcut: "Ctrl+Alt+L", enabled: canFormat, run: ed("tidyNote") },
   { id: "heading1", title: "Heading 1", shortcut: "Ctrl+Alt+1", editorKey: true, enabled: canFormat, run: ed("heading1") },
   { id: "heading2", title: "Heading 2", shortcut: "Ctrl+Alt+2", editorKey: true, enabled: canFormat, run: ed("heading2") },
   { id: "heading3", title: "Heading 3", shortcut: "Ctrl+Alt+3", editorKey: true, enabled: canFormat, run: ed("heading3") },
@@ -208,19 +229,19 @@ export function runCommand(id: string) {
 export const menus: { title: string; items: (string | { title: string; items: string[] })[] }[] = [
   {
     title: "File",
-    items: ["newNote", "newNoteFromTemplate", "newFolder", "newTab", "-", "quickCapture", "quickOpen", "commandPalette", "-", "openVault", "createVault", "-", "save", "closeTab", "closeVault", "-", "showNoteInExplorer", "showVaultInExplorer", "-", { title: "Attachments", items: ["organiseAttachments", "organiseNoteAttachments", "-", "cleanUpAttachments", "emptyUnusedAttachments", "-", "undoAttachmentChange"] }, "-", "settings", "-", "quitApp"],
+    items: ["newNote", "newNoteFromTemplate", "newFolder", "newTab", "-", "quickCapture", "quickOpen", "commandPalette", "-", "openVault", "createVault", "-", "save", "closeTab", "closeVault", "-", "showNoteInExplorer", "showVaultInExplorer", "-", "exportPdf", "exportHtml", "print", "-", { title: "Attachments", items: ["organiseAttachments", "organiseNoteAttachments", "-", "cleanUpAttachments", "emptyUnusedAttachments", "-", "undoAttachmentChange"] }, "-", "settings", "-", "quitApp"],
   },
   { title: "Edit", items: ["undo", "redo", "-", "copyMarkdown", "pastePlainText", "-", "find", "findNext", "findPrevious", "searchVault"] },
   {
     title: "View",
-    items: ["toggleSidebar", "toggleInspector", "toggleFormattingBar", "readableLineLength", "-", "mode:livePreview", "mode:source", "mode:reading", "-", "toggleReading", "toggleSource", "focusMode", "-", "foldHeading", "unfoldHeading", "foldAllHeadings", "unfoldAll"],
+    items: ["toggleSidebar", "toggleInspector", "toggleFormattingBar", "readableLineLength", "-", "zoomIn", "zoomOut", "zoomReset", "-", "mode:livePreview", "mode:source", "mode:reading", "-", "toggleReading", "toggleSource", "focusMode", "-", "foldHeading", "unfoldHeading", "foldAllHeadings", "unfoldAll"],
   },
   { title: "Go", items: ["today", "previousDaily", "nextDaily", "-", "back", "forward", "-", "nextTab", "previousTab"] },
   {
     title: "Format",
     items: [
       "insertTemplate", "-", "bold", "italic", "strikethrough", "highlight", "code", "link", "-", "task", "bulletList", "numberedList", "quote", "-",
-      "codeBlock", "callout", "divider",
+      "codeBlock", "callout", "divider", "-", "tidyNote",
       { title: "Table", items: ["table", "convertToTable", "-", "tableInsertRowAbove", "tableInsertRowBelow", "tableInsertColumnLeft", "tableInsertColumnRight", "-", "tableMoveRowUp", "tableMoveRowDown", "tableMoveColumnLeft", "tableMoveColumnRight", "-", "tableDeleteRow", "tableDeleteColumn"] },
       "-", "heading1", "heading2", "heading3", "heading0",
     ],

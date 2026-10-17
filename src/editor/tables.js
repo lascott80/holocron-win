@@ -3,7 +3,7 @@
 // tidy the column alignment and move between cells; Tab in the last cell
 // adds a row. The grid's own row/column controls live in tableTools.js.
 import { EditorSelection, StateField } from "@codemirror/state";
-import { Decoration, EditorView, WidgetType } from "@codemirror/view";
+import { Decoration, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
 import { focusChanged, focusTracking, isEditing, setFocused } from "./focus.js";
 import { renderInline } from "./inline.js";
 import { addTableControls } from "./tableTools.js";
@@ -134,6 +134,8 @@ class TableWidget extends WidgetType {
     if (!view.state.readOnly && view.state.facet(EditorView.editable)) {
       wrapper.classList.add("cm-table-editable");
       addTableControls(view, wrapper, this.table);
+    } else if (this.table.rows.length > 1) {
+      makeSortable(head, body);
     }
     return wrapper;
   }
@@ -141,6 +143,75 @@ class TableWidget extends WidgetType {
     return false;
   }
 }
+
+// ---------- Reading view: sorting and a header that stays in view ----------
+
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+/** Compares two cells' text: numbers (also "1,200", "45%", "$3.50") by value, the rest naturally; empty cells last. */
+export function compareCells(a, b) {
+  const x = a.trim();
+  const y = b.trim();
+  if (!x || !y) return !x && !y ? 0 : !x ? 1 : -1;
+  const number = (text) => (/^[-+]?[$€£¥]?\s?[\d,]*\.?\d+\s?%?$/.test(text) ? Number(text.replace(/[^\d.+-]/g, "")) : NaN);
+  const nx = number(x);
+  const ny = number(y);
+  if (!Number.isNaN(nx) && !Number.isNaN(ny)) return nx - ny;
+  return collator.compare(x, y);
+}
+
+/** Clicking a header cell sorts the rows by it (ascending, descending, then back to the note's order). Display only. */
+function makeSortable(head, body) {
+  const original = [...body.rows];
+  let column = -1;
+  let direction = 0;
+  for (const [index, th] of [...head.rows[0].cells].entries()) {
+    th.classList.add("cm-table-sortable");
+    th.title = "Sort by this column";
+    th.addEventListener("click", (event) => {
+      if (event.target instanceof Element && event.target.closest(".cm-wikilink, .cm-md-link, .cm-tag")) return;
+      direction = column === index ? (direction === 1 ? -1 : direction === -1 ? 0 : 1) : 1;
+      column = direction ? index : -1;
+      const rows = direction
+        ? [...original].sort((a, b) => direction * compareCells(a.cells[index]?.textContent ?? "", b.cells[index]?.textContent ?? ""))
+        : original;
+      body.replaceChildren(...rows);
+      for (const cell of head.rows[0].cells) cell.removeAttribute("aria-sort");
+      if (direction) th.setAttribute("aria-sort", direction > 0 ? "ascending" : "descending");
+    });
+  }
+}
+
+/** Keeps each table's header row in view while the rest of a tall table scrolls past (like a sticky header). */
+const stickyHeaders = ViewPlugin.fromClass(
+  class {
+    constructor(view) {
+      this.view = view;
+      this.onScroll = () => this.place();
+      view.scrollDOM.addEventListener("scroll", this.onScroll, { passive: true });
+    }
+    update(update) {
+      if (update.docChanged || update.geometryChanged || update.viewportChanged) this.place();
+    }
+    place() {
+      const top = this.view.scrollDOM.getBoundingClientRect().top;
+      // Below the heading trail when it's showing.
+      const trail = this.view.dom.querySelector(".cm-heading-trail.is-shown");
+      const limit = top + (trail ? trail.getBoundingClientRect().height : 0);
+      for (const head of this.view.contentDOM.querySelectorAll(".cm-table-widget thead")) {
+        const table = head.parentElement;
+        const box = table.getBoundingClientRect();
+        const height = head.getBoundingClientRect().height;
+        const shift = Math.max(0, Math.min(limit - box.top, box.height - height * 2));
+        head.style.transform = shift > 0 ? `translateY(${shift}px)` : "";
+        head.classList.toggle("is-stuck", shift > 0);
+      }
+    }
+    destroy() {
+      this.view.scrollDOM.removeEventListener("scroll", this.onScroll);
+    }
+  },
+);
 
 function buildTables(state) {
   const decorations = [];
@@ -345,4 +416,5 @@ export const tables = [
   focusTracking,
   tableDecorations,
   tableClicks,
+  stickyHeaders,
 ];

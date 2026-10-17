@@ -24,6 +24,7 @@ export interface EditorApi {
   insertAtCursor(text: string): void;
   scrollToLine(line: number): void;
   getText(): string;
+  exportHtml(title: string): Promise<string>;
   [method: string]: unknown;
 }
 

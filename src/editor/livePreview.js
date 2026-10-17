@@ -57,8 +57,7 @@ class FootnoteRefWidget extends WidgetType {
     ref.className = "cm-footnote-ref";
     ref.textContent = String(this.number);
     ref.dataset.footnote = this.label;
-    ref.title = `Footnote ${this.label}`;
-    return ref;
+    return ref; // footnotes.js shows the footnote's text on hover
   }
   ignoreEvent() {
     return false;
@@ -333,6 +332,15 @@ function buildDecorations(view) {
       if (!definitions.has(key)) definitions.set(key, match[2]);
     }
     return definitions;
+  };
+  // The first footnote definition gets a "Footnotes" heading in reading view.
+  let firstDefinition;
+  const firstFootnoteLine = () => {
+    if (firstDefinition === undefined) {
+      const match = /^\[\^[^\]]+\]:/m.exec(doc.toString());
+      firstDefinition = match ? doc.lineAt(match.index).number : null;
+    }
+    return firstDefinition;
   };
   let footnoteNumbers = null;
   const footnoteNumber = (label) => {
@@ -660,7 +668,7 @@ function buildDecorations(view) {
       // Footnote definition: [^1]: text
       const definition = /^\[\^([^\]]+)\]:\s?/.exec(text);
       if (definition) {
-        lineClass(line.from, "cm-footnote-def");
+        lineClass(line.from, line.number === firstFootnoteLine() ? "cm-footnote-def cm-footnotes-start" : "cm-footnote-def");
         if (!lineActive) replaceWith(line.from, line.from + definition[0].length, new FootnoteDefWidget(footnoteNumber(definition[1]), definition[1]));
       }
       // Footnote references: text[^1]

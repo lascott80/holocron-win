@@ -10,6 +10,11 @@ export type EditorMode = "livePreview" | "source" | "reading";
 export type InspectorTab = "outline" | "links" | "info";
 export type SettingsTab = "general" | "appearance" | "editor" | "templates";
 export type CaptureTarget = "daily" | "inbox";
+export type ParagraphSpacing = "compact" | "normal" | "relaxed";
+/** The reading view's font: the editor's own ("same") or another one. */
+export type ReadingFont = "same" | EditorFont;
+/** How images look in dark themes: as they are, dimmed, or light images (screenshots, diagrams) inverted. */
+export type DarkImages = "normal" | "dim" | "invertLight";
 /** "perNote": each note's files in their own subfolder of the attachment folder; "single": all in it. */
 export type AttachmentLayout = "perNote" | "single";
 
@@ -28,6 +33,16 @@ export interface Settings {
   editorFont: EditorFont;
   editorFontSize: number;
   editorLineWidth: number;
+  /** Line height as a multiple of the text size. */
+  editorLineHeight: number;
+  /** How tall blank lines between paragraphs are. */
+  paragraphSpacing: ParagraphSpacing;
+  readingFont: ReadingFont;
+  darkImages: DarkImages;
+  /** Number the lines of every code block (a block can also ask with `linenos`). */
+  codeLineNumbers: boolean;
+  /** The sticky trail of headings above the note while you scroll. */
+  showHeadingTrail: boolean;
   /** Cap the text column at `editorLineWidth`; off = notes fill the window. */
   readableLineLength: boolean;
   attachmentFolder: string;
@@ -75,6 +90,12 @@ export const defaultSettings: Settings = {
   editorFont: "system",
   editorFontSize: 16,
   editorLineWidth: 720,
+  editorLineHeight: 1.65,
+  paragraphSpacing: "normal",
+  readingFont: "same",
+  darkImages: "normal",
+  codeLineNumbers: false,
+  showHeadingTrail: true,
   readableLineLength: true,
   attachmentFolder: "Attachments",
   attachmentLayout: "perNote",
@@ -102,8 +123,9 @@ export const defaultSettings: Settings = {
   settingsTab: "general",
 };
 
-export const FONT_SIZE_RANGE = [13, 24] as const;
+export const FONT_SIZE_RANGE = [12, 32] as const;
 export const LINE_WIDTH_RANGE = [560, 1100] as const;
+export const LINE_HEIGHT_RANGE = [1.3, 2.2] as const;
 
 /** Fills in defaults and clamps values read from disk (or anywhere untrusted). */
 export function sanitizeSettings(raw: Partial<Record<keyof Settings, unknown>>): Settings {
@@ -117,12 +139,18 @@ export function sanitizeSettings(raw: Partial<Record<keyof Settings, unknown>>):
   const clamp = (n: number, [lo, hi]: readonly [number, number]) => Math.min(hi, Math.max(lo, Math.round(n)));
   result.editorFontSize = clamp(result.editorFontSize, FONT_SIZE_RANGE);
   result.editorLineWidth = clamp(result.editorLineWidth, LINE_WIDTH_RANGE);
+  result.editorLineHeight = Number.isFinite(result.editorLineHeight)
+    ? Math.round(Math.min(LINE_HEIGHT_RANGE[1], Math.max(LINE_HEIGHT_RANGE[0], result.editorLineHeight)) * 20) / 20
+    : defaultSettings.editorLineHeight;
   const oneOf = <T extends string>(value: T, allowed: readonly T[], fallback: T) => (allowed.includes(value) ? value : fallback);
   result.appearance = oneOf(result.appearance, ["system", "dark", "light"], "system");
   result.accent = oneOf<Accent>(result.accent, ["theme", ...crystalIds], "kyber");
   result.darkTheme = oneOf(result.darkTheme, darkThemeIds, DEFAULT_DARK_THEME);
   result.lightTheme = oneOf(result.lightTheme, lightThemeIds, DEFAULT_LIGHT_THEME);
   result.editorFont = oneOf(result.editorFont, ["system", "serif", "mono"], "system");
+  result.paragraphSpacing = oneOf<ParagraphSpacing>(result.paragraphSpacing, ["compact", "normal", "relaxed"], "normal");
+  result.readingFont = oneOf<ReadingFont>(result.readingFont, ["same", "system", "serif", "mono"], "same");
+  result.darkImages = oneOf<DarkImages>(result.darkImages, ["normal", "dim", "invertLight"], "normal");
   result.editorMode = oneOf(result.editorMode, ["livePreview", "source", "reading"], "livePreview");
   result.lastEditingMode = oneOf(result.lastEditingMode, ["livePreview", "source"], "livePreview");
   result.inspectorTab = oneOf(result.inspectorTab, ["outline", "links", "info"], "outline");

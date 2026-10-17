@@ -31,7 +31,9 @@ export default async function ({ page, shot, vault }) {
   await image.hover();
   await page.waitForTimeout(300);
   await shot("hover-enlarge");
-  await page.locator(".cm-image-frame .cm-image-toolbar button").first().click();
+  // The button only shows on hover: click where a person would, with the pointer already over the image.
+  const enlarge = await page.locator(".cm-image-frame .cm-image-toolbar button").first().boundingBox();
+  await page.mouse.click(enlarge.x + enlarge.width / 2, enlarge.y + enlarge.height / 2);
   await page.waitForTimeout(600);
   log("Enlarge opens viewer:", await viewerOpen(page), "caption:", await caption(page), "zoom:", await percent(page));
   await shot("viewer-fit");
@@ -66,7 +68,9 @@ export default async function ({ page, shot, vault }) {
   await html.hover();
   await page.waitForTimeout(300);
   await shot("hover-html-img");
-  await page.locator(".cm-image-float button").click();
+  log("floating button shown:", await page.locator(".cm-image-float.is-shown").count());
+  const float = await page.locator(".cm-image-float button").boundingBox();
+  await page.mouse.click(float.x + float.width / 2, float.y + float.height / 2);
   await page.waitForTimeout(600);
   log("floating Enlarge on HTML img opens viewer:", await viewerOpen(page), "caption:", await caption(page));
   log("HTML still rendered (not opened for editing):", (await html.count()) > 0);

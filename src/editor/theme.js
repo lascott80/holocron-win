@@ -32,7 +32,10 @@ export const holocronTheme = EditorView.theme(
   {
     "&": { color: c.text, backgroundColor: c.bg, height: "100%", fontSize: v("font-size", "16px") },
     "&.cm-focused": { outline: "none" },
-    ".cm-scroller": { fontFamily: v("font", UI_FONT), lineHeight: "1.65", padding: "28px 0 35vh" },
+    ".cm-scroller": { fontFamily: v("font", UI_FONT), lineHeight: v("line-height", "1.65"), padding: "28px 0 35vh" },
+    "&.cm-mode-reading .cm-scroller": { fontFamily: `var(--hc-reading-font, ${v("font", UI_FONT)})` },
+    // Blank lines between paragraphs (typography.js), sized by Settings › Paragraph spacing.
+    ".cm-blank-line": { lineHeight: `calc(${v("line-height", "1.65")} * var(--hc-blank-scale, 1))` },
     ".cm-content": {
       maxWidth: `calc(${v("line-width", "720px")} + 64px)`,
       width: "100%",
@@ -320,6 +323,16 @@ export const holocronTheme = EditorView.theme(
     },
     ".cm-table-widget th": { backgroundColor: c.raised, fontWeight: "600", color: c.strong, textAlign: "left" },
     ".cm-table-widget tbody tr:nth-child(even) td": { backgroundColor: "rgba(127, 127, 127, 0.04)" },
+    // Wide tables scroll sideways instead of squashing every column.
+    ".cm-table-widget th, .cm-table-widget td:not(:empty)": { minWidth: "5.5em" },
+    // Header kept in view while a tall table scrolls past (tables.js).
+    ".cm-table-widget thead": { position: "relative", zIndex: "2" },
+    ".cm-table-widget thead.is-stuck th": { boxShadow: `0 2px 6px rgba(0, 0, 0, 0.12), inset 0 -1px 0 ${c.border}` },
+    // Reading view: click a header to sort (display only).
+    ".cm-table-widget th.cm-table-sortable": { cursor: "pointer", userSelect: "none" },
+    ".cm-table-widget th.cm-table-sortable:hover": { color: c.accent },
+    ".cm-table-widget th[aria-sort=ascending]::after": { content: '" ▲"', fontSize: "0.7em", color: c.accent },
+    ".cm-table-widget th[aria-sort=descending]::after": { content: '" ▼"', fontSize: "0.7em", color: c.accent },
     ".cm-table-raw": { fontFamily: MONO, fontSize: "14px" },
 
     // Table controls (tableTools.js): a gutter on the left for row handles,
@@ -422,6 +435,24 @@ export const holocronTheme = EditorView.theme(
       cursor: "pointer",
     },
     ".cm-code-copy:hover": { color: c.text, borderColor: c.muted },
+    ".cm-code-title": { fontSize: "11.5px", fontWeight: "600", color: c.muted, fontFamily: MONO },
+    // Line numbers (Settings › code line numbers, or `linenos` in the info string) and highlighted lines ({2,4-5}).
+    ".cm-codeblock.cm-code-numbered, :root.hc-code-line-numbers & .cm-codeblock.cm-code-line": { position: "relative", paddingLeft: "48px !important" },
+    ".cm-codeblock.cm-code-numbered::before, :root.hc-code-line-numbers & .cm-codeblock.cm-code-line::before": {
+      content: "attr(data-ln)",
+      position: "absolute",
+      left: "0",
+      width: "34px",
+      textAlign: "right",
+      color: c.faint,
+      fontSize: "0.92em",
+      userSelect: "none",
+      pointerEvents: "none",
+    },
+    ".cm-codeblock.cm-code-highlighted": {
+      backgroundImage: "linear-gradient(rgba(var(--hc-accent-rgb, 90, 180, 255), 0.13), rgba(var(--hc-accent-rgb, 90, 180, 255), 0.13))",
+      boxShadow: `inset 3px 0 0 ${c.accent}`,
+    },
 
     // Images
     // A line holding only an image or embed collapses once its syntax is

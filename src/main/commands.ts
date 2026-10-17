@@ -8,6 +8,7 @@ import { stem } from "@core/paths";
 import { defaultSettings, type Settings } from "@shared/settings";
 import { EDIT_ACTIONS, type EditAction } from "@shared/ipc";
 import { openExternalSafely } from "./editorBridge";
+import { exportNote, showExported, type ExportFormat } from "./exporter";
 import type { HolocronApp } from "./index";
 import type { Vault } from "./vault";
 
@@ -104,6 +105,21 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
       else if (app.recentVaults.includes(value)) void shell.openPath(value);
     },
     showVaultInFolder: () => app.vault && void shell.openPath(app.vault.root),
+    /** File › Export as PDF / HTML and Print: `html` is the page the editor built (src/editor/exporter.js). */
+    exportNote: withVault(async (vault, format, html) => {
+      const kind = str(format);
+      if (kind !== "pdf" && kind !== "html" && kind !== "print") throw new TypeError("Expected pdf, html or print");
+      const title = vault.activeTab?.path ? stem(vault.activeTab.path) : "Note";
+      try {
+        const result = await exportNote(app.window, kind as ExportFormat, str(html), title);
+        if (result.file) {
+          const file = result.file;
+          vault.showToast(`Exported “${title}” as ${kind.toUpperCase()}`, () => showExported(file), "Show in Folder");
+        }
+      } catch (error) {
+        vault.showError(`Couldn’t ${kind === "print" ? "print" : "export"} “${title}”: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }),
     addStarterGuide: () => app.addStarterGuide(),
     /** File › Exit Holocron: quits even when running in the background. */
     quitApp: () => app.quit(),

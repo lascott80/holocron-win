@@ -121,6 +121,7 @@ const CSS = `
 .hc-diagram-viewer-toolbar button:focus-visible { outline: 2px solid var(--hc-accent, #5AB4FF); outline-offset: -2px; }
 .hc-diagram-viewer-toolbar button svg { width: 16px; height: 16px; flex: none; }
 .hc-diagram-viewer-toolbar .hc-diagram-viewer-percent { min-width: 52px; font-variant-numeric: tabular-nums; }
+.hc-diagram-viewer-counter { min-width: 44px; text-align: center; font-size: 12px; color: var(--hc-muted, #8A919D); font-variant-numeric: tabular-nums; }
 .hc-diagram-viewer-toolbar .hc-diagram-viewer-copy { min-width: 112px; justify-content: flex-start; }
 .hc-diagram-viewer-toolbar .is-done { color: var(--hc-synced, #3DD68C); }
 .hc-diagram-viewer-sep { width: 1px; height: 18px; margin: 0 4px; background: var(--hc-border, #23272F); }
@@ -153,6 +154,8 @@ export const ICONS = {
   copy: icon('<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h.5"/>'),
   check: icon('<path d="M3 8.5 6.5 12 13 4.5"/>'),
   close: icon('<path d="M4 4l8 8M12 4l-8 8"/>'),
+  previous: icon('<path d="M10 3.5 5.5 8l4.5 4.5"/>'),
+  next: icon('<path d="M6 3.5 10.5 8 6 12.5"/>'),
 };
 
 const FIT_TOP = 36;
@@ -197,11 +200,14 @@ export function imageSize(naturalWidth, naturalHeight) {
 }
 
 /**
- * Opens the viewer on an image (`src` as the editor loads it). Fitting never
- * enlarges it past 100%, so small screenshots stay sharp; zooming can.
+ * Opens the viewer on an image (`src` as the editor loads it), or on
+ * `items[index]` of a note's images ({ src, name }), stepping with ← and →
+ * (while it fits the window), PageUp/PageDown or the ‹ › buttons. Fitting
+ * never enlarges it past 100%, so small screenshots stay sharp; zooming can.
  * "Copy image" puts the original on the clipboard as a PNG.
  */
-export async function openImageViewer({ src, name = "", returnFocus }) {
+export async function openImageViewer({ src, name = "", items = null, index = 0, returnFocus }) {
+  if (items?.length) ({ src, name } = items[Math.min(Math.max(0, index), items.length - 1)]);
   const image = new Image();
   image.alt = name;
   image.draggable = false;
@@ -224,6 +230,9 @@ export async function openImageViewer({ src, name = "", returnFocus }) {
     caption: name ? { title: name, detail: caption } : null,
     maxFitScale: 1,
     kind: "image",
+    nav: items && items.length > 1
+      ? { index, count: items.length, step: (delta) => void openImageViewer({ items, index: (index + delta + items.length) % items.length, returnFocus }) }
+      : null,
   });
 }
 
@@ -242,7 +251,7 @@ async function imagePng(src) {
   );
 }
 
-function openViewerOverlay({ nodes, size, copyImage, returnFocus, label, caption = null, maxFitScale = MAX_FIT_SCALE, kind }) {
+function openViewerOverlay({ nodes, size, copyImage, returnFocus, label, caption = null, maxFitScale = MAX_FIT_SCALE, kind, nav = null }) {
   openViewer?.close(true);
   injectStyle();
   const previous = document.activeElement;
@@ -336,6 +345,15 @@ function openViewerOverlay({ nodes, size, copyImage, returnFocus, label, caption
     apply(panBy(transform, dx, dy, size.width, size.height, width, height), animate);
   };
 
+  if (nav) {
+    button(ICONS.previous, "Previous image (←)", () => nav.step(-1));
+    const counter = document.createElement("span");
+    counter.className = "hc-diagram-viewer-counter";
+    counter.textContent = `${nav.index + 1} / ${nav.count}`;
+    toolbar.appendChild(counter);
+    button(ICONS.next, "Next image (→)", () => nav.step(1));
+    separator();
+  }
   button(ICONS.minus, "Zoom out (−)", () => zoomCentre(1 / 1.25));
   const percent = button("100%", "Actual size (1)", actualSize, "hc-diagram-viewer-percent");
   button(ICONS.plus, "Zoom in (+)", () => zoomCentre(1.25));
@@ -429,6 +447,13 @@ function openViewerOverlay({ nodes, size, copyImage, returnFocus, label, caption
     }
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     const step = event.shiftKey ? 200 : 60;
+    // ← and → step through images while the image fits; zoomed in, they pan.
+    if (nav && (event.key === "PageUp" || event.key === "PageDown" || (fitted && (event.key === "ArrowLeft" || event.key === "ArrowRight")))) {
+      event.preventDefault();
+      event.stopPropagation();
+      nav.step(event.key === "ArrowLeft" || event.key === "PageUp" ? -1 : 1);
+      return;
+    }
     const actions = {
       "+": () => zoomCentre(1.25),
       "=": () => zoomCentre(1.25),

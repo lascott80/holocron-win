@@ -78,7 +78,7 @@ const codeHighlighter = tagHighlighter([
 ]);
 
 /** A code block's HTML with coloured <span>s, or null if its language isn't loaded. */
-function highlightCode(code, language) {
+export function highlightCode(code, language) {
   const support = codeLanguage(language)?.support;
   if (!support) return null;
   let tree;
@@ -120,7 +120,7 @@ function getPurifier() {
  * work outside Holocron: only http/https/mailto links keep an href, local
  * images become data URIs (or alt text) and players become a file name.
  */
-function sanitizeForClipboard(html, images) {
+export function sanitizeForClipboard(html, images) {
   const clean = getPurifier().sanitize(html, { ...sanitizerConfig(), RETURN_DOM_FRAGMENT: false });
   // An inert document, so nothing loads while it's fixed up.
   const doc = new DOMParser().parseFromString(`<!doctype html><body>${clean}</body>`, "text/html");
@@ -178,7 +178,7 @@ function readAsDataUrl(blob) {
 }
 
 /** A vault image as a data URI at its paste size. Formats mail clients can't show (SVG, WebP…) are converted to PNG. */
-async function loadImage(url) {
+export async function loadImage(url) {
   const response = await fetch(url);
   if (!response.ok) return null;
   const blob = await response.blob();
@@ -206,7 +206,7 @@ async function loadImage(url) {
   }
 }
 
-async function loadDiagram(code) {
+export async function loadDiagram(code) {
   // Drawn at 2x for sharpness; width/height are the PNG's pixels, so halve them for CSS size.
   const result = await mermaidModule.diagramImage(code, { theme: "light", scale: 2 });
   return result?.dataUrl ? { src: result.dataUrl, ...fitted(result.width / 2, result.height / 2) } : null;
