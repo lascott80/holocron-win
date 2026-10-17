@@ -44,7 +44,14 @@ npm run dist
 ```
 
 Writes an NSIS installer to `dist/`. It's unsigned, so Windows SmartScreen
-asks for confirmation the first time.
+asks for confirmation the first time. The one installer holds both the x64
+and the arm64 app and installs whichever matches the PC (one `latest.yml`
+keeps auto-update simple). `predist` first installs both
+`@parcel/watcher-win32-*` binaries, since npm only fetches the one for the
+machine you build on. If an older build is running from `dist/`, build
+elsewhere with `npx electron-builder --win --publish never
+--config.directories.output=dist-<version>` after `npm run predist` and
+`npm run build`.
 
 ## Updates
 
