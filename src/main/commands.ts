@@ -267,6 +267,9 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
     allTags: withVault((vault) => vault.index.allTags()),
     notesTagged: withVault((vault, tag) => vault.index.notesTaggedWith(str(tag))),
     search: (query, matchCase, useRegex) => app.search.search(str(query), bool(matchCase), bool(useRegex)),
+    replaceInVault: withVault((vault, query, replacement, matchCase, useRegex, onlyPath) =>
+      vault.replaceInNotes(str(query), str(replacement), bool(matchCase), bool(useRegex), optStr(onlyPath)),
+    ),
     quickOpen: withVault((vault, query, limit) => {
       const notes = vault.allNotes.map((path) => ({ path, title: stem(path), aliases: vault.index.info(path)?.aliases ?? [], tags: vault.index.info(path)?.tags ?? [] }));
       return quickOpenSearch(notes, vault.recentNotes, str(query), typeof limit === "number" ? limit : 30);

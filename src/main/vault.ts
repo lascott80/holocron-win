@@ -27,6 +27,7 @@ import {
 } from "@core/attachmentUsage";
 import { VaultIndex } from "@core/vaultIndex";
 import { dailyNoteDate, dailyNotePath, renderPlaceholders } from "@core/dailyNotes";
+import { INVALID_REGEX_MESSAGE, parseQuery, replaceMatches, runSearch, type Replacement } from "@core/vaultSearch";
 import { noteText, renderTemplate } from "@core/templates";
 import { isPlaceholderName, titleFromContent } from "@core/autoTitle";
 import type { Settings } from "@shared/settings";
@@ -438,6 +439,68 @@ export class Vault {
     if (fragment === null || !document || !path) return;
     const line = lineOfFragment(fragment, document.text);
     if (line !== null) this.editor.reveal(path, line, 0, 0);
+  }
+
+  // MARK: Search and replace
+
+  /**
+   * Replaces every match of a search query across the vault (or in one note
+   * when `onlyPath` is given), SRCH-10. Open notes change through their
+   * document (unsaved edits kept, the editor updated in place); others are
+   * read fresh from disk and rewritten atomically. Shows a toast with Undo,
+   * which puts the previous text back in notes that haven't changed since.
+   */
+  replaceInNotes(input: string, replacement: string, matchCase: boolean, useRegex: boolean, onlyPath: string | null = null): { notes: number; matches: number } {
+    const query = parseQuery(input, { matchCase, useRegex });
+    let candidates: string[];
+    if (onlyPath) {
+      candidates = [onlyPath];
+    } else {
+      const outcome = runSearch(query, this.index.searchSnapshot(), Infinity, 0);
+      if (outcome.error) {
+        this.showError(outcome.error);
+        return { notes: 0, matches: 0 };
+      }
+      candidates = outcome.hits.map((hit) => hit.path);
+    }
+    const before = new Map<string, string>();
+    const after = new Map<string, string>();
+    let matches = 0;
+    for (const path of candidates) {
+      if (!this.index.hasPath(path)) continue;
+      const text = this.textFor(path);
+      if (text === null) continue;
+      let result: Replacement;
+      try {
+        result = replaceMatches(text, query, replacement);
+      } catch {
+        this.showError(INVALID_REGEX_MESSAGE);
+        return { notes: 0, matches: 0 };
+      }
+      if (result.count === 0 || result.text === text) continue;
+      before.set(path, text);
+      after.set(path, result.text);
+      matches += result.count;
+    }
+    if (after.size === 0) {
+      this.showToast("Nothing to replace");
+      return { notes: 0, matches: 0 };
+    }
+    for (const [path, text] of after) this.writeUpdatedLinks(path, text);
+    this.reload([...after.keys()]);
+    const notes = after.size;
+    this.showToast(`Replaced ${(matches === 1 ? "1 match" : `${matches} matches`)} in ${plural(notes, "note")}`, () => {
+      let restored = 0;
+      for (const [path, text] of before) {
+        // Only undo notes still showing the replacement; later edits win.
+        if (this.index.hasPath(path) && this.textFor(path) === after.get(path)) {
+          if (this.writeUpdatedLinks(path, text)) restored++;
+        }
+      }
+      this.reload([...before.keys()]);
+      if (restored < notes) this.showToast(`Restored ${plural(restored, "note")}; ${notes - restored === 1 ? "1 note has" : `${notes - restored} notes have`} changed since`, null, "Undo", true);
+    });
+    return { notes, matches };
   }
 
   // MARK: Saving

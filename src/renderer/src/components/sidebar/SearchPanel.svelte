@@ -1,7 +1,7 @@
 <!-- The sidebar's Search mode (§9.2, UI-20…UI-23): full-text search across the
      vault, results grouped per note with highlighted snippets. -->
 <script lang="ts">
-  import { ChevronRight, CircleX, Search } from "@lucide/svelte";
+  import { ChevronRight, CircleX, Replace, ReplaceAll, Search } from "@lucide/svelte";
   import { untrack } from "svelte";
   import { MAX_LINES_PER_NOTE, snippet, type LineMatch, type SearchHit, type SearchOutcome } from "@core/vaultSearch";
   import { app } from "../../lib/app.svelte";
@@ -117,6 +117,62 @@
     field?.focus();
   }
 
+  // ---- Replace (SRCH-10) ----
+  let replaceField = $state<HTMLInputElement>();
+  /** "Replace All" was clicked: the button asks once more before changing notes. */
+  let confirmingAll = $state(false);
+  let replacing = $state(false);
+  /** Only a text query (terms or a pattern) can be replaced; filters alone just pick notes. */
+  const canReplace = $derived(!isEmpty && outcome.totalMatches > 0 && !outcome.error && !s.isSearching);
+  const replaceSummary = $derived.by(() => {
+    const matches = outcome.totalMatches === 1 ? "1 match" : `${outcome.totalMatches.toLocaleString()} matches`;
+    const notes = outcome.hits.length === 1 ? "1 note" : `${outcome.hits.length.toLocaleString()}${outcome.truncated ? "+" : ""} notes`;
+    return `Replace ${matches} in ${notes}?`;
+  });
+
+  $effect(() => {
+    // A new query or replacement cancels a pending confirmation.
+    void app.searchText;
+    void s.replacement;
+    confirmingAll = false;
+  });
+
+  function toggleReplace() {
+    s.replaceOpen = !s.replaceOpen;
+    confirmingAll = false;
+    if (s.replaceOpen) setTimeout(() => replaceField?.focus(), 0);
+  }
+
+  async function replaceAll() {
+    if (!canReplace || replacing) return;
+    if (!confirmingAll) {
+      confirmingAll = true;
+      return;
+    }
+    confirmingAll = false;
+    await replaceIn(null);
+  }
+
+  async function replaceIn(path: string | null) {
+    replacing = true;
+    try {
+      await call("replaceInVault", app.searchText, s.replacement, s.matchCase, s.useRegex, path);
+    } finally {
+      replacing = false;
+    }
+  }
+
+  function onReplaceKeydown(event: KeyboardEvent) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void replaceAll();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      if (confirmingAll) confirmingAll = false;
+      else toggleReplace();
+    }
+  }
+
   function toggle(hit: SearchHit) {
     if (s.collapsed.has(hit.path)) s.collapsed.delete(hit.path);
     else s.collapsed.add(hit.path);
@@ -162,7 +218,41 @@
     {/if}
     <button class="option" class:on={s.matchCase} title="Match case" aria-label="Match case" aria-pressed={s.matchCase} onclick={() => (s.matchCase = !s.matchCase)}>Aa</button>
     <button class="option" class:on={s.useRegex} title="Regular expression" aria-label="Regular expression" aria-pressed={s.useRegex} onclick={() => (s.useRegex = !s.useRegex)}>.*</button>
+    <button class="option icon" class:on={s.replaceOpen} title="Replace" aria-label="Replace" aria-pressed={s.replaceOpen} onclick={toggleReplace}>
+      <Replace size={14} strokeWidth={2} />
+    </button>
   </div>
+
+  {#if s.replaceOpen}
+    <div class="replace">
+      <div class="field replace-field">
+        <ReplaceAll size={14} />
+        <input
+          bind:this={replaceField}
+          bind:value={s.replacement}
+          type="text"
+          placeholder="Replace with"
+          aria-label="Replace with"
+          spellcheck="false"
+          onkeydown={onReplaceKeydown}
+        />
+      </div>
+      {#if confirmingAll}
+        <div class="confirm" role="group" aria-label="Confirm replace all">
+          <span>{replaceSummary}</span>
+          <button class="button small" onclick={() => (confirmingAll = false)}>Cancel</button>
+          <button class="button small primary" onclick={replaceAll}>Replace</button>
+        </div>
+      {:else}
+        <div class="confirm">
+          <span class="replace-hint">
+            {#if s.useRegex}$1, $& and $$ work in the replacement.{:else}Each match becomes the text above; filters only pick notes.{/if}
+          </span>
+          <button class="button small primary" disabled={!canReplace || replacing} title="Replace every match in the notes listed (Enter)" onclick={replaceAll}>Replace All</button>
+        </div>
+      {/if}
+    </div>
+  {/if}
 
   {#if summary}
     <div class="summary">
@@ -193,6 +283,11 @@
               <span class="title">{hit.title}</span>
               {#if hit.matchCount > 0}<span class="count-chip">{hit.matchCount.toLocaleString()}</span>{/if}
             </button>
+            {#if s.replaceOpen && hit.matchCount > 0}
+              <button class="replace-one" title="Replace in this note" aria-label="Replace in “{hit.title}”" disabled={replacing} onclick={() => replaceIn(hit.path)}>
+                <Replace size={13} strokeWidth={2} />
+              </button>
+            {/if}
           </div>
           {#if open}
             {#each hit.lines as line (line.line)}
@@ -284,6 +379,66 @@
   .option.on {
     background: var(--ui-fill);
     color: #fff;
+  }
+  .option.icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .replace {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: -2px 0 6px;
+  }
+  .replace-field {
+    margin-bottom: 0;
+  }
+  .confirm {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    margin: 0 10px;
+    font-size: 12px;
+    color: var(--ui-text-2);
+  }
+  .confirm span {
+    flex: 1;
+    min-width: 0;
+  }
+  .replace-hint {
+    font-size: 11px;
+    color: var(--ui-text-3);
+    line-height: 1.35;
+  }
+  .button.small {
+    height: 24px;
+    padding: 0 10px;
+    font-size: 12px;
+  }
+  .replace-one {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 22px;
+    margin-right: 2px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--ui-text-3);
+    opacity: 0;
+  }
+  .hit-header:hover .replace-one,
+  .replace-one:focus-visible {
+    opacity: 1;
+  }
+  .replace-one:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--ui-strong-border) 55%, transparent);
+    color: var(--ui-text);
   }
   .summary {
     display: flex;

@@ -140,3 +140,42 @@ describe("Embed content", () => {
     expect(vault.embedContent("Dagobah")).toBeNull();
   });
 });
+
+describe("Search and replace", () => {
+  it("replaces across closed notes on disk and open notes through their document", async () => {
+    temp.write("Ilum.md", "Kyber grows on Ilum.\nMore kyber.\n");
+    temp.write("Lore/Kyber.md", "# Kyber\n\nkyber, Kyber.\n");
+    temp.write("Other.md", "Nothing here.\n");
+    const editor = recordingEditor();
+    const vault = temp.open({ editor });
+    await vault.indexingFinished();
+    vault.open("Lore/Kyber.md");
+    const result = vault.replaceInNotes("kyber", "crystal", false, false);
+    expect(result).toEqual({ notes: 2, matches: 5 });
+    expect(temp.read("Ilum.md")).toBe("crystal grows on Ilum.\nMore crystal.\n");
+    expect(vault.documents.get("Lore/Kyber.md")?.text).toBe("# crystal\n\ncrystal, crystal.\n");
+    expect(editor.calls.some((call) => call.method === "externalChange" && call.args[2] === "# crystal\n\ncrystal, crystal.\n")).toBe(true);
+    expect(temp.read("Other.md")).toBe("Nothing here.\n");
+    expect(vault.toast?.message).toBe("Replaced 5 matches in 2 notes");
+
+    vault.runToastAction();
+    expect(temp.read("Ilum.md")).toBe("Kyber grows on Ilum.\nMore kyber.\n");
+    expect(vault.documents.get("Lore/Kyber.md")?.text).toBe("# Kyber\n\nkyber, Kyber.\n");
+  });
+
+  it("can limit itself to one note, honours filters and reports invalid patterns", async () => {
+    temp.write("A.md", "kyber #lore\n");
+    temp.write("B.md", "kyber\n");
+    const vault = temp.open();
+    await vault.indexingFinished();
+    expect(vault.replaceInNotes("kyber", "x", false, false, "B.md")).toEqual({ notes: 1, matches: 1 });
+    expect(temp.read("A.md")).toBe("kyber #lore\n");
+    expect(temp.read("B.md")).toBe("x\n");
+    expect(vault.replaceInNotes("kyber tag:lore", "y", false, false)).toEqual({ notes: 1, matches: 1 });
+    expect(temp.read("A.md")).toBe("y #lore\n");
+    expect(vault.replaceInNotes("(", "y", false, true)).toEqual({ notes: 0, matches: 0 });
+    expect(vault.errorMessage).toBe("That isn’t a valid regular expression.");
+    expect(vault.replaceInNotes("tag:lore", "y", false, false)).toEqual({ notes: 0, matches: 0 });
+    expect(vault.toast?.message).toBe("Nothing to replace");
+  });
+});

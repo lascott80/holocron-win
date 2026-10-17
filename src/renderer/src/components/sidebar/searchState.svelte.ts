@@ -7,6 +7,9 @@ import type { SearchOutcome } from "@core/vaultSearch";
 class SearchState {
   matchCase = $state(false);
   useRegex = $state(false);
+  /** The Replace field is shown (SRCH-10). */
+  replaceOpen = $state(false);
+  replacement = $state("");
   outcome = $state<SearchOutcome>({ hits: [], totalMatches: 0, truncated: false });
   isSearching = $state(false);
   /** Paths of notes whose matching lines are hidden. */

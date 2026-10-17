@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   INVALID_REGEX_MESSAGE,
   parseQuery,
+  replaceMatches,
   runSearch,
   search,
   snippet,
@@ -243,5 +244,39 @@ describe("truncation", () => {
     expect(outcome.hits[0]!.path).toBe("zz-best.md");
     expect(outcome.hits[0]!.lines).toHaveLength(1);
     expect(outcome.totalMatches).toBe(209);
+  });
+});
+describe("replaceMatches", () => {
+  it("replaces every term match, case- and accent-insensitively, keeping line endings", () => {
+    const text = "Kyber on Ilum.\r\nkyber, KYBER and kybér.\r\n";
+    const result = replaceMatches(text, parseQuery("kyber"), "crystal");
+    expect(result).toEqual({ text: "crystal on Ilum.\r\ncrystal, crystal and crystal.\r\n", count: 4 });
+  });
+
+  it("respects match case and replaces each term of a multi-word query", () => {
+    expect(replaceMatches("Kyber kyber", parseQuery("kyber", { matchCase: true }), "x")).toEqual({ text: "Kyber x", count: 1 });
+    expect(replaceMatches("red and blue", parseQuery("red blue"), "_")).toEqual({ text: "_ and _", count: 2 });
+  });
+
+  it("inserts the replacement literally outside regex mode", () => {
+    expect(replaceMatches("a.b", parseQuery("."), "$&$1").text).toBe("a$&$1b");
+  });
+
+  it("changes nothing for filter-only or excluded-only queries", () => {
+    expect(replaceMatches("tagged #lore", parseQuery("tag:lore"), "x")).toEqual({ text: "tagged #lore", count: 0 });
+    expect(replaceMatches("ilum", parseQuery("-ilum"), "x")).toEqual({ text: "ilum", count: 0 });
+    expect(replaceMatches("ilum", parseQuery(""), "x").count).toBe(0);
+  });
+
+  it("supports regex groups and skips empty matches", () => {
+    const query = parseQuery("(\\w+)@(\\w+)", { useRegex: true });
+    expect(replaceMatches("mail ahsoka@temple now", query, "$2:$1 ($&)")).toEqual({ text: "mail temple:ahsoka (ahsoka@temple) now", count: 1 });
+    expect(replaceMatches("aaa", parseQuery("x*", { useRegex: true }), "-")).toEqual({ text: "aaa", count: 0 });
+    expect(replaceMatches("a1\nb2", parseQuery("^(\\w)", { useRegex: true }), "[$1]")).toEqual({ text: "[a]1\n[b]2", count: 2 });
+    expect(replaceMatches("cost $5", parseQuery("\\$(\\d)", { useRegex: true }), "$$$1.00")).toEqual({ text: "cost $5.00", count: 1 });
+  });
+
+  it("throws on an invalid pattern", () => {
+    expect(() => replaceMatches("x", parseQuery("(", { useRegex: true }), "")).toThrow();
   });
 });

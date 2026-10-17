@@ -323,6 +323,93 @@ export function search(
   return runSearch(parseQuery(input, options), notes);
 }
 
+// MARK: - Replacing
+
+export interface Replacement {
+  text: string;
+  /** Matches replaced (merged overlapping term matches count once). */
+  count: number;
+}
+
+/**
+ * Replaces every match of `query` in one note's text (search & replace,
+ * SRCH-10). Only the text query is replaced: `tag:`/`path:`/`file:` and
+ * `-word` pick notes, so a query with no terms or pattern changes nothing.
+ * In regex mode `replacement` may use `$1`, `$&` and friends, as in
+ * String.replace; otherwise it's inserted literally. Ranges come from the
+ * same matcher as the results list, so what's highlighted is what changes.
+ * Throws on an invalid pattern.
+ */
+export function replaceMatches(text: string, query: SearchQuery, replacement: string): Replacement {
+  if (query.regex !== null) {
+    if (query.regex === "") return { text, count: 0 };
+    const regex = compile(query.regex, query.matchCase ? "mg" : "img");
+    let count = 0;
+    // Zero-length matches are never results, so they're never replaced; a
+    // match that spans a line break can't happen (search is per line, and
+    // without the `s` flag "." doesn't cross one).
+    const replaced = text.replace(regex, (...args: unknown[]) => {
+      const match = args[0] as string;
+      if (match.length === 0 || /[\r\n]/.test(match)) return match;
+      count++;
+      const offset = args.at(-2) as number;
+      return expandReplacement(replacement, match, args.slice(1, -2) as (string | undefined)[], text, offset, args.at(-1));
+    });
+    return { text: replaced, count };
+  }
+  const prepare = query.matchCase ? (value: string) => value : quickFold;
+  const terms = query.terms.map(prepare).filter((term) => term !== "");
+  if (terms.length === 0) return { text, count: 0 };
+  const haystack = query.matchCase ? text : quickFold(text);
+  const { lines } = termLines(text, haystack, !query.matchCase, terms, Infinity);
+  if (lines.length === 0) return { text, count: 0 };
+  // Lines hold ranges relative to their own text; walk the original to make them absolute.
+  const cursor = new LineCursor(text);
+  const pieces: string[] = [];
+  let from = 0;
+  let count = 0;
+  for (const line of lines) {
+    while (cursor.number < line.line) cursor.advance();
+    for (const range of line.ranges) {
+      const start = cursor.start + range.location;
+      pieces.push(text.slice(from, start), replacement);
+      from = start + range.length;
+      count++;
+    }
+  }
+  pieces.push(text.slice(from));
+  return { text: pieces.join(""), count };
+}
+
+/** `$1`, `$<name>`, `$&`, `` $` ``, `$'` and `$$` as String.replace expands them. */
+function expandReplacement(
+  pattern: string,
+  match: string,
+  groups: (string | undefined)[],
+  text: string,
+  offset: number,
+  named: unknown,
+): string {
+  // Reuse the engine's own expansion by replacing the match within itself.
+  const namedGroups = typeof named === "object" && named !== null ? (named as Record<string, string | undefined>) : undefined;
+  return pattern.replace(/\$(\$|&|`|'|<([^>]*)>|(\d{1,2}))/g, (whole, kind: string, name: string | undefined, digits: string | undefined) => {
+    if (kind === "$") return "$";
+    if (kind === "&") return match;
+    if (kind === "`") return text.slice(0, offset);
+    if (kind === "'") return text.slice(offset + match.length);
+    if (name !== undefined) return namedGroups && name in namedGroups ? (namedGroups[name] ?? "") : whole;
+    if (digits !== undefined) {
+      // Two digits are one group if that group exists, else one digit plus a literal.
+      const two = Number(digits);
+      if (digits.length === 2 && two >= 1 && two <= groups.length) return groups[two - 1] ?? "";
+      const one = Number(digits[0]);
+      if (one >= 1 && one <= groups.length) return (groups[one - 1] ?? "") + digits.slice(1);
+      return whole;
+    }
+    return whole;
+  });
+}
+
 /** Unicode mode when the pattern allows it (\p{L} etc.), else legacy syntax. */
 function compile(pattern: string, flags: string): RegExp {
   try {
