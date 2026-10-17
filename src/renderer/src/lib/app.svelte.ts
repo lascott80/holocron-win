@@ -29,6 +29,8 @@ class AppStore {
   templatePicker = $state<"insert" | "newNote" | null>(null);
   sidebarMode = $state<"files" | "search" | "tasks">("files");
   searchFocusRequest = $state(0);
+  /** Bumped to open the daily-notes calendar from a command (DAY-07). */
+  calendarRequest = $state(0);
   searchText = $state("");
   focusMode = $state(false);
   settingsOpen = $state(false);

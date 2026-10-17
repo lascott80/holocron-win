@@ -106,3 +106,23 @@ describe("Daily notes in the vault", () => {
     expect(vault.tabs.map((tab) => tab.path)).toEqual(["Daily/Meeting.md", "Daily/2026-10-03.md"]);
   });
 });
+
+describe("Calendar", () => {
+  it("lists the days of a month that have a daily note", () => {
+    temp.write("Daily/2026-11-02.md", "Nov\n");
+    vault.reload();
+    expect(vault.dailyNotesInMonth(2026, 9)).toEqual([
+      { day: 1, path: "Daily/2026-10-01.md" },
+      { day: 3, path: "Daily/2026-10-03.md" },
+    ]);
+    expect(vault.dailyNotesInMonth(2026, 10)).toEqual([{ day: 2, path: "Daily/2026-11-02.md" }]);
+    expect(vault.dailyNotesInMonth(2025, 9)).toEqual([]);
+  });
+
+  it("opens or creates the note for a chosen day", () => {
+    expect(vault.openDailyNote(day(3))).toBe("Daily/2026-10-03.md");
+    expect(temp.read("Daily/2026-10-03.md")).toBe("Oct 3\n");
+    expect(vault.openDailyNote(day(7))).toBe("Daily/2026-10-07.md");
+    expect(temp.read("Daily/2026-10-07.md")).toContain("# 2026-10-07");
+  });
+});

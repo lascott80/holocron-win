@@ -170,6 +170,7 @@ export const commands: Command[] = [
 
   // Go
   { id: "today", title: "Open Today’s Note", shortcut: "Ctrl+Shift+D", enabled: hasVault, run: () => run("openDailyNote") },
+  { id: "calendar", title: "Daily Notes Calendar", enabled: hasVault, run: () => (app.calendarRequest++) },
   { id: "previousDaily", title: "Previous Daily Note", shortcut: "Alt+PageUp", enabled: hasVault, run: () => run("openAdjacentDailyNote", -1) },
   { id: "nextDaily", title: "Next Daily Note", shortcut: "Alt+PageDown", enabled: hasVault, run: () => run("openAdjacentDailyNote", 1) },
   { id: "back", title: "Back", shortcut: "Alt+Left", enabled: () => app.vault?.canGoBack ?? false, run: () => run("goBack") },
@@ -270,7 +271,7 @@ export const menus: { title: string; items: (string | { title: string; items: st
     title: "View",
     items: ["toggleSidebar", "toggleInspector", "toggleFormattingBar", "readableLineLength", "showTasks", { title: "Sort Files", items: FILE_SORTS.map(({ value }) => `sortFiles:${value}`) }, "-", "zoomIn", "zoomOut", "zoomReset", "-", "mode:livePreview", "mode:source", "mode:reading", "-", "toggleReading", "toggleSource", "focusMode", "-", "foldHeading", "unfoldHeading", "foldAllHeadings", "unfoldAll"],
   },
-  { title: "Go", items: ["today", "previousDaily", "nextDaily", "-", "back", "forward", "-", "nextTab", "previousTab"] },
+  { title: "Go", items: ["today", "calendar", "previousDaily", "nextDaily", "-", "back", "forward", "-", "nextTab", "previousTab"] },
   {
     title: "Format",
     items: [

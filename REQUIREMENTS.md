@@ -302,6 +302,7 @@ All destructive or structural operations show an **undo toast** (§11.10). Error
 - **DAY-04** A note is a daily note if its path is under the folder and parses strictly (formatting the parsed date reproduces the exact string). "Daily/Meeting notes.md" and "2026-13-45" are not.
 - **DAY-05 Today's Note** (⇧⌘D): open, or create from the template. Template lookup: as a vault path, then with ".md", then as a wikilink name. Missing template → note created empty plus message "The daily note template “X” wasn’t found, so the note was created empty." Opens in the active tab and focuses the editor. Error "Couldn’t create today’s note: <err>".
 - **DAY-06 Previous/Next Daily Note** (⌃⌘← / ⌃⌘→): the nearest *existing* daily note before/after the open note's date (or today if the open note isn't a daily note). None → system beep; nothing is created.
+- **DAY-07 Calendar** (*Windows*): the title bar’s calendar button (also Go › Daily Notes Calendar, the palette; middle-click on the button opens today’s note directly) shows a month popover: weekday headers in the locale’s week order, days with a daily note marked with a dot and bold, today outlined, the open daily note highlighted. Clicking a day opens its note, creating it from the template if needed (Ctrl-click: new tab); ‹ › or PageUp/PageDown step months, arrows move between days (crossing months), Home and the Today button return to today, Enter opens, Esc closes. Footer: "N notes this month". Days come from the index-free scan of note paths (DAY-04), so renames and new notes show at once.
 
 ### 8.2 Templates
 

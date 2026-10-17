@@ -5,6 +5,7 @@
 <script lang="ts">
   import { ArrowLeft, ArrowRight, CalendarDays, FilePlus2, PanelRight, Search } from "@lucide/svelte";
   import Logo from "./Logo.svelte";
+  import CalendarPopover from "./detail/CalendarPopover.svelte";
   import { app } from "../lib/app.svelte";
   import { menuEntries, menus, runCommand } from "../lib/commands";
   import { menu } from "../lib/menu.svelte";
@@ -15,6 +16,15 @@
   let altArmed = false;
 
   const vault = $derived(app.vault);
+  let calendarButton = $state<HTMLButtonElement>();
+  let calendarOpen = $state(false);
+  $effect(() => {
+    if (!vault) calendarOpen = false;
+  });
+  // Go › Daily Notes Calendar (and the palette) open it too.
+  $effect(() => {
+    if (app.calendarRequest > 0) calendarOpen = true;
+  });
   const title = $derived(app.doc?.title ?? (vault ? vault.name : "Holocron"));
   const subtitle = $derived(app.doc && vault ? vault.name : "");
 
@@ -89,7 +99,17 @@
 
   {#if vault}
     <div class="tools">
-      <button class="icon-button" title="Today’s Note (Ctrl+Shift+D)" aria-label="Today’s Note" onclick={() => runCommand("today")}>
+      <button
+        class="icon-button"
+        class:active={calendarOpen}
+        bind:this={calendarButton}
+        title="Daily notes — click for the calendar, Ctrl+Shift+D for today"
+        aria-label="Daily notes calendar"
+        aria-haspopup="dialog"
+        aria-expanded={calendarOpen}
+        onclick={() => (calendarOpen = !calendarOpen)}
+        onauxclick={(event) => event.button === 1 && runCommand("today")}
+      >
         <CalendarDays size={16} />
       </button>
       <button class="icon-button" title="Quick Open (Ctrl+O)" aria-label="Quick Open" onclick={() => runCommand("quickOpen")}>
@@ -110,6 +130,10 @@
     </div>
   {/if}
 </header>
+
+{#if calendarOpen && vault}
+  <CalendarPopover anchor={calendarButton} onclose={() => (calendarOpen = false)} />
+{/if}
 
 <style>
   .titlebar {

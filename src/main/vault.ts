@@ -1902,6 +1902,17 @@ export class Vault {
     );
   }
 
+  /** The days of a month (1-based) that have a daily note, with their paths, for the calendar (DAY-07). `month` is 0-based. */
+  dailyNotesInMonth(year: number, month: number): { day: number; path: string }[] {
+    const settings = this.dailyNoteSettings;
+    const result: { day: number; path: string }[] = [];
+    for (const path of this.allNotes) {
+      const date = dailyNoteDate(path, settings.folder, settings.format);
+      if (date && date.getFullYear() === year && date.getMonth() === month) result.push({ day: date.getDate(), path });
+    }
+    return result.sort((a, b) => a.day - b.day);
+  }
+
   /** The vault path of the daily note for `date` (whether or not it exists). */
   dailyNotePathFor(date = new Date()): string {
     const settings = this.dailyNoteSettings;

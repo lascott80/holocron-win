@@ -261,6 +261,14 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
 
     // Daily notes and templates
     openDailyNote: withVault((vault) => vault.openDailyNote()),
+    /** Opens (creating if needed) the daily note for a calendar day; `month` is 0-based. */
+    openDailyNoteFor: withVault((vault, year, month, day, newTab) => {
+      const date = new Date(2000, 0, 1);
+      date.setFullYear(Math.trunc(num(year)), Math.trunc(num(month)), Math.trunc(num(day)));
+      if (Number.isNaN(date.getTime())) throw new RangeError("Not a date");
+      return vault.openDailyNote(date, bool(newTab));
+    }),
+    dailyNotesInMonth: withVault((vault, year, month) => vault.dailyNotesInMonth(Math.trunc(num(year)), Math.trunc(num(month)))),
     openAdjacentDailyNote: withVault((vault, direction) => vault.openAdjacentDailyNote(num(direction) < 0 ? -1 : 1)),
     insertTemplate: withVault((vault, path) => vault.insertTemplate(str(path))),
     createNoteFromTemplate: withVault((vault, template, name) => vault.createNoteFromTemplate(str(template), str(name))),
