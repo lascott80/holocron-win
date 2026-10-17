@@ -48,8 +48,11 @@ asks for confirmation the first time. The one installer holds both the x64
 and the arm64 app and installs whichever matches the PC (one `latest.yml`
 keeps auto-update simple). `predist` first installs both
 `@parcel/watcher-win32-*` binaries, since npm only fetches the one for the
-machine you build on. If an older build is running from `dist/`, build
-elsewhere with `npx electron-builder --win --publish never
+machine you build on. `scripts/dist.mjs` packages with
+`ELECTRON_BUILDER_7Z_FILTER=BCJ`: left alone, 7-Zip compresses arm64
+programs with its ARM64 filter, which the installer's 2019 unpacker can't
+read, so Holocron.exe silently wouldn't install on ARM PCs. If an older build
+is running from `dist/`, build elsewhere with `node scripts/dist.mjs
 --config.directories.output=dist-<version>` after `npm run predist` and
 `npm run build`.
 
