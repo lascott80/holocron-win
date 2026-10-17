@@ -10,18 +10,16 @@
 // instead of GitHub (and a downloaded test update is never installed on
 // quit). See scripts/test-update-server.mjs and scripts/smoke-update.mjs.
 
-import fs from "node:fs";
-import path from "node:path";
 import { app, shell } from "electron";
 import electronUpdater, { type AppUpdater, type ProgressInfo, type UpdateInfo } from "electron-updater";
 import type { UpdateView } from "@shared/ipc";
 import type { Settings } from "@shared/settings";
+import { appendLog, type LogLevel } from "./log";
 import { checkAction, initialUpdateModel, isPlainVersion, reduceUpdate, releasePageUrl, type UpdateEvent, type UpdateModel } from "./updateState";
 
 const FIRST_CHECK_DELAY = 15_000;
 const CHECK_INTERVAL = 6 * 60 * 60 * 1000;
 const SKIPPED_KEY = "skippedUpdateVersion";
-const LOG_LIMIT = 512 * 1024;
 
 export interface UpdaterHost {
   store: { get<T>(key: string): T | undefined; set(key: string, value: unknown): void; flush(): void };
@@ -159,22 +157,7 @@ export class Updater {
 
   // MARK: Log (userData/logs/updater.log, kept under ~0.5 MB)
 
-  private log(level: string, message: unknown) {
-    const text = message instanceof Error ? (message.stack ?? message.message) : String(message);
-    const line = `${new Date().toISOString()} [${level}] ${text}\n`;
-    if (level === "error") console.error("[updater]", text);
-    try {
-      const dir = path.join(app.getPath("userData"), "logs");
-      fs.mkdirSync(dir, { recursive: true });
-      const file = path.join(dir, "updater.log");
-      try {
-        if (fs.statSync(file).size > LOG_LIMIT) fs.renameSync(file, file + ".old");
-      } catch {
-        // No log yet.
-      }
-      fs.appendFileSync(file, line);
-    } catch {
-      // Logging must never break updates.
-    }
+  private log(level: LogLevel, message: unknown) {
+    appendLog("updater", level, message);
   }
 }

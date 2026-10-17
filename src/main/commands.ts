@@ -9,6 +9,7 @@ import { defaultSettings, type Settings } from "@shared/settings";
 import { EDIT_ACTIONS, type EditAction } from "@shared/ipc";
 import { openExternalSafely } from "./editorBridge";
 import { exportNote, showExported, type ExportFormat } from "./exporter";
+import { log, logsFolder } from "./log";
 import type { HolocronApp } from "./index";
 import type { Vault } from "./vault";
 
@@ -160,6 +161,9 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
       if (url) void shell.openExternal(url);
     },
     saveAll: () => app.saveAll(),
+    /** The renderer's uncaught errors, so they end up in the same log as main's. */
+    reportError: (message) => log.error(`Renderer: ${str(message).slice(0, 4000)}`),
+    showLogsFolder: () => void shell.openPath(logsFolder()),
     cursor: () => app.editor.cursor,
     /** Rich copy: markdown + HTML, only if the clipboard still holds that markdown. */
     writeClipboard: async (text, html) => {

@@ -21,6 +21,7 @@ import { CAPTURE_COMMANDS, CaptureWindow } from "./capture";
 import { TrayIcon } from "./tray";
 import { applyJumpList, buildJumpList, MAX_JUMP_LIST_NOTES, type JumpListNote } from "./jumpList";
 import { hasActions, parseLaunchArgs, type LaunchArgs } from "./launchArgs";
+import { errorText, log, logsFolder } from "./log";
 
 const ASSET_SCHEME = "holocron-asset";
 protocol.registerSchemesAsPrivileged([
@@ -60,7 +61,7 @@ export class HolocronApp {
   errorMessage: string | null = null;
   recentVaults: string[] = (this.store.get<string[]>("recentVaultPaths") ?? []).filter(folderExists);
   readonly editor = new EditorBridge(() => this.window?.webContents ?? null);
-  readonly search = new SearchService();
+  readonly search = new SearchService(() => this.vault?.index.searchSnapshot() ?? []);
   readonly updater = new Updater({ store: this.store, settings: () => this.settings, pushState: () => this.pushState(), saveAll: () => this.saveAll() });
   readonly trash = createTrash(path.join(app.getPath("userData"), "trash-staging"), (file) => shell.trashItem(file));
   readonly capture = new CaptureWindow({
@@ -282,6 +283,80 @@ export class HolocronApp {
 
   saveAll() {
     this.vault?.saveAll();
+  }
+
+  // MARK: Failures
+
+  /** How many times the renderer has gone away recently (a crash loop shows a dialog instead of reloading again). */
+  private rendererCrashes: number[] = [];
+  private recovering = false;
+
+  /**
+   * Something threw where nothing could catch it. Save everything (the
+   * vault model lives here in main, so notes are intact), log it, and tell
+   * the user without taking the app down. Electron's default would be a
+   * modal dialog with the stack trace.
+   */
+  recoverFromError(origin: string, error: unknown) {
+    log.error(`${origin}: ${errorText(error)}`);
+    if (this.recovering) return; // the recovery itself failed: don't loop
+    this.recovering = true;
+    try {
+      this.saveAll();
+      this.store.flush();
+      const message = error instanceof Error ? error.message : String(error);
+      this.showError(`Something went wrong, but your notes were saved: ${message} (details in ${path.join(logsFolder(), "holocron.log")})`);
+    } catch (again) {
+      log.error(`Recovery failed: ${errorText(again)}`);
+    } finally {
+      this.recovering = false;
+    }
+  }
+
+  /** The window's page crashed or was killed: reload it (its state is all in main), or ask after repeated crashes. */
+  rendererGone(details: Electron.RenderProcessGoneDetails) {
+    log.error(`Renderer gone: ${details.reason} (exit code ${details.exitCode})`);
+    if (details.reason === "clean-exit" || !this.window || this.window.isDestroyed()) return;
+    this.saveAll();
+    this.store.flush();
+    const now = Date.now();
+    this.rendererCrashes = this.rendererCrashes.filter((time) => now - time < 60_000);
+    this.rendererCrashes.push(now);
+    if (this.rendererCrashes.length <= 2) {
+      this.window.webContents.reload();
+      return;
+    }
+    const choice = dialog.showMessageBoxSync(this.window, {
+      type: "error",
+      title: "Holocron",
+      message: "Holocron’s window keeps crashing.",
+      detail: `Your notes are saved. The log is in ${path.join(logsFolder(), "holocron.log")}.`,
+      buttons: ["Reload", "Quit"],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    });
+    if (choice === 0) this.window.webContents.reload();
+    else this.quit();
+  }
+
+  /** The window's page stopped answering for a while. */
+  rendererUnresponsive() {
+    log.warn("Renderer unresponsive");
+    if (!this.window || this.window.isDestroyed()) return;
+    this.saveAll();
+    this.store.flush();
+    const choice = dialog.showMessageBoxSync(this.window, {
+      type: "warning",
+      title: "Holocron",
+      message: "Holocron isn’t responding.",
+      detail: "Your notes are saved. You can wait a little longer or reload the window.",
+      buttons: ["Wait", "Reload"],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    });
+    if (choice === 1 && !this.window.isDestroyed()) this.window.webContents.reload();
   }
 
   /** Quits for real — File › Exit Holocron, the tray's Quit — even when running in the background. */
@@ -587,6 +662,9 @@ export class HolocronApp {
 
     // The window only ever shows Holocron's own page (REQUIREMENTS ARC-06).
     const contents = window.webContents;
+    contents.on("render-process-gone", (_event, details) => this.rendererGone(details));
+    contents.on("unresponsive", () => this.rendererUnresponsive());
+    contents.on("responsive", () => log.info("Renderer responsive again"));
     contents.on("will-navigate", (event, url) => {
       if (isDev && url.startsWith(process.env.ELECTRON_RENDERER_URL ?? "\0")) return;
       event.preventDefault();
@@ -735,8 +813,23 @@ if (!app.requestSingleInstanceLock()) {
     void holocron.handleLaunchArgs(parseLaunchArgs(Array.isArray(argv) ? argv : []), false);
   });
 
+  // Nothing uncaught may take the app down with unsaved notes (NFR-01).
+  process.on("uncaughtException", (error) => {
+    if (holocron) holocron.recoverFromError("Uncaught exception", error);
+    else log.error(`Uncaught exception before start-up: ${errorText(error)}`);
+  });
+  process.on("unhandledRejection", (reason) => {
+    if (holocron) holocron.recoverFromError("Unhandled rejection", reason);
+    else log.error(`Unhandled rejection before start-up: ${errorText(reason)}`);
+  });
+  app.on("child-process-gone", (_event, details) => {
+    if (details.reason === "clean-exit") return;
+    log.error(`${details.type} process gone: ${details.reason} (exit code ${details.exitCode}${details.name ? `, ${details.name}` : ""})`);
+  });
+
   void app.whenReady().then(async () => {
     holocron = new HolocronApp();
+    log.info(`Holocron ${app.getVersion()} started`);
     if (testProfile) (globalThis as { holocron?: HolocronApp }).holocron = holocron; // for the smoke scripts
     const commands = createCommands(holocron);
     ipcMain.handle(Channels.command, async (event, name: string, ...args: unknown[]) => {

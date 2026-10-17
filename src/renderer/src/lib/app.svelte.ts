@@ -55,6 +55,21 @@ class AppStore {
   }
 
   start() {
+    // Uncaught errors in the window go to main's log (userData/logs/holocron.log),
+    // at most a few per session so a loop can't flood it.
+    let reported = 0;
+    const report = (what: string) => {
+      if (reported++ < 20) run("reportError", what);
+    };
+    window.addEventListener("error", (event) => {
+      const detail = event.error instanceof Error ? (event.error.stack ?? event.error.message) : event.message;
+      report(`${detail} (${event.filename}:${event.lineno})`);
+    });
+    window.addEventListener("unhandledrejection", (event) => {
+      const reason: unknown = event.reason;
+      report(`Unhandled rejection: ${reason instanceof Error ? (reason.stack ?? reason.message) : String(reason)}`);
+    });
+
     host.onState((state) => {
       this.state = state;
       this.loaded = true;
