@@ -26,6 +26,7 @@
   import DeleteConfirm from "./components/overlays/DeleteConfirm.svelte";
   import AttachmentCleanup from "./components/overlays/AttachmentCleanup.svelte";
   import OrganiseAttachments from "./components/overlays/OrganiseAttachments.svelte";
+  import AttachmentConfirm from "./components/overlays/AttachmentConfirm.svelte";
   import AlertDialog from "./components/overlays/AlertDialog.svelte";
   import Toast from "./components/overlays/Toast.svelte";
   import UpdatePrompt from "./components/overlays/UpdatePrompt.svelte";
@@ -138,6 +139,7 @@
 {#if vault?.pendingDeletion}<DeleteConfirm />{/if}
 {#if vault?.attachmentCleanup}<AttachmentCleanup />{/if}
 {#if vault?.attachmentOrganise}<OrganiseAttachments />{/if}
+{#if vault?.attachmentConfirm}<AttachmentConfirm />{/if}
 {#if app.state.errorMessage}<AlertDialog />{/if}
 <UpdatePrompt />
 <PopupMenu />

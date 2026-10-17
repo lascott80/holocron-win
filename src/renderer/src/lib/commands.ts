@@ -76,7 +76,10 @@ export const commands: Command[] = [
   { id: "closeVault", title: "Close Vault", shortcut: "Ctrl+Shift+W", enabled: hasVault, run: () => run("closeVault") },
   { id: "showVaultInExplorer", title: "Show Vault in File Explorer", enabled: hasVault, run: () => run("showVaultInFolder") },
   { id: "organiseAttachments", title: "Organise Attachments…", enabled: hasVault, run: () => run("requestAttachmentOrganise") },
+  { id: "organiseNoteAttachments", title: "Organise This Note’s Attachments…", enabled: hasNote, run: () => run("requestAttachmentOrganise", app.doc?.path) },
   { id: "cleanUpAttachments", title: "Clean Up Unused Attachments…", enabled: hasVault, run: () => run("requestAttachmentCleanup") },
+  { id: "emptyUnusedAttachments", title: "Empty Unused Attachments…", enabled: hasVault, run: () => run("requestEmptyUnused") },
+  { id: "undoAttachmentChange", title: "Undo Last Attachment Change…", enabled: hasVault, run: () => run("requestAttachmentUndo") },
   { id: "showNoteInExplorer", title: "Show Note in File Explorer", enabled: hasNote, run: () => app.doc && run("showInFolder", app.doc.path) },
   { id: "settings", title: "Settings…", shortcut: "Ctrl+,", run: () => (app.settingsOpen = true) },
   // Quits even when Holocron keeps running in the background (closing the window only hides it).
@@ -205,7 +208,7 @@ export function runCommand(id: string) {
 export const menus: { title: string; items: (string | { title: string; items: string[] })[] }[] = [
   {
     title: "File",
-    items: ["newNote", "newNoteFromTemplate", "newFolder", "newTab", "-", "quickCapture", "quickOpen", "commandPalette", "-", "openVault", "createVault", "-", "save", "closeTab", "closeVault", "-", "showNoteInExplorer", "showVaultInExplorer", "-", "organiseAttachments", "cleanUpAttachments", "-", "settings", "-", "quitApp"],
+    items: ["newNote", "newNoteFromTemplate", "newFolder", "newTab", "-", "quickCapture", "quickOpen", "commandPalette", "-", "openVault", "createVault", "-", "save", "closeTab", "closeVault", "-", "showNoteInExplorer", "showVaultInExplorer", "-", { title: "Attachments", items: ["organiseAttachments", "organiseNoteAttachments", "-", "cleanUpAttachments", "emptyUnusedAttachments", "-", "undoAttachmentChange"] }, "-", "settings", "-", "quitApp"],
   },
   { title: "Edit", items: ["undo", "redo", "-", "copyMarkdown", "pastePlainText", "-", "find", "findNext", "findPrevious", "searchVault"] },
   {

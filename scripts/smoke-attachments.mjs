@@ -3,6 +3,7 @@
 //
 //   node scripts/smoke.mjs smoke-output --vault <folder> --script scripts/smoke-attachments.mjs
 const call = (page, ...args) => page.evaluate((args) => window.holocronHost.call(...args), args);
+const dialogText = async (page) => JSON.stringify(await page.locator("[role=dialog], [role=alertdialog]").first().innerText());
 
 export default async function ({ page, shot }) {
   await call(page, "open", "Projects/Kyber Crystals.md");
@@ -10,41 +11,51 @@ export default async function ({ page, shot }) {
 
   await page.click("text=File");
   await page.waitForTimeout(300);
-  await shot("file-menu");
-  await page.click("text=Organise Attachments…");
-  await page.waitForTimeout(800);
-  console.log("organise:", JSON.stringify(await page.locator("[role=dialog]").innerText()));
-  await shot("organise");
-  await page.click("button:has-text('Cancel')");
-  await page.waitForTimeout(300);
+  await page.getByRole("menuitem", { name: /^Attachments/ }).hover();
+  await page.waitForTimeout(400);
+  await shot("attachments-menu");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
 
-  await page.click("text=File");
-  await page.click("text=Clean Up Unused Attachments…");
+  await call(page, "requestAttachmentOrganise");
+  await page.waitForTimeout(800);
+  console.log("organise:", await dialogText(page));
+  await shot("organise");
+  await call(page, "cancelAttachmentOrganise");
+
+  await call(page, "requestAttachmentCleanup");
   await page.waitForTimeout(1000);
-  console.log("cleanup:", JSON.stringify(await page.locator("[role=dialog]").innerText()));
+  console.log("cleanup:", await dialogText(page));
   await shot("cleanup");
-  await page.locator("[role=dialog] li").first().click();
-  await page.waitForTimeout(200);
-  await shot("cleanup-one-unticked");
-  await page.click("button:has-text('Cancel')");
-  await page.waitForTimeout(300);
+  await call(page, "cancelAttachmentCleanup");
 
   await call(page, "requestDeletion", ["Projects/Kyber Crystals.md"]);
   await page.waitForTimeout(800);
-  console.log("delete:", JSON.stringify(await page.locator("[role=alertdialog]").innerText()));
+  console.log("delete:", await dialogText(page));
   await shot("delete-with-attachments");
-  await page.click("button:has-text('Cancel')");
-  await page.waitForTimeout(300);
+  await call(page, "cancelDeletion");
 
-  await page.click("text=File");
-  await page.click("text=Organise Attachments…");
+  await call(page, "requestAttachmentOrganise");
   await page.waitForTimeout(800);
-  await page.click("button:has-text('Organise')");
+  await page.click("button:has-text('Organise ')");
   await page.waitForTimeout(800);
   await shot("organised-toast");
 
-  await call(page, "setSetting", "settingsTab", "editor");
-  await page.keyboard.press("Control+,");
+  await call(page, "requestAttachmentCleanup");
   await page.waitForTimeout(800);
-  await shot("settings-editor");
+  await page.click("button:has-text('to _Unused')");
+  await page.waitForTimeout(800);
+  await shot("cleaned-toast");
+
+  await call(page, "requestAttachmentUndo");
+  await page.waitForTimeout(600);
+  console.log("undo:", await dialogText(page));
+  await shot("undo-confirm");
+  await call(page, "cancelAttachmentAction");
+
+  await call(page, "requestEmptyUnused");
+  await page.waitForTimeout(800);
+  console.log("empty:", await dialogText(page));
+  await shot("empty-confirm");
+  await call(page, "cancelAttachmentAction");
 }

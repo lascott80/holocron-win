@@ -1,7 +1,8 @@
 <!-- Confirms moving vault items to the Recycle Bin (FOP-10). -->
 <script lang="ts">
   import { Trash2 } from "@lucide/svelte";
-  import { basename, isNote, stem } from "@core/paths";
+  import { basename, isNote, join, stem } from "@core/paths";
+  import { UNUSED_FOLDER } from "@core/attachmentUsage";
   import { app } from "../../lib/app.svelte";
   import { run } from "../../lib/host";
   import Modal from "./Modal.svelte";
@@ -12,11 +13,12 @@
     items.length === 1 ? `Move “${isNote(items[0]!) ? stem(items[0]!) : basename(items[0]!)}” to the Recycle Bin?` : `Move ${items.length} items to the Recycle Bin?`,
   );
 
-  // Attachments only these notes use (FOP-10a); worked out just after the dialog opens.
+  // Attachments only these notes use (FOP-10a); worked out just after the dialog opens. Off unless asked.
   const attachments = $derived(app.vault?.pendingDeletionAttachments ?? []);
-  let withAttachments = $state(true);
+  let withAttachments = $state(false);
+  const holding = $derived(join(app.settings.attachmentFolder.replace(/^\/+|\/+$/g, ""), UNUSED_FOLDER));
   const attachmentLabel = $derived(
-    `Also move ${attachments.length === 1 ? "1 attachment" : `${attachments.length} attachments`} only ${items.length > 1 ? "these items use" : isNote(items[0] ?? "") ? "this note uses" : "notes in it use"} to the Recycle Bin`,
+    `Also move ${attachments.length === 1 ? "1 attachment" : `${attachments.length} attachments`} only ${items.length > 1 ? "these items use" : isNote(items[0] ?? "") ? "this note uses" : "notes in it use"} to ${holding}`,
   );
   const shown = $derived(attachments.slice(0, 5).map(basename));
 </script>

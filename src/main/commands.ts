@@ -207,16 +207,18 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
     move: withVault((vault, items, folder) => vault.move(strings(items), str(folder))),
     duplicate: withVault((vault, path) => vault.duplicate(str(path))),
     requestDeletion: withVault((vault, paths) => vault.requestDeletion(strings(paths))),
-    confirmDeletion: withVault((vault, withAttachments) =>
-      vault.confirmDeletion(withAttachments === undefined ? true : bool(withAttachments)),
-    ),
+    confirmDeletion: withVault((vault, withAttachments) => vault.confirmDeletion(withAttachments === undefined ? false : bool(withAttachments))),
     cancelDeletion: withVault((vault) => vault.cancelDeletion()),
     requestAttachmentCleanup: withVault((vault) => vault.requestAttachmentCleanup()),
     confirmAttachmentCleanup: withVault((vault, paths) => vault.confirmAttachmentCleanup(strings(paths))),
     cancelAttachmentCleanup: withVault((vault) => vault.cancelAttachmentCleanup()),
-    requestAttachmentOrganise: withVault((vault) => vault.requestAttachmentOrganise()),
-    confirmAttachmentOrganise: withVault((vault) => vault.confirmAttachmentOrganise()),
+    requestAttachmentOrganise: withVault((vault, note) => vault.requestAttachmentOrganise(optStr(note) ?? null)),
+    confirmAttachmentOrganise: withVault((vault, sources) => vault.confirmAttachmentOrganise(sources === undefined ? undefined : strings(sources))),
     cancelAttachmentOrganise: withVault((vault) => vault.cancelAttachmentOrganise()),
+    requestEmptyUnused: withVault((vault) => vault.requestEmptyUnused()),
+    requestAttachmentUndo: withVault((vault) => vault.requestAttachmentUndo()),
+    confirmAttachmentAction: withVault((vault) => vault.confirmAttachmentAction()),
+    cancelAttachmentAction: withVault((vault) => vault.cancelAttachmentAction()),
     importFiles: withVault((vault, files) => vault.importFiles(strings(files))),
     /** Saves a picture from pasted HTML (base64) as an attachment; returns its embed text, or null. */
     saveAttachmentData: withVault((vault, name, mime, data) => {

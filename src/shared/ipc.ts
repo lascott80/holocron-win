@@ -80,6 +80,8 @@ export interface VaultView {
   attachmentCleanup: AttachmentCleanupItem[] | null;
   /** The moves Organise Attachments… would make, or null when it isn't showing. */
   attachmentOrganise: AttachmentOrganiseView | null;
+  /** Empty Unused Attachments… / Undo Last Attachment Change… asking for confirmation. */
+  attachmentConfirm: AttachmentConfirmView | null;
   recentNotes: string[];
   toast: ToastView | null;
   doc: DocView | null;
@@ -94,12 +96,26 @@ export interface AttachmentCleanupItem {
   /** In bytes. */
   size: number;
   isImage: boolean;
+  /** Notes that mention the file's name without a link Holocron understands: it may still be in use. */
+  mentionedIn: string[];
 }
 
 export interface AttachmentOrganiseView {
   moves: { from: string; to: string }[];
+  /** Used files left alone because a note mentions them in a way Holocron can't update. */
+  skipped: { path: string; notes: string[] }[];
   /** How many notes' links will be updated. */
   notesChanged: number;
+  /** The note whose attachments are being organised, or null for all of them. */
+  scope: string | null;
+}
+
+export interface AttachmentConfirmView {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  /** The confirm button is destructive (red). */
+  danger: boolean;
 }
 
 export interface RecentVault {

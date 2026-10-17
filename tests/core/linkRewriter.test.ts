@@ -70,4 +70,17 @@ describe("LinkRewriter", () => {
     expect(encodeMarkdownPath("A (b) [c] <d> e%.md")).toBe("A%20%28b%29%20%5Bc%5D%20%3Cd%3E%20e%25.md");
     expect(encodeMarkdownPath("Café/ü.md")).toBe("Caf%C3%A9/%C3%BC.md");
   });
+
+  test("visits HTML, reference definitions and property values only when extended", () => {
+    const text = '---\ncover: a.png\n---\n<img src="a.png"> <a href=\'a%20b.png\'>x</a>\n[r]: a.png';
+    const swap = (target: { path: string }) => (target.path === "a.png" ? "b c.png" : target.path === "a b.png" ? "d.png" : null);
+    expect(rewrite(text, swap)).toBe(text);
+    expect(rewrite(text, swap, { extended: true })).toBe(
+      '---\ncover: b c.png\n---\n<img src="b c.png"> <a href=\'d.png\'>x</a>\n[r]: b%20c.png',
+    );
+  });
+
+  test("quotes property values that YAML would misread", () => {
+    expect(rewrite("---\ncover: a.png\n---\n", () => "x: y.png", { extended: true })).toBe('---\ncover: "x: y.png"\n---\n');
+  });
 });
