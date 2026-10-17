@@ -2,8 +2,7 @@
 
 An Electron port of Holocron, a plain-files markdown notes app in the style
 of Obsidian. A vault is an ordinary folder of `.md` files; there is no
-database. The behaviour spec is [REQUIREMENTS.md](REQUIREMENTS.md); the
-original Mac app is in `holocron-mac-src/` for reference.
+database. The behaviour spec is [REQUIREMENTS.md](REQUIREMENTS.md).
 
 ## Layout
 

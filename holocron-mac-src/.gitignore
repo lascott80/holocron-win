@@ -1,7 +1,0 @@
-.DS_Store
-build/
-DerivedData/
-*.xcuserstate
-xcuserdata/
-Editor/node_modules/
-dist/
