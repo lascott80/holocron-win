@@ -106,6 +106,11 @@ export class VaultIndex {
     return this.notes.get(path) ?? null;
   }
 
+  /** A note's indexed text, or undefined if it hasn't been read yet. */
+  text(path: string): string | undefined {
+    return this.texts.get(path);
+  }
+
   /** Every indexed note's text and tags, for searching. */
   searchSnapshot(): SearchNote[] {
     return [...this.texts].map(([path, text]) => ({ path, text, tags: this.notes.get(path)?.tags ?? [] }));

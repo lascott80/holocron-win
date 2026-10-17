@@ -12,6 +12,7 @@
     shortcutLabel,
     type Accent,
     type Appearance,
+    type AttachmentLayout,
     type CaptureTarget,
     type EditorFont,
     type Settings,
@@ -85,6 +86,10 @@
   const captureTargets: { value: CaptureTarget; label: string }[] = [
     { value: "daily", label: "Today’s note" },
     { value: "inbox", label: "Inbox note" },
+  ];
+  const attachmentLayouts: { value: AttachmentLayout; label: string }[] = [
+    { value: "perNote", label: "A folder for each note" },
+    { value: "single", label: "One folder" },
   ];
 
   const CODE_KEYS: Record<string, string> = {
@@ -440,6 +445,14 @@
             "Attachment folder",
             "Vault root",
             "Pasted images and files dropped in from outside the vault are saved here, relative to the vault. Leave it empty to use the vault root.",
+          )}
+          {#snippet layout()}
+            <Segmented label="Attachment layout" options={attachmentLayouts} value={s.attachmentLayout} onchange={(value) => app.setSetting("attachmentLayout", value)} />
+          {/snippet}
+          {@render row(
+            "Organise attachments",
+            layout,
+            "Each note’s files go in a subfolder that moves with the note. File › Organise Attachments… sorts existing files.",
           )}
         </div>
       {:else}

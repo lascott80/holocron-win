@@ -2,17 +2,19 @@
 <script lang="ts">
   import { Check } from "@lucide/svelte";
 
-  let { checked, label, onchange }: {
+  let { checked, label, ariaLabel, onchange }: {
     checked: boolean;
     label: string;
+    /** For a checkbox with no visible label. */
+    ariaLabel?: string;
     onchange: (checked: boolean) => void;
   } = $props();
 </script>
 
 <label class="checkbox">
-  <input type="checkbox" {checked} onchange={(event) => onchange(event.currentTarget.checked)} />
+  <input type="checkbox" {checked} aria-label={ariaLabel} onchange={(event) => onchange(event.currentTarget.checked)} />
   <span class="box" aria-hidden="true"><Check size={12} strokeWidth={3} /></span>
-  <span class="label">{label}</span>
+  {#if label}<span class="label">{label}</span>{/if}
 </label>
 
 <style>

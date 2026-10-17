@@ -154,11 +154,11 @@ The editor calls `post(message)` (Mac: `window.webkit.messageHandlers.holocron.p
 
 ### 3.3 Pasted and dropped files
 
-- **VLT-08** Attachment folder setting (default "Attachments"; empty = vault root), created when needed.
+- **VLT-08** Attachment folder setting (default "Attachments"; empty = vault root), created when needed. *Windows:* with the attachment layout "A folder for each note" (default, VLT-16) new files go in the shown note's own subfolder of it.
 - **VLT-09** Pasted image file name: `Pasted image yyyyMMddHHmmss.<ext>` (POSIX locale, local time). Extension from the MIME type (`jpeg`→`jpg`, fallback `png`). An empty base name becomes "Attachment". Clashes are numbered: "Pasted image 1 2.png". Error: "Couldn’t save the pasted image: <err>".
 - **VLT-10** Files dropped onto the editor:
   - already inside the vault → linked where they are, never copied;
-  - from outside → copied into the attachment folder with a unique name; the original is untouched. Error: "Couldn’t add “<file>”: <err>".
+  - from outside → copied into the attachment folder (the note's own subfolder, VLT-16) with a unique name; the original is untouched. Error: "Couldn’t add “<file>”: <err>".
   - Inserted text: notes → `[[<vault path without extension>]]`; other files → attachment link text (VLT-11). Several files are joined with "\n" plus a trailing "\n".
 - **VLT-11** Attachment link text: images → `![[target]]`, others → `[[target]]`. `target` is the bare file name if no other attachment shares it (case-insensitive), otherwise the full vault path.
 - **VLT-12** Files dropped onto the sidebar from outside the vault are copied in (see FOP-08).
@@ -168,6 +168,15 @@ The editor calls `post(message)` (Mac: `window.webkit.messageHandlers.holocron.p
 - **VLT-13** Normalise: backslashes → "/", strip `#…`/`^…`, compare case-insensitively. Resolve "." and ".."; never climb above the vault root (`../../../etc/passwd` → `etc/passwd`).
 - **VLT-14** A leading "/" is vault-absolute. Otherwise try, in order: (1) relative to the linking note's folder, (2) as a vault path, (3) if the target has no "/", by file name anywhere in the vault, fewest path segments winning.
 - **VLT-15** A link target "is an attachment" when its path part has an extension that is not md/markdown and is made only of letters/digits (so `v1.2 notes` is a note name, not an attachment).
+
+### 3.5 Attachment housekeeping (*Windows*)
+
+- **VLT-16 Layout** (setting `attachmentLayout`: "A folder for each note" `perNote`, default, or "One folder" `single`). With `perNote`, a note's attachments live in `<attachment folder>/<note path without extension>/`, e.g. `Attachments/Projects/Kyber/` for `Projects/Kyber.md`; with an empty attachment folder that is a folder named after the note beside it. Pasted and dropped files (VLT-09, VLT-10) go there for the shown note; with no note shown, or with `single`, they go in the attachment folder itself. Files used by several notes belong in `<attachment folder>/Shared/`.
+- **VLT-17 Usage**: an attachment is used by a note when any `[[…]]`, `![[…]]`, `[…](…)` or `![…](…)` link in it (outside code) resolves to the file (§3.4). Files referenced only from HTML (`<img src>`) or not linked at all count as unused. Usage waits for indexing to finish and reads unsaved edits.
+- **VLT-18 Moving with the note**: with `perNote` and "Update links" on, renaming or moving a note moves its attachment folder too (a folder moves `<attachment folder>/<folder>`), then removes attachment subfolders left empty. Links to the moved files are rewritten (wikilinks keep a bare name when it still resolves uniquely, else use the vault path; markdown links stay relative, or absolute if they were), and relative markdown links to attachments in a moved note are re-relativised. Undo of the rename/move moves everything back. If the destination folder exists the attachments stay put: alert "The attachments stayed in “<from>” because “<to>” already exists."
+- **VLT-19 Deleting with the note**: see FOP-10a.
+- **VLT-20 Clean Up Unused Attachments…** (File menu, palette): lists unused files (VLT-17) inside the attachment folder with a thumbnail (images, via `holocron-asset://`), folder and size, all ticked; Select All / Select None; "Move N files to Recycle Bin". Only offered paths are accepted. Trashed like FOP-10; toast "Moved N unused attachments to the Recycle Bin" + Undo; empty attachment subfolders are removed. Nothing unused → toast "No unused attachments".
+- **VLT-21 Organise Attachments…** (File menu, palette): previews `from → to` moves sorting files inside the attachment folder into VLT-16's layout (used by one note → that note's folder; by several → `Shared/`; unused and already-placed files stay; clashes numbered "crystal 2.png") and how many notes' links change. Confirming moves the files, rewrites links (as VLT-18) and removes emptied subfolders; toast "Organised N attachments" + Undo (moves back and rewrites links again, so edits in between survive). Nothing to do → toast "Attachments are already organised".
 
 ---
 
@@ -254,6 +263,7 @@ All destructive or structural operations show an **undo toast** (§11.10). Error
 - **FOP-08 Copy in from outside**: items dragged in from outside the vault are copied (unique names). Toast "Copied “X” into Orders" + Undo (trash the copies silently). Mixed batch → only the "Moved" toast.
 - **FOP-09 Duplicate**: save first, copy to "Name copy.md" ("Name copy 2.md", …), open in a new tab. Toast "Duplicated “Saber”" + Undo (trash the copy, no second toast). Error "Couldn’t duplicate “<file>”: <err>".
 - **FOP-10 Delete**: only vault items; always confirm. Dialog title "Move “Name” to the Trash?" or "Move N items to the Trash?"; message "You can restore it from the Trash. Unsaved changes in it will be lost."; buttons "Move to Trash" (destructive) / "Cancel". Open documents under the path are dropped **before** trashing (so nothing is saved back), tabs closed, selection cleared. Goes to the **system Trash/Recycle Bin**, never permanent delete. Toast "Moved “Ilum” to the Trash" + Undo only if every item's location in the Trash is known; Undo recreates parent folders and moves the item back. Errors: "Couldn’t move “X” to the Trash: <err>", "Couldn’t restore “X”: <err>".
+- **FOP-10a Delete with attachments** (*Windows*): when the items being deleted are the only users (VLT-17) of some attachments, the dialog adds a ticked checkbox "Also move N attachments only this note uses to the Recycle Bin" ("… only these items use …" for several, "… only notes in it use …" for a folder) and lists up to 5 names, then "and N more". Ticked, they are trashed with the items and the toast reads "Moved “Ilum” and 2 attachments to the Recycle Bin", with one Undo for all; emptied attachment subfolders are removed.
 - **FOP-11** In toasts, notes are named without extension, other items with; several items → "N items"; the root → "the top of the vault".
 
 **Acceptance**: new notes number as "Untitled 2.md" in the selected folder; new folders number and enter rename; duplicate opens "Saber copy.md"; trashing a folder closes its tabs without resurrecting dirty files; outside files are copied (source kept); bad names and collisions are rejected; each operation's toast text matches and its Undo restores files *and* links; undoing a duplicate shows no second toast.
@@ -688,6 +698,7 @@ Stored per user (Mac: UserDefaults). Window with four tabs; the last tab is reme
 | Editor | Line width (560–1100, step 20, "N pt") | `editorLineWidth` | 720 | |
 | Editor | Readable line length — limit the text width instead of filling the window (*Windows*; also View › Readable Line Length) | `readableLineLength` | on | Off: the text column grows with the window; the Line width slider hides |
 | Editor | Attachment folder (prompt "Vault root") | `attachmentFolder` | "Attachments" | "Pasted images and files dropped in from outside the vault are saved here, relative to the vault. Leave it empty to use the vault root." |
+| Editor | Organise attachments: A folder for each note / One folder (*Windows*) | `attachmentLayout` | perNote | VLT-16 |
 | Templates | Templates folder | `templatesFolder` | "Templates" | Explains placeholders (TPL-02) |
 | Templates › Daily notes | Folder | `dailyNoteFolder` | "Daily" | |
 | Templates › Daily notes | Date format | `dailyNoteFormat` | "YYYY-MM-DD" | Shows a live "Today’s note" example path. "Uses Obsidian’s date format: YYYY year, MM month, DD day, dddd weekday. A “/” makes subfolders, e.g. YYYY/MM/YYYY-MM-DD." |

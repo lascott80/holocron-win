@@ -75,6 +75,8 @@ export const commands: Command[] = [
   { id: "closeTab", title: "Close Tab", shortcut: "Ctrl+W", alsoKeys: ["Ctrl+F4"], enabled: () => (app.vault?.tabs.length ?? 0) > 0, run: () => run("closeActiveTab") },
   { id: "closeVault", title: "Close Vault", shortcut: "Ctrl+Shift+W", enabled: hasVault, run: () => run("closeVault") },
   { id: "showVaultInExplorer", title: "Show Vault in File Explorer", enabled: hasVault, run: () => run("showVaultInFolder") },
+  { id: "organiseAttachments", title: "Organise Attachments…", enabled: hasVault, run: () => run("requestAttachmentOrganise") },
+  { id: "cleanUpAttachments", title: "Clean Up Unused Attachments…", enabled: hasVault, run: () => run("requestAttachmentCleanup") },
   { id: "showNoteInExplorer", title: "Show Note in File Explorer", enabled: hasNote, run: () => app.doc && run("showInFolder", app.doc.path) },
   { id: "settings", title: "Settings…", shortcut: "Ctrl+,", run: () => (app.settingsOpen = true) },
   // Quits even when Holocron keeps running in the background (closing the window only hides it).
@@ -203,7 +205,7 @@ export function runCommand(id: string) {
 export const menus: { title: string; items: (string | { title: string; items: string[] })[] }[] = [
   {
     title: "File",
-    items: ["newNote", "newNoteFromTemplate", "newFolder", "newTab", "-", "quickCapture", "quickOpen", "commandPalette", "-", "openVault", "createVault", "-", "save", "closeTab", "closeVault", "-", "showNoteInExplorer", "showVaultInExplorer", "-", "settings", "-", "quitApp"],
+    items: ["newNote", "newNoteFromTemplate", "newFolder", "newTab", "-", "quickCapture", "quickOpen", "commandPalette", "-", "openVault", "createVault", "-", "save", "closeTab", "closeVault", "-", "showNoteInExplorer", "showVaultInExplorer", "-", "organiseAttachments", "cleanUpAttachments", "-", "settings", "-", "quitApp"],
   },
   { title: "Edit", items: ["undo", "redo", "-", "copyMarkdown", "pastePlainText", "-", "find", "findNext", "findPrevious", "searchVault"] },
   {

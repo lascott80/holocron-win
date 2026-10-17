@@ -74,6 +74,12 @@ export interface VaultView {
   renaming: string | null;
   /** Items waiting for "Move to Recycle Bin?" confirmation. */
   pendingDeletion: string[] | null;
+  /** Attachments only the pending items use, offered for deletion with them. */
+  pendingDeletionAttachments: string[];
+  /** Unused attachments offered by Clean Up Unused Attachments…, or null when it isn't showing. */
+  attachmentCleanup: AttachmentCleanupItem[] | null;
+  /** The moves Organise Attachments… would make, or null when it isn't showing. */
+  attachmentOrganise: AttachmentOrganiseView | null;
   recentNotes: string[];
   toast: ToastView | null;
   doc: DocView | null;
@@ -81,6 +87,19 @@ export interface VaultView {
   /** Template note paths, sorted by name. */
   templates: string[];
   isIndexing: boolean;
+}
+
+export interface AttachmentCleanupItem {
+  path: string;
+  /** In bytes. */
+  size: number;
+  isImage: boolean;
+}
+
+export interface AttachmentOrganiseView {
+  moves: { from: string; to: string }[];
+  /** How many notes' links will be updated. */
+  notesChanged: number;
 }
 
 export interface RecentVault {

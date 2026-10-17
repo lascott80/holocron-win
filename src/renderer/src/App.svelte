@@ -24,6 +24,8 @@
   import AboutDialog from "./components/overlays/AboutDialog.svelte";
   import ConflictSheet from "./components/overlays/ConflictSheet.svelte";
   import DeleteConfirm from "./components/overlays/DeleteConfirm.svelte";
+  import AttachmentCleanup from "./components/overlays/AttachmentCleanup.svelte";
+  import OrganiseAttachments from "./components/overlays/OrganiseAttachments.svelte";
   import AlertDialog from "./components/overlays/AlertDialog.svelte";
   import Toast from "./components/overlays/Toast.svelte";
   import UpdatePrompt from "./components/overlays/UpdatePrompt.svelte";
@@ -134,6 +136,8 @@
 {#if app.aboutOpen}<AboutDialog />{/if}
 {#if vault?.conflict}<ConflictSheet />{/if}
 {#if vault?.pendingDeletion}<DeleteConfirm />{/if}
+{#if vault?.attachmentCleanup}<AttachmentCleanup />{/if}
+{#if vault?.attachmentOrganise}<OrganiseAttachments />{/if}
 {#if app.state.errorMessage}<AlertDialog />{/if}
 <UpdatePrompt />
 <PopupMenu />

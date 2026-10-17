@@ -92,6 +92,16 @@ export function mkdirp(folder: string): void {
   fs.mkdirSync(folder, { recursive: true });
 }
 
+/** Removes a folder only if it's empty; returns whether it was removed. */
+export function removeIfEmpty(folder: string): boolean {
+  try {
+    fs.rmdirSync(folder);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Whether `file` is inside `root` (not `root` itself), following symlinks
  * and junctions on both sides. Compared case-insensitively on Windows.

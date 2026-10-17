@@ -30,34 +30,55 @@ export function attachmentPaths(files: Iterable<string>): string[] {
  * name anywhere in the vault (nearest the root wins).
  */
 export function resolve(rawTarget: string, notePath: string, paths: readonly string[]): string | null {
-  const target = LinkResolver.linkPath(rawTarget).replace(/\\/g, "/");
-  if (target === "") return null;
-  const lowered = new Map<string, string>();
-  for (const path of paths) {
-    const key = path.toLowerCase();
-    if (!lowered.has(key)) lowered.set(key, path);
-  }
+  return new AttachmentLookup(paths).resolve(rawTarget, notePath);
+}
 
-  if (target.startsWith("/")) {
-    return lowered.get(normalize(target.slice(1)).toLowerCase()) ?? null;
-  }
-  const noteFolder = dirname(notePath);
-  const relative = normalize(noteFolder === "" ? target : noteFolder + "/" + target);
-  const match = lowered.get(relative.toLowerCase()) ?? lowered.get(normalize(target).toLowerCase());
-  if (match !== undefined) return match;
-  if (target.includes("/")) return null;
-  const name = target.toLowerCase();
-  let best: string | null = null;
-  let bestDepth = Infinity;
-  for (const path of paths) {
-    if (basename(path).toLowerCase() !== name) continue;
-    const depth = segments(path).length;
-    if (depth < bestDepth) {
-      best = path;
-      bestDepth = depth;
+/** `resolve` over a fixed list of attachments, indexed once for many lookups. */
+export class AttachmentLookup {
+  private readonly lowered = new Map<string, string>();
+  /** Lower-cased file name → the path nearest the root (first in list order on a tie). */
+  private readonly byName = new Map<string, string>();
+  /** Lower-cased file name → how many attachments have it. */
+  private readonly nameCounts = new Map<string, number>();
+
+  constructor(paths: Iterable<string>) {
+    const depths = new Map<string, number>();
+    for (const path of paths) {
+      const key = path.toLowerCase();
+      if (!this.lowered.has(key)) this.lowered.set(key, path);
+      const name = basename(path).toLowerCase();
+      this.nameCounts.set(name, (this.nameCounts.get(name) ?? 0) + 1);
+      const depth = segments(path).length;
+      if (depth < (depths.get(name) ?? Infinity)) {
+        this.byName.set(name, path);
+        depths.set(name, depth);
+      }
     }
   }
-  return best;
+
+  /** Whether exactly this path is one of the attachments (ignoring case). */
+  has(path: string): boolean {
+    return this.lowered.has(path.toLowerCase());
+  }
+
+  /** Whether no other attachment shares this path's file name (ignoring case). */
+  isNameUnique(path: string): boolean {
+    return (this.nameCounts.get(basename(path).toLowerCase()) ?? 0) <= 1;
+  }
+
+  resolve(rawTarget: string, notePath: string): string | null {
+    const target = LinkResolver.linkPath(rawTarget).replace(/\\/g, "/");
+    if (target === "") return null;
+    if (target.startsWith("/")) {
+      return this.lowered.get(normalize(target.slice(1)).toLowerCase()) ?? null;
+    }
+    const noteFolder = dirname(notePath);
+    const relative = normalize(noteFolder === "" ? target : noteFolder + "/" + target);
+    const match = this.lowered.get(relative.toLowerCase()) ?? this.lowered.get(normalize(target).toLowerCase());
+    if (match !== undefined) return match;
+    if (target.includes("/")) return null;
+    return this.byName.get(target.toLowerCase()) ?? null;
+  }
 }
 
 function segments(path: string): string[] {

@@ -10,6 +10,8 @@ export type EditorMode = "livePreview" | "source" | "reading";
 export type InspectorTab = "outline" | "links" | "info";
 export type SettingsTab = "general" | "appearance" | "editor" | "templates";
 export type CaptureTarget = "daily" | "inbox";
+/** "perNote": each note's files in their own subfolder of the attachment folder; "single": all in it. */
+export type AttachmentLayout = "perNote" | "single";
 
 export interface Settings {
   reopenLastVault: boolean;
@@ -29,6 +31,7 @@ export interface Settings {
   /** Cap the text column at `editorLineWidth`; off = notes fill the window. */
   readableLineLength: boolean;
   attachmentFolder: string;
+  attachmentLayout: AttachmentLayout;
   templatesFolder: string;
   dailyNoteFolder: string;
   dailyNoteFormat: string;
@@ -74,6 +77,7 @@ export const defaultSettings: Settings = {
   editorLineWidth: 720,
   readableLineLength: true,
   attachmentFolder: "Attachments",
+  attachmentLayout: "perNote",
   templatesFolder: "Templates",
   dailyNoteFolder: "Daily",
   dailyNoteFormat: "YYYY-MM-DD",
@@ -123,6 +127,7 @@ export function sanitizeSettings(raw: Partial<Record<keyof Settings, unknown>>):
   result.lastEditingMode = oneOf(result.lastEditingMode, ["livePreview", "source"], "livePreview");
   result.inspectorTab = oneOf(result.inspectorTab, ["outline", "links", "info"], "outline");
   result.settingsTab = oneOf(result.settingsTab, ["general", "appearance", "editor", "templates"], "general");
+  result.attachmentLayout = oneOf<AttachmentLayout>(result.attachmentLayout, ["perNote", "single"], "perNote");
   result.quickCaptureTarget = oneOf(result.quickCaptureTarget, ["daily", "inbox"], "daily");
   result.quickCaptureShortcut = normalizeShortcut(result.quickCaptureShortcut) ?? defaultSettings.quickCaptureShortcut;
   return result;

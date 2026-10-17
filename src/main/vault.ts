@@ -11,12 +11,31 @@ import * as P from "@core/paths";
 import { LinkResolver, parse as parseNote } from "@core/noteParser";
 import { rewrite as rewriteLinks, relativePath as relativeLinkPath } from "@core/linkRewriter";
 import * as Attachments from "@core/attachments";
+import {
+  attachmentUsage,
+  attachmentsOnlyUsedBy,
+  noteAttachmentFolder,
+  planOrganise,
+  rewriteAttachmentLinks,
+  unusedAttachments,
+  type AttachmentMove,
+} from "@core/attachmentUsage";
 import { VaultIndex } from "@core/vaultIndex";
 import { dailyNoteDate, dailyNotePath, renderPlaceholders } from "@core/dailyNotes";
 import { noteText, renderTemplate } from "@core/templates";
 import { isPlaceholderName, titleFromContent } from "@core/autoTitle";
 import type { Settings } from "@shared/settings";
-import type { ConflictView, DocView, NoteDetails, TabView, ToastView, TreeNode, VaultView } from "@shared/ipc";
+import type {
+  AttachmentCleanupItem,
+  AttachmentOrganiseView,
+  ConflictView,
+  DocView,
+  NoteDetails,
+  TabView,
+  ToastView,
+  TreeNode,
+  VaultView,
+} from "@shared/ipc";
 import * as fsx from "./fsx";
 import { isServableAsset } from "./assets";
 import { EditorTab } from "./editorTab";
@@ -104,6 +123,10 @@ export class Vault {
   selection: string | null = null;
   renaming: string | null = null;
   pendingDeletion: string[] | null = null;
+  /** Attachments only the pending items use; worked out after `requestDeletion`. */
+  pendingDeletionAttachments: string[] = [];
+  attachmentCleanup: AttachmentCleanupItem[] | null = null;
+  attachmentOrganise: AttachmentOrganiseView | null = null;
   toast: Toast | null = null;
   errorMessage: string | null = null;
   treeRevision = 0;
@@ -838,20 +861,40 @@ export class Vault {
     const items = paths.filter((path) => path !== "" && fsx.exists(this.abs(path)));
     if (items.length) {
       this.pendingDeletion = items;
+      this.pendingDeletionAttachments = [];
       this.changed();
+      void this.findAttachmentsGoingWith(items);
     }
+  }
+
+  /** Fills in `pendingDeletionAttachments`: files that only the notes in `items` use. */
+  private async findAttachmentsGoingWith(items: string[]) {
+    const usage = await this.attachmentUsageNow();
+    if (this.pendingDeletion !== items) return;
+    const going = (path: string) => items.some((item) => P.isUnder(path, item));
+    const attachments = attachmentsOnlyUsedBy(usage, going).filter((path) => !going(path));
+    if (!attachments.length) return;
+    this.pendingDeletionAttachments = attachments;
+    this.changed();
   }
 
   cancelDeletion() {
     this.pendingDeletion = null;
+    this.pendingDeletionAttachments = [];
     this.changed();
   }
 
-  async confirmDeletion() {
+  /** Deletes the pending items and, when `withAttachments`, the attachments only they use. */
+  async confirmDeletion(withAttachments = true) {
     const paths = this.pendingDeletion;
     if (!paths) return;
+    const attachments = withAttachments ? this.pendingDeletionAttachments : [];
     this.pendingDeletion = null;
-    await this.delete(paths);
+    this.pendingDeletionAttachments = [];
+    if (!attachments.length) return this.delete(paths);
+    const what = `${this.describe(paths)} and ${plural(attachments.length, "attachment")}`;
+    await this.delete([...paths, ...attachments], true, what);
+    this.removeEmptyAttachmentFolders(attachments);
   }
 
   /**
@@ -859,7 +902,7 @@ export class Vault {
    * those notes are discarded with them (the documents are dropped first,
    * so closing their tabs can't save them back).
    */
-  async delete(paths: string[], announce = true) {
+  async delete(paths: string[], announce = true, description?: string) {
     const trashed: { path: string; restore: (() => void) | null }[] = [];
     for (const path of paths) {
       for (const documentPath of [...this.documents.keys()]) {
@@ -880,7 +923,7 @@ export class Vault {
     if (!announce || !trashed.length) return;
     const restorable = trashed.every((item) => item.restore !== null);
     this.showToast(
-      `Moved ${this.describe(trashed.map((item) => item.path))} to the Recycle Bin`,
+      `Moved ${trashed.length === paths.length && description ? description : this.describe(trashed.map((item) => item.path))} to the Recycle Bin`,
       restorable ? () => this.restoreFromTrash(trashed) : null,
     );
   }
@@ -921,7 +964,13 @@ export class Vault {
 
     // Work out link changes before anything moves.
     const updatesLinks = this.updatesLinksOverride ?? this.settings.updateLinksOnMove;
-    const rewrites = updatesLinks && mapping.size ? this.planLinkRewrites(mapping) : new Map<string, string>();
+    const noteRewrites = updatesLinks && mapping.size ? this.planLinkRewrites(mapping) : new Map<string, string>();
+    // The note's (or folder's) attachment folder moves with it, links and all.
+    const folderMove = updatesLinks && mapping.size ? this.attachmentFolderMove(source, destination) : null;
+    const withAttachments = updatesLinks && mapping.size
+      ? this.planAttachmentRewrites(mapping, movesTo, folderMove, noteRewrites)
+      : noteRewrites;
+    let rewrites = withAttachments;
 
     // Flush open notes being moved, then move on disk.
     for (const [path, document] of this.documents) if (movesTo(path) !== null) document.save();
@@ -933,6 +982,16 @@ export class Vault {
     } else {
       fsx.mkdirp(nodePath.dirname(this.abs(destination)));
       fsx.move(this.abs(source), this.abs(destination));
+    }
+    if (folderMove) {
+      try {
+        this.moveFolderOnDisk(folderMove.from, folderMove.to);
+        this.removeEmptyAttachmentFolders([folderMove.from], false);
+      } catch (error) {
+        // The note moved; its attachments didn't, so only note links change.
+        rewrites = noteRewrites;
+        this.showError(`Couldn’t move the attachments in “${folderMove.from}”: ${message(error)}`);
+      }
     }
 
     // Point documents, tabs, selection and recents at the new location.
@@ -953,27 +1012,91 @@ export class Vault {
     this.options.store.set(this.recentNotesKey, this.recentNotes);
 
     // Rewrite links in other notes.
-    for (const [path, text] of rewrites) {
-      const document = this.documents.get(path);
-      if (document) document.replaceContents(text);
-      else {
-        try {
-          fsx.writeAtomic(this.abs(path), text);
-        } catch (error) {
-          this.showError(`Couldn’t update links in “${P.stem(path)}”: ${message(error)}`);
-          continue;
-        }
-      }
-      // Keep the index's links current right away: the next move (an Undo
-      // straight after this one) filters notes by them before the
-      // background re-read has caught up.
-      if (this.index.hasPath(path)) this.index.update(path, text);
-    }
+    for (const [path, text] of rewrites) this.writeUpdatedLinks(path, text);
 
     this.reload([...rewrites.keys(), ...mapping.values()]);
     this.saveTabs();
     this.changed();
     return destination;
+  }
+
+  /** Writes a note whose links were updated, to its open document or to disk. */
+  private writeUpdatedLinks(path: string, text: string): boolean {
+    const document = this.documents.get(path);
+    if (document) document.replaceContents(text);
+    else {
+      try {
+        fsx.writeAtomic(this.abs(path), text);
+      } catch (error) {
+        this.showError(`Couldn’t update links in “${P.stem(path)}”: ${message(error)}`);
+        return false;
+      }
+    }
+    // Keep the index's links current right away: the next move (an Undo
+    // straight after this one) filters notes by them before the
+    // background re-read has caught up.
+    if (this.index.hasPath(path)) this.index.update(path, text);
+    return true;
+  }
+
+  /** Moves a folder, creating the destination's parents. */
+  private moveFolderOnDisk(from: string, to: string) {
+    fsx.mkdirp(nodePath.dirname(this.abs(to)));
+    fsx.move(this.abs(from), this.abs(to));
+  }
+
+  /**
+   * With one folder per note, the attachment folder that moves along with
+   * moving `source` to `destination`: "Attachments/Lore/Kyber" for the note
+   * "Lore/Kyber.md", "Attachments/Lore" for the folder "Lore". Null when
+   * there's nothing to move, or its new place is taken (with a warning).
+   */
+  private attachmentFolderMove(source: string, destination: string): AttachmentMove | null {
+    if (this.settings.attachmentLayout !== "perNote") return null;
+    const root = this.attachmentFolder;
+    if (root !== "" && P.isUnder(source, root)) return null; // moving within the attachment folder itself
+    const isFolder = !P.isNote(source);
+    if (isFolder && (root === "" || P.isUnder(root, source))) return null; // it moves along anyway
+    const counterpart = (path: string) => (isFolder ? P.join(root, path) : noteAttachmentFolder(root, path));
+    const from = counterpart(source);
+    const to = counterpart(destination);
+    if (from === to || !fsx.isDirectory(this.abs(from))) return null;
+    if (from.toLowerCase() !== to.toLowerCase() && fsx.exists(this.abs(to))) {
+      this.showError(`The attachments stayed in “${from}” because “${to}” already exists.`);
+      return null;
+    }
+    return { from, to };
+  }
+
+  /**
+   * `noteRewrites` plus the attachment links that change when notes move
+   * (relative markdown links) and when `folderMove` moves their files.
+   * Keyed by each note's path after the move.
+   */
+  private planAttachmentRewrites(
+    mapping: Map<string, string>,
+    movesTo: (path: string) => string | null,
+    folderMove: AttachmentMove | null,
+    noteRewrites: Map<string, string>,
+  ): Map<string, string> {
+    // Attachments inside a moving folder move too.
+    const moves = new Map<string, string>();
+    for (const path of this.attachments) {
+      const moved = movesTo(path) ?? (folderMove && P.isUnder(path, folderMove.from) ? folderMove.to + path.slice(folderMove.from.length) : null);
+      if (moved !== null) moves.set(path, moved);
+    }
+    const before = new Attachments.AttachmentLookup(this.attachments);
+    const after = moves.size ? new Attachments.AttachmentLookup(this.attachments.map((path) => moves.get(path) ?? path)) : before;
+    const result = new Map(noteRewrites);
+    for (const oldNote of this.allNotes) {
+      const newNote = mapping.get(oldNote) ?? oldNote;
+      if (!moves.size && newNote === oldNote) continue;
+      const text = noteRewrites.get(newNote) ?? this.textFor(oldNote);
+      if (text === null) continue;
+      const rewritten = rewriteAttachmentLinks(text, { oldNote, newNote, before, after, moves });
+      if (rewritten !== text) result.set(newNote, rewritten);
+    }
+    return result;
   }
 
   /**
@@ -1051,11 +1174,21 @@ export class Vault {
     return Attachments.normalize(this.settings.attachmentFolder);
   }
 
-  /** Saves pasted data as a new file in the attachment folder and returns the text that embeds it. */
+  /** Where new attachments for a note go: its own subfolder, or the attachment folder itself. */
+  attachmentFolderFor(notePath: string | null | undefined): string {
+    const root = this.attachmentFolder;
+    if (this.settings.attachmentLayout !== "perNote" || !notePath) return root;
+    return noteAttachmentFolder(root, notePath);
+  }
+
+  /**
+   * Saves pasted data as a new file in the shown note's attachment folder
+   * and returns the text that embeds it.
+   */
   saveAttachment(data: Uint8Array, fileName: string): string {
     const ext = P.extname(fileName) || "png";
     const base = P.stem(fileName) || "Attachment";
-    const path = this.uniquePath(base, ext, this.attachmentFolder);
+    const path = this.uniquePath(base, ext, this.attachmentFolderFor(this.activeTab?.path));
     fsx.writeAtomic(this.abs(path), data, { withoutOverwriting: true });
     this.reload();
     return Attachments.linkText(path, this.attachments);
@@ -1076,7 +1209,7 @@ export class Vault {
         try {
           const ext = nodePath.extname(file).slice(1);
           const base = ext ? nodePath.basename(file, "." + ext) : nodePath.basename(file);
-          path = this.uniquePath(base, ext, this.attachmentFolder);
+          path = this.uniquePath(base, ext, this.attachmentFolderFor(this.activeTab?.path));
           fsx.copy(file, this.abs(path));
         } catch (error) {
           this.showError(`Couldn’t add “${nodePath.basename(file)}”: ${message(error)}`);
@@ -1087,6 +1220,155 @@ export class Vault {
       texts.push(P.isNote(path) ? `[[${P.withoutExtension(path)}]]` : Attachments.linkText(path, this.attachments));
     }
     return texts;
+  }
+
+  // MARK: Attachment housekeeping
+
+  /** A note's current text: unsaved edits first, then the index, then the disk. */
+  private textFor(path: string): string | null {
+    const live = this.documents.get(path)?.text ?? this.index.text(path);
+    if (live !== undefined) return live;
+    try {
+      return fsx.readText(this.abs(path));
+    } catch {
+      return null;
+    }
+  }
+
+  /** Which notes use each attachment, once the index has caught up. */
+  private async attachmentUsageNow(): Promise<Map<string, Set<string>>> {
+    await this.indexingFinished();
+    const texts: [string, string][] = [];
+    for (const path of this.allNotes) {
+      const text = this.textFor(path);
+      if (text !== null) texts.push([path, text]);
+    }
+    return attachmentUsage(texts, this.attachments);
+  }
+
+  /**
+   * Removes folders inside the attachment folder left empty after `paths`
+   * moved out, walking up but never removing the attachment folder itself.
+   */
+  private removeEmptyAttachmentFolders(paths: string[], reload = true) {
+    const root = this.attachmentFolder;
+    if (root === "") return; // the folders are the user's own
+    const folders = new Set(paths.map((path) => P.dirname(path)));
+    for (const path of paths) if (fsx.isDirectory(this.abs(path))) folders.add(path);
+    for (let folder of [...folders].sort((a, b) => b.length - a.length)) {
+      while (folder !== root && P.isUnder(folder, root) && fsx.removeIfEmpty(this.abs(folder))) folder = P.dirname(folder);
+    }
+    if (reload) this.reload();
+  }
+
+  /** Lists unused files in the attachment folder for review (see `attachmentCleanup`). */
+  async requestAttachmentCleanup() {
+    const usage = await this.attachmentUsageNow();
+    const root = this.attachmentFolder;
+    const unused = unusedAttachments(usage).filter((path) => P.isUnder(path, root));
+    if (!unused.length) {
+      this.showToast("No unused attachments");
+      return;
+    }
+    this.attachmentCleanup = unused.map((path) => {
+      let size = 0;
+      try {
+        size = fs.statSync(this.abs(path)).size;
+      } catch {
+        // Gone already; it's skipped when trashing.
+      }
+      return { path, size, isImage: P.isImage(path) };
+    });
+    this.changed();
+  }
+
+  cancelAttachmentCleanup() {
+    this.attachmentCleanup = null;
+    this.changed();
+  }
+
+  /** Moves the chosen files (only ones that were offered) to the Recycle Bin. */
+  async confirmAttachmentCleanup(paths: string[]) {
+    const offered = new Set(this.attachmentCleanup?.map((item) => item.path) ?? []);
+    this.attachmentCleanup = null;
+    const chosen = paths.filter((path) => offered.has(path) && fsx.exists(this.abs(path)));
+    if (!chosen.length) {
+      this.changed();
+      return;
+    }
+    await this.delete(chosen, true, plural(chosen.length, "unused attachment"));
+    this.removeEmptyAttachmentFolders(chosen);
+  }
+
+  /** Works out how Organise Attachments… would sort the attachment folder (see `attachmentOrganise`). */
+  async requestAttachmentOrganise() {
+    const usage = await this.attachmentUsageNow();
+    const moves = planOrganise(usage, this.attachmentFolder, [...this.allNotes, ...this.attachments]);
+    if (!moves.length) {
+      this.showToast("Attachments are already organised");
+      return;
+    }
+    const notes = new Set(moves.flatMap((move) => [...(usage.get(move.from) ?? [])]));
+    const rewrites = this.planAttachmentMoveRewrites(new Map(moves.map((move) => [move.from, move.to])), notes);
+    this.attachmentOrganise = { moves, notesChanged: rewrites.size };
+    this.changed();
+  }
+
+  cancelAttachmentOrganise() {
+    this.attachmentOrganise = null;
+    this.changed();
+  }
+
+  async confirmAttachmentOrganise() {
+    const plan = this.attachmentOrganise;
+    if (!plan) return;
+    this.attachmentOrganise = null;
+    const done = this.moveAttachments(plan.moves);
+    if (!done.length) {
+      this.changed();
+      return;
+    }
+    this.showToast(`Organised ${plural(done.length, "attachment")}`, () => {
+      this.moveAttachments(done.map((move) => ({ from: move.to, to: move.from })).reverse());
+    });
+  }
+
+  /** New text for each note whose attachment links change when `moves` happen. */
+  private planAttachmentMoveRewrites(moves: Map<string, string>, notes: Iterable<string> = this.allNotes): Map<string, string> {
+    const before = new Attachments.AttachmentLookup(this.attachments);
+    const after = new Attachments.AttachmentLookup(this.attachments.map((path) => moves.get(path) ?? path));
+    const result = new Map<string, string>();
+    for (const note of notes) {
+      const text = this.textFor(note);
+      if (text === null) continue;
+      const rewritten = rewriteAttachmentLinks(text, { oldNote: note, newNote: note, before, after, moves });
+      if (rewritten !== text) result.set(note, rewritten);
+    }
+    return result;
+  }
+
+  /**
+   * Moves attachment files and updates every note's links to them. A move
+   * whose destination is taken (or that fails) is skipped with an error.
+   * Returns the moves made; undo by passing them back reversed.
+   */
+  private moveAttachments(moves: AttachmentMove[]): AttachmentMove[] {
+    const done: AttachmentMove[] = [];
+    for (const move of moves) {
+      try {
+        if (fsx.exists(this.abs(move.to))) throw new FileError(`“${move.to}” already exists.`);
+        this.moveFolderOnDisk(move.from, move.to);
+        done.push(move);
+      } catch (error) {
+        this.showError(`Couldn’t move “${move.from}”: ${message(error)}`);
+      }
+    }
+    const rewrites = this.planAttachmentMoveRewrites(new Map(done.map((move) => [move.from, move.to])));
+    for (const [path, text] of rewrites) this.writeUpdatedLinks(path, text);
+    this.removeEmptyAttachmentFolders(done.map((move) => move.from), false);
+    this.reload(rewrites.keys());
+    this.changed();
+    return done;
   }
 
   // MARK: Daily notes
@@ -1535,6 +1817,9 @@ export class Vault {
       selection: this.selection,
       renaming: this.renaming,
       pendingDeletion: this.pendingDeletion,
+      pendingDeletionAttachments: this.pendingDeletionAttachments,
+      attachmentCleanup: this.attachmentCleanup,
+      attachmentOrganise: this.attachmentOrganise,
       recentNotes: this.recentNotes,
       toast: this.toast ? { id: this.toast.id, message: this.toast.message, actionTitle: this.toast.actionTitle, isWarning: this.toast.isWarning } : null,
       doc: document && path ? this.docView(path, document) : null,
@@ -1588,6 +1873,11 @@ async function defaultTrash(): Promise<null> {
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** "1 attachment", "3 attachments". */
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
 /**
