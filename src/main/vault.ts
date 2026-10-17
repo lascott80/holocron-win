@@ -258,7 +258,8 @@ export class Vault {
    * into the index even if the tree's shape didn't change.
    */
   reload(changedPaths: Iterable<string> = []) {
-    const scan = scanVault(this.root);
+    const sort = this.settings.fileSort;
+    const scan = scanVault(this.root, sort === "modified" || sort === "created");
     this.attachments = scan.attachments;
     const changed = new Set(changedPaths);
     const treeChanged = !sameTree(scan.tree, this.tree);
@@ -2430,13 +2431,20 @@ export function sameTree(a: TreeNode[], b: TreeNode[]): boolean {
     const x = a[i];
     const y = b[i];
     if (x.path !== y.path || x.name !== y.name || x.isDir !== y.isDir || x.noteCount !== y.noteCount) return false;
+    if (x.modified !== y.modified || x.created !== y.created) return false;
     if (x.isDir && !sameTree(x.children ?? [], y.children ?? [])) return false;
   }
   return true;
 }
 
-/** Folders and notes (folders first, Finder order), plus every attachment's path. Hidden entries skipped. */
-export function scanVault(root: string): { tree: TreeNode[]; notes: string[]; attachments: string[] } {
+/**
+ * Folders and notes (folders first, Finder order), plus every attachment's
+ * path. Hidden entries skipped. With `withTimes`, each note carries its
+ * modification and creation time and each folder its newest note's, for a
+ * tree sorted by time (UI-10a); that costs a stat per note, so it's only
+ * asked for when the tree is sorted that way.
+ */
+export function scanVault(root: string, withTimes = false): { tree: TreeNode[]; notes: string[]; attachments: string[] } {
   const notes: string[] = [];
   const attachments: string[] = [];
 
@@ -2465,9 +2473,27 @@ export function scanVault(root: string): { tree: TreeNode[]; notes: string[]; at
       }
       if (isDir) {
         const children = walk(full, path);
-        nodes.push({ path, name: entry.name, isDir: true, children, noteCount: children.reduce((sum, child) => sum + child.noteCount, 0) });
+        const node: TreeNode = { path, name: entry.name, isDir: true, children, noteCount: children.reduce((sum, child) => sum + child.noteCount, 0) };
+        if (withTimes) {
+          for (const child of children) {
+            if (child.modified !== undefined && (node.modified === undefined || child.modified > node.modified)) node.modified = child.modified;
+            if (child.created !== undefined && (node.created === undefined || child.created > node.created)) node.created = child.created;
+          }
+        }
+        nodes.push(node);
       } else if (isFile && P.isNote(entry.name)) {
-        nodes.push({ path, name: P.stem(entry.name), isDir: false, noteCount: 1 });
+        const node: TreeNode = { path, name: P.stem(entry.name), isDir: false, noteCount: 1 };
+        if (withTimes) {
+          try {
+            const stat = fs.statSync(full);
+            node.modified = stat.mtimeMs;
+            // NTFS keeps a real creation time; where there is none, fall back to the change time.
+            node.created = stat.birthtimeMs || stat.ctimeMs;
+          } catch {
+            // Vanished between readdir and stat: sorted as if undated.
+          }
+        }
+        nodes.push(node);
       } else if (isFile) {
         attachments.push(path);
       }

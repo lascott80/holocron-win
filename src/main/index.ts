@@ -190,6 +190,8 @@ export class HolocronApp {
     if (key === "runInBackground") this.updateTray();
     if (key === "launchAtLogin") this.applyLoginItem();
     if (key === "spellCheck" || key === "spellCheckLanguages") this.applySpellCheck();
+    // A time-based sort needs the tree rescanned with file times.
+    if (key === "fileSort") this.vault?.reload();
     if (key === "accent" || key === "appearance" || key === "darkTheme" || key === "lightTheme" || key === "quickCaptureTarget" || key === "quickCaptureInbox") this.capture.refresh();
     this.pushState();
   }

@@ -619,6 +619,8 @@ Added in the Windows port (0.2.0). All of it follows the live-preview rule: rend
 - **UI-11 Inline rename**: text field (placeholder "Name") pre-filled and focused; Return commits, Esc cancels, losing focus commits. Error "Couldn’t rename “<name>”: <err>".
 - **UI-12 Drag and drop**: rows drag as files; drop on a folder → into it; on a note → into its folder; on the header → root. **Drop highlight**: the destination folder (or the header for the root) gets a rounded accent outline (fill 18%, 1.5 px stroke 70%), animated 0.12 s; moving between rows never flickers.
 - **UI-13 Context menus**: note — "Open in New Tab", "Rename", "Duplicate", "Show in Finder", "Move to Trash"; folder — "Rename", "New Note in Folder", "New Folder Inside", "Show in Finder", "Move to Trash".
+- **UI-10a Sort** (*Windows*): a sort button at the right of the Files header (and View › Sort Files, palette "Sort Files by …") orders the tree by **Name (A to Z)** (default), **Name (Z to A)**, **Last Modified** or **Created** (newest first); folders always come first, sorted the same way by their newest note. Setting `fileSort`. Time sorts make the rescan stat every note, so file times are only gathered then.
+- **UI-10b Multi-select** (*Windows*): Ctrl-click adds or removes a row (without opening it), Shift-click selects the range from the last plain click, Shift+↑/↓ grows it, Ctrl+A selects every visible row, Esc clears. The header shows "N selected". Delete, the context menu ("Move N Items to Recycle Bin") and dragging any selected row act on all of them (an item inside a selected folder isn’t moved twice). Main still knows one selected note — the one shown — so a plain click clears the rest.
 - **UI-14 Tags section** (collapsible, state persisted): up to 100 tags with counts; click → Quick Open "#tag".
 - **UI-15 Bottom bar**: "+ New Note" and a New Folder button ("New Folder (⌥⌘N)").
 
@@ -737,6 +739,7 @@ Stored per user (Mac: UserDefaults). Window with four tabs; the last tab is reme
 | General › Quick capture (*Windows*) | Save captures to: Today’s note / Inbox note | `quickCaptureTarget` | daily | `daily` / `inbox`; the capture window can switch for one capture |
 | General › Quick capture (*Windows*) | Inbox note (prompt "Inbox.md") | `quickCaptureInbox` | "Inbox.md" | A vault path; ".md" added if missing; created when needed. Paths that climb out of the vault or into a hidden folder are refused |
 | (View menu) | View mode | `editorMode` | livePreview | livePreview / source / reading |
+| (Files header, View menu) | Sort files | `fileSort` | name | name / nameDesc / modified / created (UI-10a) |
 
 UI state also persisted: inspector visible (`showInspector`), inspector tab, tags section expanded, settings tab, per-vault tabs and recents (§7).
 
@@ -1120,7 +1123,7 @@ How this repository's Electron app (0.2.0) realises the spec, and where it delib
 - Sidebar (200–400 px, default 260) and inspector (240–420 px, default 290) are resized by dragging their borders; widths are remembered. Toggle Sidebar is Ctrl+\.
 - Fonts: UI Segoe UI Variable; editor System = Segoe UI Variable, Serif = Cambria/Georgia, Monospaced = Cascadia Mono/Consolas.
 - Wording: "Show in File Explorer", "Recycle Bin", Ctrl-based shortcuts everywhere (tooltips, cheat sheet, the Start Here guide).
-- The file tree also supports Ctrl-click / middle-click to open in a new tab, F2 to rename, Home/End and ←/→ to collapse/expand, and expanding a collapsed folder by hovering over it while dragging. Middle-click closes a tab.
+- The file tree also supports middle-click to open in a new tab (Ctrl-click selects several rows, UI-10b), F2 to rename, Home/End and ←/→ to collapse/expand, and expanding a collapsed folder by hovering over it while dragging. Middle-click closes a tab.
 - Settings is a modal dialog with a left-hand list of the four tabs.
 
 **Files** (§3, §6)

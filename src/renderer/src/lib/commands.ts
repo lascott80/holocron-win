@@ -5,7 +5,7 @@
 import { app } from "./app.svelte";
 import { accents, activeTheme, themes } from "./theme";
 import { call, editor, run } from "./host";
-import { defaultSettings, FONT_SIZE_RANGE, shortcutLabel, type Accent, type Appearance, type EditorMode } from "@shared/settings";
+import { defaultSettings, FONT_SIZE_RANGE, shortcutLabel, type Accent, type Appearance, type EditorMode, type FileSort } from "@shared/settings";
 import type { MenuEntry } from "./menu.svelte";
 
 export interface Command {
@@ -39,6 +39,14 @@ async function exportNote(format: "pdf" | "html" | "print") {
   const html = await editor()?.exportHtml(title);
   if (html) await call("exportNote", format, html);
 }
+
+/** The file tree's orders (UI-10a), as shown in the sort menu. */
+export const FILE_SORTS: { value: FileSort; label: string }[] = [
+  { value: "name", label: "Name (A to Z)" },
+  { value: "nameDesc", label: "Name (Z to A)" },
+  { value: "modified", label: "Last Modified" },
+  { value: "created", label: "Created" },
+];
 
 const hasVault = () => app.vault !== null;
 const hasNote = () => app.doc !== null;
@@ -118,6 +126,15 @@ export const commands: Command[] = [
   { id: "toggleInspector", title: "Toggle Inspector", shortcut: "Ctrl+Alt+I", enabled: hasVault, checked: () => app.settings.showInspector, run: () => app.setSetting("showInspector", !app.settings.showInspector) },
   { id: "readableLineLength", title: "Readable Line Length", checked: () => app.settings.readableLineLength, run: () => app.setSetting("readableLineLength", !app.settings.readableLineLength) },
   { id: "toggleFormattingBar", title: "Show Formatting Bar", checked: () => app.settings.showFormattingBar, run: () => app.setSetting("showFormattingBar", !app.settings.showFormattingBar) },
+  ...FILE_SORTS.map(
+    ({ value, label }): Command => ({
+      id: `sortFiles:${value}`,
+      title: `Sort Files by ${label}`,
+      enabled: hasVault,
+      checked: () => app.settings.fileSort === value,
+      run: () => app.setSetting("fileSort", value),
+    }),
+  ),
   { id: "zoomIn", title: "Zoom In", shortcut: "Ctrl+=", alsoKeys: ["Ctrl+Shift++", "Ctrl++"], run: () => zoomText(1) },
   { id: "zoomOut", title: "Zoom Out", shortcut: "Ctrl+-", run: () => zoomText(-1) },
   { id: "zoomReset", title: "Actual Size", shortcut: "Ctrl+0", run: () => zoomText(0) },
@@ -235,7 +252,7 @@ export const menus: { title: string; items: (string | { title: string; items: st
   { title: "Edit", items: ["undo", "redo", "-", "copyMarkdown", "pastePlainText", "-", "find", "findNext", "findPrevious", "searchVault"] },
   {
     title: "View",
-    items: ["toggleSidebar", "toggleInspector", "toggleFormattingBar", "readableLineLength", "-", "zoomIn", "zoomOut", "zoomReset", "-", "mode:livePreview", "mode:source", "mode:reading", "-", "toggleReading", "toggleSource", "focusMode", "-", "foldHeading", "unfoldHeading", "foldAllHeadings", "unfoldAll"],
+    items: ["toggleSidebar", "toggleInspector", "toggleFormattingBar", "readableLineLength", { title: "Sort Files", items: FILE_SORTS.map(({ value }) => `sortFiles:${value}`) }, "-", "zoomIn", "zoomOut", "zoomReset", "-", "mode:livePreview", "mode:source", "mode:reading", "-", "toggleReading", "toggleSource", "focusMode", "-", "foldHeading", "unfoldHeading", "foldAllHeadings", "unfoldAll"],
   },
   { title: "Go", items: ["today", "previousDaily", "nextDaily", "-", "back", "forward", "-", "nextTab", "previousTab"] },
   {

@@ -8,6 +8,8 @@ export type Accent = Crystal | "theme";
 export type EditorFont = "system" | "serif" | "mono";
 export type EditorMode = "livePreview" | "source" | "reading";
 export type InspectorTab = "outline" | "links" | "info";
+/** Order of the file tree (folders always first): by name, or newest first by modification or creation time. */
+export type FileSort = "name" | "nameDesc" | "modified" | "created";
 export type SettingsTab = "general" | "appearance" | "editor" | "templates";
 export type CaptureTarget = "daily" | "inbox";
 export type ParagraphSpacing = "compact" | "normal" | "relaxed";
@@ -73,6 +75,8 @@ export interface Settings {
   editorMode: EditorMode;
   /** The mode reading view toggles back to. */
   lastEditingMode: EditorMode;
+  /** File tree order (UI-10a). */
+  fileSort: FileSort;
   // Remembered UI state
   showInspector: boolean;
   showSidebar: boolean;
@@ -122,6 +126,7 @@ export const defaultSettings: Settings = {
   launchAtLogin: false,
   editorMode: "livePreview",
   lastEditingMode: "livePreview",
+  fileSort: "name",
   showInspector: true,
   showSidebar: true,
   inspectorTab: "outline",
@@ -160,6 +165,7 @@ export function sanitizeSettings(raw: Partial<Record<keyof Settings, unknown>>):
   result.editorMode = oneOf(result.editorMode, ["livePreview", "source", "reading"], "livePreview");
   result.lastEditingMode = oneOf(result.lastEditingMode, ["livePreview", "source"], "livePreview");
   result.inspectorTab = oneOf(result.inspectorTab, ["outline", "links", "info"], "outline");
+  result.fileSort = oneOf<FileSort>(result.fileSort, ["name", "nameDesc", "modified", "created"], "name");
   result.settingsTab = oneOf(result.settingsTab, ["general", "appearance", "editor", "templates"], "general");
   result.attachmentLayout = oneOf<AttachmentLayout>(result.attachmentLayout, ["perNote", "single"], "perNote");
   result.quickCaptureTarget = oneOf(result.quickCaptureTarget, ["daily", "inbox"], "daily");

@@ -14,6 +14,9 @@ export interface TreeNode {
   children?: TreeNode[];
   /** Notes in this subtree (1 for a note). */
   noteCount: number;
+  /** ms since epoch; only when the tree is sorted by time (folders: the newest note inside). */
+  modified?: number;
+  created?: number;
 }
 
 export interface TabView {

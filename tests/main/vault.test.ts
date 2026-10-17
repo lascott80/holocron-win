@@ -230,3 +230,24 @@ describe("sameTree", () => {
     expect(sameTree([], [])).toBe(true);
   });
 });
+
+describe("scanVault with times", () => {
+  it("adds modification and creation times to notes and the newest to folders", () => {
+    temp.write("Old.md", "a");
+    temp.write("Lore/New.md", "b");
+    const old = new Date(2020, 0, 1);
+    fs.utimesSync(temp.abs("Old.md"), old, old);
+    const plain = scanVault(temp.root);
+    expect(plain.tree.every((node) => node.modified === undefined)).toBe(true);
+    const timed = scanVault(temp.root, true);
+    const lore = timed.tree.find((node) => node.name === "Lore")!;
+    const oldNote = timed.tree.find((node) => node.name === "Old")!;
+    expect(oldNote.modified).toBe(old.getTime());
+    expect(typeof oldNote.created).toBe("number");
+    expect(lore.modified).toBe(lore.children![0]!.modified);
+    expect(lore.modified!).toBeGreaterThan(oldNote.modified!);
+    // A later edit shows up as a different tree.
+    fs.writeFileSync(temp.abs("Old.md"), "changed");
+    expect(sameTree(timed.tree, scanVault(temp.root, true).tree)).toBe(false);
+  });
+});
