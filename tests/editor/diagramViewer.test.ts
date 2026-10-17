@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { findImages, imageName } from "../../src/editor/images.js";
 import {
   fitTransform,
+  imageSize,
   MAX_FIT_SCALE,
   panBy,
   svgSize,
@@ -113,5 +115,27 @@ describe("wheel helpers", () => {
     expect(wheelZoomFactor(120)).toBeCloseTo(0.8);
     expect(wheelZoomFactor(-5)).toBeCloseTo(Math.exp(0.05));
     expect(wheelZoomFactor(0)).toBe(1);
+  });
+});
+
+describe("Image viewer", () => {
+  it("uses an image's own size, or a default for SVGs without one", () => {
+    expect(imageSize(1920, 1080)).toEqual({ width: 1920, height: 1080 });
+    expect(imageSize(0, 0)).toEqual({ width: 800, height: 600 });
+  });
+
+  it("never enlarges a small image when fitting it", () => {
+    expect(fitTransform(200, 100, 1200, 800, 24, 1).scale).toBe(1);
+    expect(fitTransform(4000, 2000, 1200, 800, 24, 1).scale).toBeLessThan(1);
+  });
+
+  it("names images after their file", () => {
+    expect(imageName("Attachments/Lore/a%20b.png")).toBe("a b.png");
+    expect(imageName("https://example.com/x/logo.png?size=2#top")).toBe("logo.png");
+    expect(imageName("crystal.png")).toBe("crystal.png");
+    expect(findImages("![[Attachments/crystal.png|300]] ![map](../Attachments/map%20old.png)").map((image) => image.name)).toEqual([
+      "crystal.png",
+      "map old.png",
+    ]);
   });
 });

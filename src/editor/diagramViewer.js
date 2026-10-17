@@ -1,7 +1,8 @@
-// Full-window viewer for a rendered diagram (Mermaid's "Expand"): the SVG is
-// fitted to the window, then zoomed (Ctrl+wheel, pinch, buttons, keys) and
-// panned (wheel, drag, arrows). It lives on document.body, outside the editor,
-// so it carries its own stylesheet built from the --hc-* variables.
+// Full-window viewer for a rendered diagram (Mermaid's "Expand") or an image
+// (images.js): the content is fitted to the window, then zoomed (Ctrl+wheel,
+// pinch, buttons, keys) and panned (wheel, drag, arrows). It lives on
+// document.body, outside the editor, so it carries its own stylesheet built
+// from the --hc-* variables.
 import { UI_FONT } from "./platform.js";
 
 // ---------- Pure view math (tested) ----------
@@ -96,6 +97,14 @@ const CSS = `
 .hc-diagram-viewer-content { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 .hc-diagram-viewer-content.is-animating { transition: transform 120ms ease-out; }
 .hc-diagram-viewer-content svg { display: block; max-width: none !important; }
+.hc-diagram-viewer-content img { display: block; max-width: none !important; -webkit-user-drag: none; }
+.hc-diagram-viewer-caption {
+  position: absolute; top: 12px; left: 12px; max-width: calc(100% - 420px);
+  padding: 7px 10px; border-radius: 8px; pointer-events: none;
+  background: var(--hc-panel, #1A1D23); border: 1px solid var(--hc-border, #23272F);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px;
+}
+.hc-diagram-viewer-caption span { color: var(--hc-muted, #8A919D); margin-left: 8px; font-variant-numeric: tabular-nums; }
 .hc-diagram-viewer-toolbar {
   position: absolute; top: 12px; right: 12px; display: flex; align-items: center; gap: 2px;
   padding: 4px; border-radius: 8px;
@@ -157,11 +166,83 @@ export function isDiagramViewerOpen() {
   return openViewer !== null;
 }
 
+/** Whether an image viewer (rather than a diagram one) is open (for tests and smoke scripts). */
+export function isImageViewerOpen() {
+  return openViewer?.kind === "image";
+}
+
 /**
  * Opens the viewer on `svg` (a rendered SVG string). `copyImage()` resolves to
  * a PNG Blob for the "Copy image" button; `returnFocus` gets focus back on close.
  */
 export function openDiagramViewer({ svg, copyImage, returnFocus, label = "Diagram" }) {
+  const content = document.createElement("div");
+  content.innerHTML = svg; // already sanitised by Mermaid
+  const svgElement = content.querySelector("svg");
+  const size = svgSize(svg);
+  if (svgElement && size.width > 0) {
+    // Draw at the diagram's own size; the wrapper's transform does the scaling.
+    svgElement.setAttribute("width", String(size.width));
+    svgElement.setAttribute("height", String(size.height));
+    svgElement.style.maxWidth = "none";
+    svgElement.style.width = `${size.width}px`;
+    svgElement.style.height = `${size.height}px`;
+  }
+  return openViewerOverlay({ nodes: [...content.childNodes], size, copyImage, returnFocus, label, kind: "diagram" });
+}
+
+/** An image's size for the viewer; SVGs without one get a sensible default. */
+export function imageSize(naturalWidth, naturalHeight) {
+  return naturalWidth > 0 && naturalHeight > 0 ? { width: naturalWidth, height: naturalHeight } : { width: 800, height: 600 };
+}
+
+/**
+ * Opens the viewer on an image (`src` as the editor loads it). Fitting never
+ * enlarges it past 100%, so small screenshots stay sharp; zooming can.
+ * "Copy image" puts the original on the clipboard as a PNG.
+ */
+export async function openImageViewer({ src, name = "", returnFocus }) {
+  const image = new Image();
+  image.alt = name;
+  image.draggable = false;
+  image.src = src;
+  try {
+    await image.decode();
+  } catch {
+    return null; // couldn't load it; the editor already shows "Image not found"
+  }
+  const size = imageSize(image.naturalWidth, image.naturalHeight);
+  image.style.width = `${size.width}px`;
+  image.style.height = `${size.height}px`;
+  const caption = image.naturalWidth > 0 ? `${image.naturalWidth} × ${image.naturalHeight}` : "";
+  return openViewerOverlay({
+    nodes: [image],
+    size,
+    copyImage: () => imagePng(src),
+    returnFocus,
+    label: name ? `Image viewer: ${name}` : "Image viewer",
+    caption: name ? { title: name, detail: caption } : null,
+    maxFitScale: 1,
+    kind: "image",
+  });
+}
+
+/** The image at `src` as a PNG Blob (the clipboard only takes PNG). */
+async function imagePng(src) {
+  const blob = await (await fetch(src)).blob();
+  if (blob.type === "image/png") return blob;
+  const bitmap = await createImageBitmap(blob);
+  const canvas = document.createElement("canvas");
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  canvas.getContext("2d").drawImage(bitmap, 0, 0);
+  bitmap.close?.();
+  return await new Promise((resolve, reject) =>
+    canvas.toBlob((png) => (png ? resolve(png) : reject(new Error("Couldn’t convert the image"))), "image/png"),
+  );
+}
+
+function openViewerOverlay({ nodes, size, copyImage, returnFocus, label, caption = null, maxFitScale = MAX_FIT_SCALE, kind }) {
   openViewer?.close(true);
   injectStyle();
   const previous = document.activeElement;
@@ -180,17 +261,7 @@ export function openDiagramViewer({ svg, copyImage, returnFocus, label = "Diagra
   stage.className = "hc-diagram-viewer-stage";
   const content = document.createElement("div");
   content.className = "hc-diagram-viewer-content";
-  content.innerHTML = svg; // already sanitised by Mermaid
-  const svgElement = content.querySelector("svg");
-  const size = svgSize(svg);
-  if (svgElement && size.width > 0) {
-    // Draw at the diagram's own size; the wrapper's transform does the scaling.
-    svgElement.setAttribute("width", String(size.width));
-    svgElement.setAttribute("height", String(size.height));
-    svgElement.style.maxWidth = "none";
-    svgElement.style.width = `${size.width}px`;
-    svgElement.style.height = `${size.height}px`;
-  }
+  content.append(...nodes);
   stage.appendChild(content);
 
   const toolbar = document.createElement("div");
@@ -214,6 +285,13 @@ export function openDiagramViewer({ svg, copyImage, returnFocus, label = "Diagra
   hint.textContent = "Scroll to pan · Ctrl+scroll to zoom · Esc to close";
 
   panel.append(stage, toolbar, hint);
+  if (caption) {
+    const title = document.createElement("div");
+    title.className = "hc-diagram-viewer-caption";
+    title.textContent = caption.title;
+    if (caption.detail) title.appendChild(Object.assign(document.createElement("span"), { textContent: caption.detail }));
+    panel.appendChild(title);
+  }
   root.appendChild(panel);
 
   // ----- View state -----
@@ -223,7 +301,7 @@ export function openDiagramViewer({ svg, copyImage, returnFocus, label = "Diagra
   // Fitting leaves room for the toolbar above and the hint below.
   const fitView = () => {
     const { width, height } = view();
-    const t = fitTransform(size.width, size.height, width, height - FIT_TOP - FIT_BOTTOM, FIT_SIDE);
+    const t = fitTransform(size.width, size.height, width, height - FIT_TOP - FIT_BOTTOM, FIT_SIDE, maxFitScale);
     return { ...t, y: t.y + FIT_TOP };
   };
   const fitScale = () => fitView().scale;
@@ -418,6 +496,6 @@ export function openDiagramViewer({ svg, copyImage, returnFocus, label = "Diagra
   document.body.appendChild(root);
   fit();
   panel.focus();
-  openViewer = { close };
+  openViewer = { close, kind };
   return { close };
 }

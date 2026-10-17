@@ -31,7 +31,7 @@ import { mermaidDiagrams, setMermaidTheme } from "./mermaid.js";
 import { math } from "./math.js";
 import { emoji } from "./emoji.js";
 import { livePreview } from "./livePreview.js";
-import { currentNote, imagePaste, inlineImages, setImageContext } from "./images.js";
+import { currentNote, imagePaste, imageViewer, inlineImages, setImageContext } from "./images.js";
 import { mediaEmbeds } from "./media.js";
 import { htmlRendering } from "./html.js";
 import { copyMarkdown, richCopy } from "./richCopy.js";
@@ -109,6 +109,7 @@ function embeddedEditorExtensions() {
     syntaxHighlighting(codeHighlight),
     preview,
     inlineImages,
+    imageViewer,
     media,
     htmlRendering,
     tables,
@@ -185,6 +186,7 @@ const rendering = [
   comments,
   codeBlockTools((code) => post({ type: "copy", text: code })),
   inlineImages,
+  imageViewer,
   media,
   htmlRendering,
   properties,
