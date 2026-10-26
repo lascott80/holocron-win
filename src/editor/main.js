@@ -56,6 +56,7 @@ import {
   toggleItalic,
   toggleStrikethrough,
   toggleTask,
+  markdownKeys,
   moveDoneTasksDown,
   toggleHighlight,
   toggleBulletList,
@@ -100,6 +101,7 @@ const markdownSupport = markdown({
   base: markdownLanguage,
   extensions: [Frontmatter, WikiLink, Tag, Highlight],
   codeLanguages: codeLanguage,
+  addKeymap: false, // markdownKeys (commands.js) instead
 });
 
 const preview = livePreview({
@@ -241,6 +243,7 @@ const extensions = (mode) => [
   EditorState.allowMultipleSelections.of(true),
   indentOnInput(),
   markdownSupport,
+  markdownKeys,
   syntaxHighlighting(holocronHighlight),
   syntaxHighlighting(codeHighlight),
   firstLineHeading,

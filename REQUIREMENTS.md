@@ -545,7 +545,7 @@ Insertions on a non-empty line go after a blank line ("\n\n") where noted.
 
 ### 10.13 Lists and editing keys
 
-- **ED-45** Return continues lists, tasks (new item gets `[ ]`), numbered lists (incrementing) and quotes; on an empty item it ends the list. Backspace right after markup deletes it/outdents. Tab/⇧Tab indent/outdent (outside tables).
+- **ED-45** Return continues lists, tasks (new item gets `[ ]`), numbered lists (incrementing) and quotes; on an empty item it ends the list. *Windows:* that includes an empty second item (CodeMirror's default would instead add a blank line, making the list loose). Backspace right after markup deletes it/outdents. Tab/⇧Tab indent/outdent (outside tables). *Windows:* the Checklist, Bulleted List, Numbered List, Quote and Heading commands leave a cursor that was where the marker went in after the marker, so you can type the item straight away.
 - **ED-46** Backspace precedence: delete markup → clear empty heading (ED-15) → delete an empty auto-closed pair → normal delete.
 - **ED-47** Standard editor features: multiple cursors, rectangular selection (⌥-drag), ⌘D select next occurrence, ⌘⇧L select all matches, ⌘⌥G go to line, ⌘/ toggles an HTML comment, drop caret when dragging.
 - **ED-48** Pasting a URL over selected text makes `[sel](url)` (`www.` gets `https://`).

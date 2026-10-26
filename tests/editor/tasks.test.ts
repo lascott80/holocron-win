@@ -76,3 +76,51 @@ describe("moveDoneTasksDown", () => {
     expect(moveDoneTasksDown(makeView("Just text", 2))).toBe(false);
   });
 });
+
+describe("line marker buttons put the cursor after the marker", async () => {
+  const { toggleBulletList, toggleNumberedList, toggleQuote, setHeading } = await import("../../src/editor/commands.js");
+  const cases: [string, (view: any) => boolean, string][] = [
+    ["checklist", toggleTask, "- [ ] "],
+    ["bullet", toggleBulletList, "- "],
+    ["numbered", toggleNumberedList, "1. "],
+    ["quote", toggleQuote, "> "],
+    ["heading", setHeading(2), "## "],
+  ];
+  for (const [name, command, marker] of cases) {
+    it(`${name} on an empty line`, () => {
+      const view = makeView("", 0);
+      command(view);
+      expect(view.state.doc.toString()).toBe(marker);
+      expect(view.state.selection.main.head).toBe(marker.length);
+    });
+    it(`${name} keeps the cursor in place on a line with text`, () => {
+      const view = makeView("Buy milk", 3);
+      command(view);
+      expect(view.state.doc.toString()).toBe(marker + "Buy milk");
+      expect(view.state.selection.main.head).toBe(marker.length + 3);
+    });
+  }
+  it("a cursor at the start of a line with text moves past the marker too", () => {
+    const view = makeView("Buy milk", 0);
+    toggleTask(view);
+    expect(view.state.selection.main.head).toBe("- [ ] ".length);
+  });
+});
+
+describe("Return on an empty list item ends the list", async () => {
+  const { continueMarkup } = await import("../../src/editor/commands.js");
+  const enter = (doc: string) => {
+    const view = makeView(doc, doc.length);
+    continueMarkup(view);
+    return { text: view.state.doc.toString(), head: view.state.selection.main.head };
+  };
+  it("even when it's the list's second item", () => {
+    expect(enter("1. Eggs\n2. ")).toEqual({ text: "1. Eggs\n", head: 8 });
+    expect(enter("- Bread\n- ")).toEqual({ text: "- Bread\n", head: 8 });
+    expect(enter("- [ ] Milk\n- [ ] ")).toEqual({ text: "- [ ] Milk\n", head: 11 });
+  });
+  it("still continues a list with text", () => {
+    expect(enter("1. Eggs").text).toBe("1. Eggs\n2. ");
+    expect(enter("- [ ] Milk").text).toBe("- [ ] Milk\n- [ ] ");
+  });
+});

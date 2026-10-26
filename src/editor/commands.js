@@ -1,5 +1,29 @@
 // Formatting commands shared by the keymap and Holocron's Format menu.
-import { EditorSelection } from "@codemirror/state";
+import { EditorSelection, Prec } from "@codemirror/state";
+import { keymap } from "@codemirror/view";
+import { deleteMarkupBackward, insertNewlineContinueMarkupCommand } from "@codemirror/lang-markdown";
+
+/**
+ * Return continues lists and quotes (ED-45). CodeMirror's default turns an empty
+ * second item into a blank line ("loose" list) instead of ending the list, so a
+ * fresh one-item list couldn't be left with Return; this ends it like any other.
+ */
+export const continueMarkup = insertNewlineContinueMarkupCommand({ nonTightLists: false });
+
+/** Replaces markdown()'s own keymap (its addKeymap is off), at the same precedence. */
+export const markdownKeys = Prec.high(keymap.of([
+  { key: "Enter", run: continueMarkup },
+  { key: "Backspace", run: deleteMarkupBackward },
+]));
+
+/**
+ * Applies line-marker changes ("- ", "- [ ] ", "1. ", "> ", "## "). A cursor
+ * where a marker goes in ends up after it, so you can type the item straight away.
+ */
+function dispatchLineMarkers(view, changes) {
+  const set = view.state.changes(changes);
+  view.dispatch({ changes: set, selection: view.state.selection.map(set, 1), scrollIntoView: true, userEvent: "input.format" });
+}
 
 /** Wraps each selection in `marker`, or unwraps it if already wrapped. */
 export function toggleWrap(marker) {
@@ -91,7 +115,7 @@ export function toggleTask(view) {
       pos = line.to + 1;
     }
   }
-  view.dispatch({ changes, scrollIntoView: true, userEvent: "input.format" });
+  dispatchLineMarkers(view, changes);
   return true;
 }
 
@@ -170,7 +194,7 @@ export function setHeading(level) {
         insert: level > 0 ? "#".repeat(level) + " " : "",
       });
     }
-    view.dispatch({ changes, scrollIntoView: true, userEvent: "input.format" });
+    dispatchLineMarkers(view, changes);
     return true;
   };
 }
@@ -213,7 +237,7 @@ function toggleLinePrefix(kind) {
       const prefix = kind === "bullet" ? "- " : kind === "numbered" ? `${index + 1}. ` : "> ";
       return { from: line.from + indent, to: line.from + (existing ? existing[0].length : indent), insert: prefix };
     });
-    view.dispatch({ changes, scrollIntoView: true, userEvent: "input.format" });
+    dispatchLineMarkers(view, changes);
     return true;
   };
 }
