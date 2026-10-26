@@ -721,7 +721,7 @@ Stored per user (Mac: UserDefaults). Window with four tabs; the last tab is reme
 | Appearance | Light theme (*Windows*): Holocron Light / Light+ / GitHub Light / Solarized Light | `lightTheme` | "holocron-light" | As above, for light |
 | Appearance | Crystal: Theme default (*Windows*) / Kyber Blue / Sith Red / Jedi Green / Temple Gold | `accent` | kyber | swatches; "theme" = the active colour theme's own accent (Holocron's is Kyber Blue) |
 | Editor | Show the formatting bar above notes | `showFormattingBar` | on | |
-| Editor | Font: System / Serif / Monospaced | `editorFont` | system | §16.3 |
+| Editor | Font: System / Serif / Monospaced (JetBrains Mono, bundled) | `editorFont` | mono | §16.3 |
 | Editor | Text size (12–32, step 1, "N pt"; also View › Zoom and Ctrl+scroll, ED-62) | `editorFontSize` | 16 | |
 | Editor | Line width (560–1100, step 20, "N pt") | `editorLineWidth` | 720 | |
 | Editor | Line spacing (1.3–2.2×, step 0.05) (*Windows*) | `editorLineHeight` | 1.65 | ED-63 |

@@ -16,5 +16,5 @@ export const UI_FONT = isMac
   : "'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif";
 
 export const MONO_FONT = isMac
-  ? "ui-monospace, 'SF Mono', Menlo, monospace"
-  : "'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, monospace";
+  ? "'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace"
+  : "'JetBrains Mono Variable', 'JetBrains Mono', 'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, monospace";

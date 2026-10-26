@@ -98,7 +98,7 @@ export const defaultSettings: Settings = {
   darkTheme: DEFAULT_DARK_THEME,
   lightTheme: DEFAULT_LIGHT_THEME,
   showFormattingBar: true,
-  editorFont: "system",
+  editorFont: "mono",
   editorFontSize: 16,
   editorLineWidth: 720,
   editorLineHeight: 1.65,
@@ -163,7 +163,7 @@ export function sanitizeSettings(raw: Partial<Record<keyof Settings, unknown>>):
   result.accent = oneOf<Accent>(result.accent, ["theme", ...crystalIds], "kyber");
   result.darkTheme = oneOf(result.darkTheme, darkThemeIds, DEFAULT_DARK_THEME);
   result.lightTheme = oneOf(result.lightTheme, lightThemeIds, DEFAULT_LIGHT_THEME);
-  result.editorFont = oneOf(result.editorFont, ["system", "serif", "mono"], "system");
+  result.editorFont = oneOf(result.editorFont, ["system", "serif", "mono"], "mono");
   result.paragraphSpacing = oneOf<ParagraphSpacing>(result.paragraphSpacing, ["compact", "normal", "relaxed"], "normal");
   result.readingFont = oneOf<ReadingFont>(result.readingFont, ["same", "system", "serif", "mono"], "same");
   result.darkImages = oneOf<DarkImages>(result.darkImages, ["normal", "dim", "invertLight"], "normal");
