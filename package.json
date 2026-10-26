@@ -1,7 +1,7 @@
 {
   "name": "holocron",
   "productName": "Holocron",
-  "version": "0.9.2",
+  "version": "0.10.0",
   "description": "A plain-files markdown notes app in the style of Obsidian",
   "author": {
     "name": "Lawrence Scott",
