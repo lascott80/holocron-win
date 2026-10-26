@@ -1,6 +1,7 @@
 // Properties: the YAML frontmatter at the top of a note, shown as a tidy
 // list of fields (tags as pills, dates formatted, booleans as checkboxes)
-// until you click into it, which reveals the raw YAML for editing.
+// that can be edited in place (ED-24…ED-26, ED-75): click a value to change
+// it, add and remove list items and properties, or open the raw YAML.
 import { StateField } from "@codemirror/state";
 import { focusChanged, focusTracking, isEditing, setFocused } from "./focus.js";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
@@ -77,6 +78,10 @@ export function parseProperties(yaml) {
         else if (next.trim()) nested.push(next.trim());
       }
       value = items.length ? items : nested.length ? nested.join(", ") : null;
+      if (!items.length && nested.length) {
+        properties.push({ key, value, nested: true });
+        continue;
+      }
     } else if (raw.startsWith("[") && raw.endsWith("]")) {
       value = splitInlineList(raw.slice(1, -1));
     } else if (/^(true|false)$/i.test(raw)) {
@@ -119,15 +124,87 @@ export function mergeFrontmatterChanges(doc, yaml) {
   return [{ from: closing.from, insert: added.map((b) => b.text).join("\n") + "\n" }];
 }
 
+
+// ---------- Editing (ED-75) ----------
+
+/** Where `key`'s lines sit in the document: [from, to) plus whether its list is written as a block. */
+function propertyBlock(doc, key) {
+  const range = frontmatterRange(doc);
+  if (!range) return null;
+  const first = doc.lineAt(range.yamlFrom).number;
+  const closing = doc.lineAt(range.to).number;
+  for (let n = first; n < closing; n++) {
+    const line = doc.line(n);
+    const match = /^([^\s#:][^:]*):/.exec(line.text);
+    if (!match || match[1].trim() !== key) continue;
+    let last = n;
+    // Continuation: indented lines, or "- item" lines (YAML lets a block list start at column 0).
+    while (last + 1 < closing && /^(\s|-\s|-$)/.test(doc.line(last + 1).text)) last++;
+    const blockList = last > n && /^\s*-/.test(doc.line(n + 1).text);
+    return { from: line.from, to: doc.line(last).to, blockList };
+  }
+  return null;
+}
+
+const NEEDS_QUOTES = /^[\s\-?:,[\]{}#&*!|>'"%@`]|\s$|: | #|^(true|false|yes|no|null|~)$/i;
+
+/** A scalar as YAML: plain when that reads back the same, otherwise double-quoted. */
+export function yamlScalar(text) {
+  const value = String(text);
+  if (value === "") return "";
+  return NEEDS_QUOTES.test(value) || value.includes('"') ? JSON.stringify(value) : value;
+}
+
+/** The YAML for one property. Lists keep the block style (`- item`) when `blockList`. */
+export function serializeProperty(key, value, { blockList = false } = {}) {
+  if (typeof value === "boolean") return `${key}: ${value}`;
+  if (Array.isArray(value)) {
+    const items = value.map((item) => yamlScalar(item.trim())).filter((item) => item !== "");
+    if (blockList && items.length) return `${key}:\n${items.map((item) => `  - ${item}`).join("\n")}`;
+    return `${key}: [${items.join(", ")}]`;
+  }
+  if (value === null || value === undefined || value === "") return `${key}:`;
+  return `${key}: ${yamlScalar(value)}`;
+}
+
+/** Changes that set `key` to `value`: rewrites its lines, or adds it (creating the frontmatter if needed). */
+export function setPropertyChanges(doc, key, value) {
+  const block = propertyBlock(doc, key);
+  if (block) return [{ from: block.from, to: block.to, insert: serializeProperty(key, value, block) }];
+  const range = frontmatterRange(doc);
+  const text = serializeProperty(key, value);
+  if (!range) return [{ from: 0, insert: `---\n${text}\n---\n` }];
+  return [{ from: doc.lineAt(range.to).from, insert: text + "\n" }];
+}
+
+/** Changes that delete `key` and its lines. */
+export function removePropertyChanges(doc, key) {
+  const block = propertyBlock(doc, key);
+  if (!block) return [];
+  return [{ from: block.from, to: Math.min(doc.length, block.to + 1) }];
+}
+
 // ---------- Rendering ----------
 
-const DATE = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/;
+const DATE = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?$/;
 const TAG_KEYS = new Set(["tags", "tag"]);
+const LIST_KEYS = /^(tags|tag|aliases|alias|cssclasses)$/i;
+const PROPERTY_TYPES = [["text", "Text"], ["list", "List"], ["checkbox", "Checkbox"], ["date", "Date"]];
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
   if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function button(className, text, title) {
+  const node = element("button", className, text);
+  node.type = "button";
+  if (title) {
+    node.title = title;
+    node.setAttribute("aria-label", title);
+  }
   return node;
 }
 
@@ -158,58 +235,253 @@ function renderScalar(text) {
   return element("span", "cm-property-text", text);
 }
 
+// After an edit the panel is redrawn; this names the field to put the cursor back in.
+let pendingFocus = null;
+
+function apply(view, changes) {
+  if (!changes.length) return;
+  view.dispatch({ changes, userEvent: "input.properties" });
+}
+
+function todayISO() {
+  const today = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+}
+
 class PropertiesWidget extends WidgetType {
-  constructor(properties) {
+  constructor(properties, canEdit) {
     super();
     this.properties = properties;
-    this.key = JSON.stringify(properties);
+    this.canEdit = canEdit;
+    this.key = JSON.stringify([properties, canEdit]);
   }
   eq(other) {
     return other.key === this.key;
   }
-  toDOM() {
+  toDOM(view) {
     const root = element("div", "cm-properties");
-    root.title = "Click to edit properties";
-    if (!this.properties.length) {
-      root.appendChild(element("div", "cm-property-empty", "Empty properties — click to edit"));
-    }
-    for (const { key, value } of this.properties) {
-      const row = element("div", "cm-property");
-      row.appendChild(element("span", "cm-property-key", key));
-      const cell = element("span", "cm-property-value");
-      if (value === null || value === "" || (Array.isArray(value) && !value.length)) {
-        cell.appendChild(element("span", "cm-property-empty", "Empty"));
-      } else if (typeof value === "boolean") {
-        const box = element("span", "cm-task-checkbox cm-property-checkbox" + (value ? " is-checked" : ""));
-        box.setAttribute("role", "checkbox");
-        box.setAttribute("aria-checked", String(value));
-        box.setAttribute("aria-label", key);
-        box.dataset.key = key;
-        cell.appendChild(box);
-      } else if (Array.isArray(value) || TAG_KEYS.has(key.toLowerCase())) {
-        const items = Array.isArray(value) ? value : String(value).split(/[,\s]+/).filter(Boolean);
-        for (const item of items) {
-          if (TAG_KEYS.has(key.toLowerCase())) {
-            const tag = item.replace(/^#/, "");
-            const pill = element("span", "cm-tag", `#${tag}`);
-            pill.dataset.tag = tag;
-            cell.appendChild(pill);
-          } else {
-            const pill = element("span", "cm-property-pill");
-            pill.appendChild(renderScalar(item));
-            cell.appendChild(pill);
-          }
-        }
-      } else {
-        cell.appendChild(renderScalar(String(value)));
-      }
-      row.appendChild(cell);
-      root.appendChild(row);
+    const set = (key, value) => apply(view, setPropertyChanges(view.state.doc, key, value));
+    if (!this.properties.length && !this.canEdit) root.appendChild(element("div", "cm-property-empty", "No properties"));
+    for (const property of this.properties) root.appendChild(this.row(view, property, set));
+    if (this.canEdit) root.appendChild(this.footer(view, set));
+    if (pendingFocus) {
+      const wanted = pendingFocus;
+      requestAnimationFrame(() => {
+        const target = [...root.querySelectorAll("[data-focus-key]")].find(
+          (node) => node.dataset.focusKey === wanted.key && node.dataset.focusPart === wanted.part,
+        );
+        if (!target) return;
+        pendingFocus = null;
+        if (wanted.part === "edit") target.dispatchEvent(new CustomEvent("hc-edit"));
+        else target.focus();
+      });
     }
     return root;
   }
-  ignoreEvent() {
-    return false;
+
+  row(view, { key, value, nested }, set) {
+    const row = element("div", "cm-property");
+    row.appendChild(element("span", "cm-property-key", key)).title = key;
+    const cell = row.appendChild(element("span", "cm-property-value"));
+    const isTags = TAG_KEYS.has(key.toLowerCase());
+    if (nested) {
+      cell.appendChild(element("span", "cm-property-text cm-property-nested", String(value)));
+      cell.title = "Nested YAML: use Edit YAML to change it";
+    } else if (typeof value === "boolean") {
+      const box = cell.appendChild(element("span", "cm-task-checkbox cm-property-checkbox" + (value ? " is-checked" : "")));
+      box.setAttribute("role", "checkbox");
+      box.setAttribute("aria-checked", String(value));
+      box.setAttribute("aria-label", key);
+      box.addEventListener("mousedown", (event) => {
+        event.preventDefault();
+        set(key, !value);
+      });
+    } else if (Array.isArray(value) || isTags) {
+      this.list(cell, key, Array.isArray(value) ? value : String(value ?? "").split(/[,\s]+/).filter(Boolean), isTags, set);
+    } else {
+      this.scalar(view, cell, key, value === null ? "" : String(value), set);
+    }
+    if (this.canEdit) {
+      const remove = row.appendChild(button("cm-property-remove", "×", `Remove the “${key}” property`));
+      remove.addEventListener("mousedown", (event) => {
+        event.preventDefault();
+        apply(view, removePropertyChanges(view.state.doc, key));
+      });
+    }
+    return row;
+  }
+
+  /** Tags and other lists: pills (× removes one) and a field at the end that adds. */
+  list(cell, key, items, isTags, set) {
+    items.forEach((item, index) => {
+      const pill = cell.appendChild(element("span", isTags ? "cm-tag" : "cm-property-pill"));
+      if (isTags) {
+        const tag = item.replace(/^#/, "");
+        pill.textContent = `#${tag}`;
+        pill.dataset.tag = tag;
+      } else {
+        pill.appendChild(renderScalar(item));
+      }
+      if (!this.canEdit) return;
+      const remove = pill.appendChild(button("cm-property-pill-remove", "×", `Remove “${item}”`));
+      remove.addEventListener("mousedown", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        pendingFocus = { key, part: "add" };
+        set(key, items.filter((_, i) => i !== index));
+      });
+    });
+    if (!this.canEdit) {
+      if (!items.length) cell.appendChild(element("span", "cm-property-empty", "Empty"));
+      return;
+    }
+    const add = cell.appendChild(element("input", "cm-property-input cm-property-add"));
+    add.placeholder = items.length ? "" : "Add…";
+    add.setAttribute("aria-label", `Add to ${key}`);
+    add.dataset.focusKey = key;
+    add.dataset.focusPart = "add";
+    const commit = () => {
+      const added = add.value
+        .split(",")
+        .map((part) => (isTags ? part.trim().replace(/^#/, "") : part.trim()))
+        .filter(Boolean);
+      add.value = "";
+      if (!added.length) return;
+      pendingFocus = { key, part: "add" };
+      set(key, [...items, ...added]);
+    };
+    add.addEventListener("keydown", (event) => {
+      if ((event.key === "Enter" || event.key === "," || event.key === "Tab") && add.value.trim()) {
+        event.preventDefault();
+        commit();
+      } else if (event.key === "Backspace" && add.value === "" && items.length) {
+        event.preventDefault();
+        pendingFocus = { key, part: "add" };
+        set(key, items.slice(0, -1));
+      } else if (event.key === "Escape") {
+        add.value = "";
+        add.blur();
+      }
+    });
+    add.addEventListener("blur", () => {
+      if (add.value.trim()) commit();
+    });
+  }
+
+  /** A text or date value: shown rendered (links still open), edited in a field when clicked. */
+  scalar(view, cell, key, text, set) {
+    const shown = text === "" ? element("span", "cm-property-empty", "Empty") : renderScalar(text);
+    cell.appendChild(shown);
+    if (!this.canEdit) return;
+    cell.classList.add("is-editable");
+    cell.dataset.focusKey = key;
+    cell.dataset.focusPart = "edit";
+    const isDate = DATE.test(text);
+    const withTime = isDate && /[ T]\d{2}:\d{2}$/.test(text);
+    const startEditing = () => {
+      if (cell.querySelector("input")) return;
+      const input = element("input", "cm-property-input");
+      if (isDate) {
+        input.type = withTime ? "datetime-local" : "date";
+        input.value = withTime ? text.replace(" ", "T") : text;
+      } else {
+        input.value = text;
+      }
+      input.setAttribute("aria-label", key);
+      cell.replaceChildren(input);
+      input.focus();
+      if (!isDate) input.select();
+      let done = false;
+      const finish = (save) => {
+        if (done) return;
+        done = true;
+        const next = withTime ? input.value.replace("T", " ") : input.value;
+        if (save && next !== text) set(key, next);
+        else cell.replaceChildren(shown);
+      };
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          finish(true);
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          finish(false);
+          view.focus();
+        }
+      });
+      input.addEventListener("blur", () => finish(true));
+    };
+    cell.addEventListener("hc-edit", startEditing);
+    cell.addEventListener("mousedown", (event) => {
+      // Links and tags open (livePreview.js handles those); anywhere else edits.
+      if (event.target instanceof Element && event.target.closest(".cm-wikilink, .cm-md-link, .cm-tag, input")) return;
+      event.preventDefault();
+      startEditing();
+    });
+  }
+
+  footer(view, set) {
+    const footer = element("div", "cm-property-footer");
+    const addButton = footer.appendChild(button("cm-property-action", "+ Add property"));
+    const yamlButton = footer.appendChild(button("cm-property-action cm-property-yaml", "Edit YAML", "Show the properties as YAML"));
+    yamlButton.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+      const range = frontmatterRange(view.state.doc);
+      view.focus();
+      if (range) view.dispatch({ selection: { anchor: Math.min(range.yamlFrom, range.to) }, effects: setFocused.of(true), scrollIntoView: true });
+    });
+    addButton.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+      const form = element("span", "cm-property-new");
+      const name = form.appendChild(element("input", "cm-property-input cm-property-name"));
+      name.placeholder = "Name";
+      name.setAttribute("aria-label", "Property name");
+      const type = form.appendChild(element("select", "cm-property-type"));
+      type.setAttribute("aria-label", "Property type");
+      for (const [value, label] of PROPERTY_TYPES) type.appendChild(Object.assign(element("option", "", label), { value }));
+      name.addEventListener("input", () => {
+        if (LIST_KEYS.test(name.value.trim())) type.value = "list";
+      });
+      const cancel = () => {
+        footer.replaceChildren(addButton, yamlButton);
+        view.focus();
+      };
+      const create = () => {
+        const key = name.value.trim().replace(/:+$/, "");
+        if (!key) return cancel();
+        const existing = this.properties.find((property) => property.key === key);
+        if (existing) {
+          pendingFocus = { key, part: Array.isArray(existing.value) ? "add" : "edit" };
+          view.dispatch({ effects: [] });
+          return;
+        }
+        const initial = { text: "", list: [], checkbox: false, date: todayISO() }[type.value];
+        pendingFocus = { key, part: type.value === "list" ? "add" : "edit" };
+        set(key, initial);
+      };
+      for (const control of [name, type]) {
+        control.addEventListener("keydown", (keyEvent) => {
+          if (keyEvent.key === "Enter") {
+            keyEvent.preventDefault();
+            create();
+          } else if (keyEvent.key === "Escape") {
+            keyEvent.preventDefault();
+            cancel();
+          }
+        });
+      }
+      footer.replaceChildren(form, yamlButton);
+      name.focus();
+    });
+    return footer;
+  }
+
+  // The panel handles its own clicks and keys: the editor mustn't move its cursor into the YAML.
+  // Clicks on tags and links still reach livePreview.js, which opens them.
+  ignoreEvent(event) {
+    const target = event.target instanceof Element ? event.target : null;
+    return !(event.type === "mousedown" && target?.closest(".cm-tag, .cm-wikilink, .cm-md-link") && !target.closest("button"));
   }
 }
 
@@ -220,7 +492,7 @@ function buildDecorations(state) {
   if (!range) return Decoration.none;
   if (isEditing(state, range.from, range.to)) return Decoration.none;
   const yaml = state.doc.sliceString(range.yamlFrom, range.yamlTo);
-  const widget = new PropertiesWidget(parseProperties(yaml));
+  const widget = new PropertiesWidget(parseProperties(yaml), !state.readOnly);
   return Decoration.set([Decoration.replace({ widget, block: true }).range(range.from, range.to)]);
 }
 
@@ -232,44 +504,4 @@ const decorations = StateField.define({
   provide: (field) => EditorView.decorations.from(field),
 });
 
-/** Flips `key: true|false` in the frontmatter. */
-function toggleBoolean(view, key) {
-  const range = frontmatterRange(view.state.doc);
-  if (!range) return false;
-  const doc = view.state.doc;
-  for (let n = doc.lineAt(range.yamlFrom).number; n < doc.lineAt(range.to).number; n++) {
-    const line = doc.line(n);
-    const match = /^([^:]+):\s*(true|false)\s*$/i.exec(line.text);
-    if (match && match[1].trim() === key) {
-      const valueFrom = line.from + line.text.lastIndexOf(match[2]);
-      view.dispatch({
-        changes: { from: valueFrom, to: valueFrom + match[2].length, insert: match[2].toLowerCase() === "true" ? "false" : "true" },
-        userEvent: "input.toggle",
-      });
-      return true;
-    }
-  }
-  return false;
-}
-
-const clicks = EditorView.domEventHandlers({
-  mousedown(event, view) {
-    if (event.button !== 0 || !(event.target instanceof Element)) return false;
-    const panel = event.target.closest(".cm-properties");
-    if (!panel) return false;
-    // Tags and links are handled by livePreview.js.
-    if (event.target.closest(".cm-tag, .cm-wikilink, .cm-md-link")) return false;
-    event.preventDefault();
-    const box = event.target.closest(".cm-property-checkbox");
-    if (box) return toggleBoolean(view, box.dataset.key);
-    // Anywhere else: edit the raw YAML (never in reading view).
-    if (view.state.readOnly || !view.state.facet(EditorView.editable)) return true;
-    const range = frontmatterRange(view.state.doc);
-    if (!range) return false;
-    view.focus();
-    view.dispatch({ selection: { anchor: Math.min(range.yamlFrom, range.to) }, effects: setFocused.of(true), scrollIntoView: true });
-    return true;
-  },
-});
-
-export const properties = [focusTracking, decorations, clicks];
+export const properties = [focusTracking, decorations];
