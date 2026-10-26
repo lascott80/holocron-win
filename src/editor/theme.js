@@ -35,7 +35,13 @@ export const holocronTheme = EditorView.theme(
   {
     "&": { color: c.text, backgroundColor: c.bg, height: "100%", fontSize: v("font-size", "16px") },
     "&.cm-focused": { outline: "none" },
-    ".cm-scroller": { fontFamily: v("font", UI_FONT), lineHeight: v("line-height", "1.65"), padding: "28px 0 35vh" },
+    ".cm-scroller": {
+      fontFamily: v("font", UI_FONT),
+      lineHeight: v("line-height", "1.65"),
+      padding: "28px 0 35vh",
+      // Tables measure the room they may grow into against the editor's width (cqw).
+      containerType: "inline-size",
+    },
     "&.cm-mode-reading .cm-scroller": {
       fontFamily: `var(--hc-reading-font, ${v("font", UI_FONT)})`,
       "--hc-heading-scale": "var(--hc-reading-heading-scale, 1)",
@@ -327,7 +333,20 @@ export const holocronTheme = EditorView.theme(
     ".cm-task-checkbox.cm-task-star::after": { content: "'★'", fontSize: "9px", top: "0" },
 
     // Tables
-    ".cm-table-widget": { overflowX: "auto", margin: "6px 0 12px" },
+    // A table wider than the text column grows into the free space on both sides,
+    // centred on the column, up to the editor's width less 32px a side; past that it scrolls.
+    // Tables that fit keep the column's width and its left edge.
+    ".cm-table-widget": {
+      overflowX: "auto",
+      margin: "6px 0 12px",
+      boxSizing: "border-box",
+      width: "max-content",
+      minWidth: "100%",
+      maxWidth: "calc(100cqw - 64px)",
+      position: "relative",
+      left: "50%",
+      transform: "translateX(-50%)",
+    },
     ".cm-table-widget table": { borderCollapse: "collapse", fontSize: "0.94em", minWidth: "50%" },
     ".cm-table-widget th, .cm-table-widget td": {
       border: `1px solid ${c.border}`,
@@ -351,7 +370,14 @@ export const holocronTheme = EditorView.theme(
 
     // Table controls (tableTools.js): a gutter on the left for row handles,
     // and + bars to the right and below. Everything appears on hover.
-    ".cm-table-widget.cm-table-editable": { paddingLeft: "26px", marginLeft: "-26px", marginBottom: "0" },
+    // The row-handle gutter hangs left of the column (shifting the centring by half of it).
+    ".cm-table-widget.cm-table-editable": {
+      paddingLeft: "26px",
+      marginBottom: "0",
+      minWidth: "calc(100% + 26px)",
+      maxWidth: "calc(100cqw - 64px + 26px)",
+      left: "calc(50% - 13px)",
+    },
     ".cm-table-frame": {
       display: "grid",
       gridTemplateColumns: "auto 22px",
