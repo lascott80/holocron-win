@@ -3,7 +3,7 @@
 <script lang="ts">
   import { ChevronRight, CircleX, Replace, ReplaceAll, Search } from "@lucide/svelte";
   import { untrack } from "svelte";
-  import { MAX_LINES_PER_NOTE, snippet, type LineMatch, type SearchHit, type SearchOutcome } from "@core/vaultSearch";
+  import { MAX_LINES_PER_NOTE, plainSnippet, type LineMatch, type SearchHit, type SearchOutcome } from "@core/vaultSearch";
   import { app } from "../../lib/app.svelte";
   import { call, run } from "../../lib/host";
   import { searchState as s } from "./searchState.svelte";
@@ -184,7 +184,7 @@
   }
 
   function segments(line: LineMatch) {
-    const { text, ranges } = snippet(line.text, line.ranges);
+    const { text, ranges } = plainSnippet(line.text, line.ranges);
     const parts: { text: string; match: boolean }[] = [];
     let cursor = 0;
     for (const range of ranges) {
@@ -197,7 +197,7 @@
   }
 </script>
 
-<div class="search-panel">
+<div class="search-panel pane-enter">
   <div class="field" class:focused>
     <Search size={14} />
     <input

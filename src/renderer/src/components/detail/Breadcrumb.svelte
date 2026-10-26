@@ -1,13 +1,20 @@
-<!-- The note's place in the vault (UI-05): folders separated by "/", then the file name. -->
+<!-- The note's place in the vault (UI-05): the vault, its folders separated by
+     "/", then the note's title (".md" is implied; other extensions show). -->
 <script lang="ts">
+  import { isNote, title } from "@core/paths";
   import { app } from "../../lib/app.svelte";
 
-  const parts = $derived((app.doc?.path ?? "").split("/").filter(Boolean));
+  const path = $derived(app.doc?.path ?? "");
+  const parts = $derived(path.split("/").filter(Boolean));
   const folders = $derived(parts.slice(0, -1));
-  const fileName = $derived(parts.at(-1) ?? "");
+  const fileName = $derived(isNote(path) ? title(path) : (parts.at(-1) ?? ""));
 </script>
 
 <nav class="breadcrumb" aria-label="Note location" title={app.doc?.path}>
+  {#if app.vault}
+    <span class="folder vault">{app.vault.name}</span>
+    <span class="slash" aria-hidden="true">/</span>
+  {/if}
   {#each folders as folder, index (index)}
     <span class="folder">{folder}</span>
     <span class="slash" aria-hidden="true">/</span>
@@ -33,6 +40,9 @@
     min-width: 24px;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .vault {
+    color: var(--ui-text-3);
   }
   .slash {
     flex: none;

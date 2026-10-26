@@ -12,6 +12,7 @@
 // indices) within the line's original text — the same shape as NSRange.
 
 import { basename, naturalCompare, title as noteTitle } from "./paths";
+import { stripMarkdown } from "./plainMarkdown";
 
 export interface SearchNote {
   /** Vault path, "/"-separated. */
@@ -606,6 +607,31 @@ export function snippet(lineText: string, ranges: readonly SearchRange[]): Snipp
   }
   const text = prefix + lineText.slice(start, end) + (end < lineText.length ? "…" : "");
   return { text, ranges: adjusted };
+}
+
+/**
+ * The snippet as the reader sees the line: markdown syntax stripped, matches
+ * moved onto the plain text. Falls back to the raw line when a match was in
+ * the syntax itself (a search for "**", say).
+ */
+export function plainSnippet(lineText: string, ranges: readonly SearchRange[]): Snippet {
+  const plain = stripMarkdown(lineText, { block: true });
+  const moved: SearchRange[] = [];
+  for (const range of ranges) {
+    const end = range.location + range.length;
+    let first = -1;
+    let last = -1;
+    for (let i = 0; i < plain.map.length; i++) {
+      const source = plain.map[i]!;
+      if (source >= range.location && source < end) {
+        if (first < 0) first = i;
+        last = i;
+      }
+    }
+    if (first < 0) return snippet(lineText, ranges);
+    moved.push({ location: first, length: last - first + 1 });
+  }
+  return snippet(plain.text, moved);
 }
 
 function isLowSurrogate(code: number): boolean {

@@ -7,6 +7,7 @@
   import { runCommand } from "../../lib/commands";
   import { run } from "../../lib/host";
   import { menu, type MenuEntry } from "../../lib/menu.svelte";
+  import { shortLocation } from "../../lib/location";
 
   let button = $state<HTMLButtonElement>();
   let open = $state(false);
@@ -52,7 +53,7 @@
     <Logo size={22} />
     <span class="text">
       <span class="name">{vault.name}</span>
-      <span class="path">&lrm;{vault.displayPath}&lrm;</span>
+      <span class="path">&lrm;{shortLocation(vault.displayPath)}&lrm;</span>
     </span>
     <ChevronsUpDown size={14} />
   </button>

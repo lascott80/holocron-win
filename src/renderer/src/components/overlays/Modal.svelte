@@ -18,6 +18,7 @@
     describedby,
     role = "dialog",
     panelClass = "",
+    focusPanel = false,
     onclose,
     onkeydown,
     children,
@@ -30,6 +31,8 @@
     describedby?: string;
     role?: "dialog" | "alertdialog";
     panelClass?: string;
+    /** Start with focus on the panel itself rather than its first control (Tab still reaches them). */
+    focusPanel?: boolean;
     /** Esc (and a backdrop click when allowed). Omit to make Esc do nothing. */
     onclose?: () => void;
     onkeydown?: (event: KeyboardEvent) => void;
@@ -55,7 +58,7 @@
     stack.push(id);
     void tick().then(() => {
       if (!panel || panel.contains(document.activeElement)) return;
-      const target = panel.querySelector<HTMLElement>("[data-autofocus]") ?? focusables()[0] ?? panel;
+      const target = focusPanel ? panel : (panel.querySelector<HTMLElement>("[data-autofocus]") ?? focusables()[0] ?? panel);
       target.focus();
     });
 

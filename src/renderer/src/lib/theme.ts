@@ -13,10 +13,11 @@ export const accents = crystals;
 
 export const UI_FONT = "'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif";
 
-export const editorFonts: Record<EditorFont, { title: string; css: string }> = {
-  system: { title: "System", css: "'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif" },
-  serif: { title: "Serif", css: "Cambria, 'Iowan Old Style', Georgia, ui-serif, serif" },
-  mono: { title: "Monospaced", css: "'JetBrains Mono Variable', 'JetBrains Mono', 'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, monospace" },
+/** Each editor font, with heading sizing for it: monospaced glyphs are wide, so its headings run smaller and lighter. */
+export const editorFonts: Record<EditorFont, { title: string; css: string; headingScale: number; headingWeight: number }> = {
+  system: { title: "System", css: "'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif", headingScale: 1, headingWeight: 650 },
+  serif: { title: "Serif", css: "Cambria, 'Iowan Old Style', Georgia, ui-serif, serif", headingScale: 1, headingWeight: 650 },
+  mono: { title: "Monospaced", css: "'JetBrains Mono Variable', 'JetBrains Mono', 'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, monospace", headingScale: 0.86, headingWeight: 600 },
 };
 
 type ThemeSettings = Pick<Settings, "darkTheme" | "lightTheme">;
@@ -33,6 +34,7 @@ export function editorVariables(isDark: boolean, settings: Settings): Record<str
   const theme = activeTheme(isDark, settings);
   const p = theme.palette;
   const a = accentColors(theme, settings.accent);
+  const readingFont = settings.readingFont === "same" ? settings.editorFont : settings.readingFont;
   const vars: Record<string, string> = {
     // Not a colour: lets the editor tell themes apart (Mermaid redraws on change).
     "--hc-theme": theme.id,
@@ -60,11 +62,15 @@ export function editorVariables(isDark: boolean, settings: Settings): Record<str
     "--hc-warning": p.warning,
     "--hc-danger": p.danger,
     "--hc-font": editorFonts[settings.editorFont].css,
+    "--hc-heading-scale": String(editorFonts[settings.editorFont].headingScale),
+    "--hc-heading-weight": String(editorFonts[settings.editorFont].headingWeight),
     "--hc-font-size": `${settings.editorFontSize}px`,
     "--hc-line-height": String(settings.editorLineHeight),
     // Blank lines between paragraphs, as a share of a full line.
     "--hc-blank-scale": { compact: "0.45", normal: "1", relaxed: "1.6" }[settings.paragraphSpacing],
-    "--hc-reading-font": editorFonts[settings.readingFont === "same" ? settings.editorFont : settings.readingFont].css,
+    "--hc-reading-font": editorFonts[readingFont].css,
+    "--hc-reading-heading-scale": String(editorFonts[readingFont].headingScale),
+    "--hc-reading-heading-weight": String(editorFonts[readingFont].headingWeight),
     // Off: the column grows with the window (the editor adds its 32 px side padding).
     "--hc-line-width": settings.readableLineLength ? `${settings.editorLineWidth}px` : "100vw",
   };

@@ -8,6 +8,7 @@
   import { menu } from "../../lib/menu.svelte";
   import Logo from "../Logo.svelte";
   import Checkbox from "./Checkbox.svelte";
+  import { shortLocation } from "../../lib/location";
 
   function showMenu(event: MouseEvent, vault: RecentVault) {
     menu.openAt(event, [
@@ -26,48 +27,50 @@
   </div>
 
   <div class="actions">
-    <div class="buttons">
-      <button class="action primary" onclick={() => runCommand("openVault")}>
-        <FolderOpen size={22} strokeWidth={1.75} />
-        <span class="action-text">
-          <span class="action-title">Open Folder as Vault…</span>
-          <span class="action-subtitle">Dropbox, OneDrive, Syncthing, a Git repo — anywhere</span>
-        </span>
-        <span class="action-shortcut">Ctrl+Shift+O</span>
-      </button>
-      <button class="action" onclick={() => runCommand("createVault")}>
-        <FolderPlus size={22} strokeWidth={1.75} />
-        <span class="action-text">
-          <span class="action-title">Create New Vault…</span>
-          <span class="action-subtitle">Start an empty folder</span>
-        </span>
-      </button>
+    <div class="column">
+      <div class="buttons">
+        <button class="action primary" onclick={() => runCommand("openVault")}>
+          <FolderOpen size={22} strokeWidth={1.75} />
+          <span class="action-text">
+            <span class="action-title">Open Folder as Vault…</span>
+            <span class="action-subtitle">Dropbox, OneDrive, Syncthing, a Git repo — anywhere</span>
+          </span>
+          <span class="action-shortcut">Ctrl+Shift+O</span>
+        </button>
+        <button class="action" onclick={() => runCommand("createVault")}>
+          <FolderPlus size={22} strokeWidth={1.75} />
+          <span class="action-text">
+            <span class="action-title">Create New Vault…</span>
+            <span class="action-subtitle">Start an empty folder</span>
+          </span>
+        </button>
+      </div>
+
+      {#if app.state.recentVaults.length > 0}
+        <section class="recents">
+          <h2 class="section-label">Recent vaults</h2>
+          <div class="recent-list">
+            {#each app.state.recentVaults as vault (vault.path)}
+              <button class="recent" title={vault.path} onclick={() => run("openVault", vault.path)} oncontextmenu={(event) => showMenu(event, vault)}>
+                <span class="recent-logo"><Logo size={20} color="currentColor" /></span>
+                <span class="recent-text">
+                  <span class="recent-name">{vault.name}</span>
+                  <span class="recent-path"><bdi dir="ltr">{shortLocation(vault.displayPath)}</bdi></span>
+                </span>
+              </button>
+            {/each}
+          </div>
+        </section>
+      {/if}
     </div>
 
-    {#if app.state.recentVaults.length > 0}
-      <section class="recents">
-        <h2 class="section-label">Recent vaults</h2>
-        <div class="recent-list">
-          {#each app.state.recentVaults as vault (vault.path)}
-            <button class="recent" title={vault.path} onclick={() => run("openVault", vault.path)} oncontextmenu={(event) => showMenu(event, vault)}>
-              <span class="recent-logo"><Logo size={20} color="currentColor" /></span>
-              <span class="recent-text">
-                <span class="recent-name">{vault.name}</span>
-                <span class="recent-path"><bdi dir="ltr">{vault.displayPath}</bdi></span>
-              </span>
-            </button>
-          {/each}
-        </div>
-      </section>
-    {/if}
-
-    <div class="spacer"></div>
-
-    <Checkbox
-      label="Reopen last vault on launch"
-      checked={app.settings.reopenLastVault}
-      onchange={(checked) => app.setSetting("reopenLastVault", checked)}
-    />
+    <div class="footer">
+      <Checkbox
+        label="Reopen last vault on launch"
+        checked={app.settings.reopenLastVault}
+        onchange={(checked) => app.setSetting("reopenLastVault", checked)}
+      />
+    </div>
   </div>
 </div>
 
@@ -129,7 +132,6 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    max-width: 560px;
   }
   .action {
     display: flex;
@@ -196,7 +198,6 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
-    max-width: 560px;
   }
   h2 {
     margin: 0;
@@ -253,8 +254,18 @@
     direction: rtl;
     text-align: left;
   }
-  .spacer {
-    flex: 1;
+  /* Centred in the space above the footer, aligned with it. */
+  .column,
+  .footer {
+    align-self: center;
+    width: 100%;
+    max-width: 560px;
+  }
+  .column {
+    margin: auto 0;
+    display: flex;
+    flex-direction: column;
+    gap: 26px;
   }
   @keyframes fade {
     from {

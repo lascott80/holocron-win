@@ -356,7 +356,7 @@
   </div>
 {/snippet}
 
-<Modal width={720} labelledby="settings-title" onclose={close} panelClass="settings">
+<Modal width={720} labelledby="settings-title" onclose={close} panelClass="settings" focusPanel>
   <header>
     <h2 id="settings-title">Settings</h2>
     <button class="icon-button" aria-label="Close" title="Close (Esc)" onclick={close}><X size={16} /></button>

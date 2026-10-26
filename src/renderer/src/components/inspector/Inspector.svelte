@@ -4,7 +4,7 @@
   import type { NoteDetails } from "@shared/ipc";
   import type { InspectorTab } from "@shared/settings";
   import { dirname } from "@core/paths";
-  import { plainText } from "@core/noteParser";
+  import { plainLine, plainText } from "@core/noteParser";
   import { app } from "../../lib/app.svelte";
   import { call, run } from "../../lib/host";
   import Segmented from "../overlays/Segmented.svelte";
@@ -96,125 +96,127 @@
   {#if !path}
     <div class="no-note">No note open</div>
   {:else}
-    <div class="content" bind:this={scroller}>
-      {#if tab === "outline"}
-        {#if shown && headings.length === 0}
-          <p class="empty">Headings in this note appear here.</p>
-        {:else}
-          <ul class="outline">
-            {#each headings as heading, index (index)}
-              <li>
-                <button
-                  class="heading"
-                  class:top-level={heading.level === minLevel}
-                  class:current={index === currentHeading}
-                  style:padding-left="{(heading.level - minLevel) * 12 + 8}px"
-                  data-index={index}
-                  title={plainText(heading.text)}
-                  onclick={() => run("scrollToLine", heading.line)}
-                >
-                  {plainText(heading.text)}
-                </button>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-      {:else if tab === "links"}
-        {#if shown}
-          <section>
-            {@render sectionHeader("Backlinks", shown.backlinks.length)}
-            {#if shown.backlinks.length === 0}
-              <p class="empty">No other notes link here yet.</p>
-            {:else}
-              <div class="cards">
-                {#each shown.backlinks as backlink (backlink.source)}
-                  <button class="card" title={backlink.source} onclick={() => run("open", backlink.source)}>
-                    <span class="card-title"><FileText size={13} />{backlink.title}</span>
-                    {#each backlink.contexts.slice(0, 3) as context, index (index)}
-                      <span class="card-context">{plainText(context.trim())}</span>
-                    {/each}
-                  </button>
-                {/each}
-              </div>
-            {/if}
-          </section>
-
-          {#if shown.mentions.length > 0}
-            <section>
-              {@render sectionHeader("Unlinked mentions", shown.mentions.length)}
-              <div class="rows">
-                {#each shown.mentions as mention (mention.source)}
-                  <button class="link-row" title={mention.source} onclick={() => run("open", mention.source)}>
-                    <span class="link-title">{mention.title}</span>
-                    <span class="link-detail">{plainText(mention.context.trim())}</span>
-                  </button>
-                {/each}
-              </div>
-            </section>
-          {/if}
-
-          {#if shown.outgoing.length > 0}
-            <section>
-              {@render sectionHeader("Links from this note", shown.outgoing.length)}
-              <div class="rows">
-                {#each shown.outgoing as link (link.target)}
+    {#key tab}
+      <div class="content pane-enter" bind:this={scroller}>
+        {#if tab === "outline"}
+          {#if shown && headings.length === 0}
+            <p class="empty">Headings in this note appear here.</p>
+          {:else}
+            <ul class="outline">
+              {#each headings as heading, index (index)}
+                <li>
                   <button
-                    class="link-row outgoing"
-                    class:dimmed={!link.resolved}
-                    title={link.resolved ?? `Create “${link.target}”`}
-                    onclick={() => run("openLink", link.target, false)}
+                    class="heading"
+                    class:top-level={heading.level === minLevel}
+                    class:current={index === currentHeading}
+                    style:padding-left="{(heading.level - minLevel) * 12 + 8}px"
+                    data-index={index}
+                    title={plainText(heading.text)}
+                    onclick={() => run("scrollToLine", heading.line)}
                   >
-                    <span class="link-title">
-                      {#if link.resolved}<Link2 size={13} />{:else}<CornerDownRight size={13} />{/if}
-                      <span class="ellipsis">{link.target}</span>
-                    </span>
-                    {#if !link.resolved}<span class="link-detail indent">Not created yet</span>{/if}
+                    {plainText(heading.text)}
                   </button>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        {:else if tab === "links"}
+          {#if shown}
+            <section>
+              {@render sectionHeader("Backlinks", shown.backlinks.length)}
+              {#if shown.backlinks.length === 0}
+                <p class="empty">No other notes link here yet.</p>
+              {:else}
+                <div class="cards">
+                  {#each shown.backlinks as backlink (backlink.source)}
+                    <button class="card" title={backlink.source} onclick={() => run("open", backlink.source)}>
+                      <span class="card-title"><FileText size={13} />{backlink.title}</span>
+                      {#each backlink.contexts.slice(0, 3) as context, index (index)}
+                        <span class="card-context">{plainLine(context.trim())}</span>
+                      {/each}
+                    </button>
+                  {/each}
+                </div>
+              {/if}
+            </section>
+
+            {#if shown.mentions.length > 0}
+              <section>
+                {@render sectionHeader("Unlinked mentions", shown.mentions.length)}
+                <div class="rows">
+                  {#each shown.mentions as mention (mention.source)}
+                    <button class="link-row" title={mention.source} onclick={() => run("open", mention.source)}>
+                      <span class="link-title">{mention.title}</span>
+                      <span class="link-detail">{plainLine(mention.context.trim())}</span>
+                    </button>
+                  {/each}
+                </div>
+              </section>
+            {/if}
+
+            {#if shown.outgoing.length > 0}
+              <section>
+                {@render sectionHeader("Links from this note", shown.outgoing.length)}
+                <div class="rows">
+                  {#each shown.outgoing as link (link.target)}
+                    <button
+                      class="link-row outgoing"
+                      class:dimmed={!link.resolved}
+                      title={link.resolved ?? `Create “${link.target}”`}
+                      onclick={() => run("openLink", link.target, false)}
+                    >
+                      <span class="link-title">
+                        {#if link.resolved}<Link2 size={13} />{:else}<CornerDownRight size={13} />{/if}
+                        <span class="ellipsis">{link.target}</span>
+                      </span>
+                      {#if !link.resolved}<span class="link-detail indent">Not created yet</span>{/if}
+                    </button>
+                  {/each}
+                </div>
+              </section>
+            {/if}
+          {/if}
+        {:else}
+          <section class="info">
+            {@render infoRow("Location", folder || "Vault root")}
+            {@render infoRow("Words", numberFormat.format(words))}
+            {@render infoRow("Characters", numberFormat.format(characters))}
+            {#if app.doc?.created}{@render infoRow("Created", dateFormat.format(app.doc.created))}{/if}
+            {#if app.doc?.modified}{@render infoRow("Modified", dateFormat.format(app.doc.modified))}{/if}
+            {#if shown && shown.aliases.length > 0}{@render infoRow("Aliases", shown.aliases.join(", "))}{/if}
+          </section>
+
+          {#if properties.length > 0}
+            <section>
+              {@render sectionHeader("Properties", properties.length)}
+              <div class="info">
+                {#each properties as property, index (index)}
+                  {@render infoRow(property.key, property.values.length ? property.values.map(plainText).join(", ") : "—")}
                 {/each}
               </div>
             </section>
           {/if}
-        {/if}
-      {:else}
-        <section class="info">
-          {@render infoRow("Location", folder || "Vault root")}
-          {@render infoRow("Words", numberFormat.format(words))}
-          {@render infoRow("Characters", numberFormat.format(characters))}
-          {#if app.doc?.created}{@render infoRow("Created", dateFormat.format(app.doc.created))}{/if}
-          {#if app.doc?.modified}{@render infoRow("Modified", dateFormat.format(app.doc.modified))}{/if}
-          {#if shown && shown.aliases.length > 0}{@render infoRow("Aliases", shown.aliases.join(", "))}{/if}
-        </section>
 
-        {#if properties.length > 0}
-          <section>
-            {@render sectionHeader("Properties", properties.length)}
-            <div class="info">
-              {#each properties as property, index (index)}
-                {@render infoRow(property.key, property.values.length ? property.values.map(plainText).join(", ") : "—")}
-              {/each}
-            </div>
-          </section>
-        {/if}
+          {#if shown && shown.tags.length > 0}
+            <section>
+              {@render sectionHeader("Tags", shown.tags.length)}
+              <div class="tags">
+                {#each shown.tags as tag (tag)}
+                  <button class="tag-pill" title="Notes tagged #{tag}" onclick={() => app.showQuickOpen("#" + tag)}>#{tag}</button>
+                {/each}
+              </div>
+            </section>
+          {/if}
 
-        {#if shown && shown.tags.length > 0}
-          <section>
-            {@render sectionHeader("Tags", shown.tags.length)}
-            <div class="tags">
-              {#each shown.tags as tag (tag)}
-                <button class="tag-pill" title="Notes tagged #{tag}" onclick={() => app.showQuickOpen("#" + tag)}>#{tag}</button>
-              {/each}
-            </div>
-          </section>
+          <div>
+            <button class="button show-in-folder" onclick={() => path && run("showInFolder", path)}>
+              <FolderOpen size={14} />
+              Show in File Explorer
+            </button>
+          </div>
         {/if}
-
-        <div>
-          <button class="button show-in-folder" onclick={() => path && run("showInFolder", path)}>
-            <FolderOpen size={14} />
-            Show in File Explorer
-          </button>
-        </div>
-      {/if}
-    </div>
+      </div>
+    {/key}
   {/if}
 </div>
 

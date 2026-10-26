@@ -8,6 +8,9 @@ import { MONO_FONT, UI_FONT } from "./platform.js";
 // colour theme (renderer lib/theme.ts); the fallbacks match Holocron Dark.
 const v = (name, fallback) => `var(--hc-${name}, ${fallback})`;
 const MONO = MONO_FONT;
+// Heading size and weight, tuned per editor font (renderer lib/theme.ts).
+const hs = (size) => `calc(${size} * var(--hc-heading-scale, 1))`;
+const hw = "var(--hc-heading-weight, 650)";
 
 const c = {
   bg: v("bg", "#0F1115"),
@@ -33,7 +36,11 @@ export const holocronTheme = EditorView.theme(
     "&": { color: c.text, backgroundColor: c.bg, height: "100%", fontSize: v("font-size", "16px") },
     "&.cm-focused": { outline: "none" },
     ".cm-scroller": { fontFamily: v("font", UI_FONT), lineHeight: v("line-height", "1.65"), padding: "28px 0 35vh" },
-    "&.cm-mode-reading .cm-scroller": { fontFamily: `var(--hc-reading-font, ${v("font", UI_FONT)})` },
+    "&.cm-mode-reading .cm-scroller": {
+      fontFamily: `var(--hc-reading-font, ${v("font", UI_FONT)})`,
+      "--hc-heading-scale": "var(--hc-reading-heading-scale, 1)",
+      "--hc-heading-weight": "var(--hc-reading-heading-weight, 650)",
+    },
     // Blank lines between paragraphs (typography.js), sized by Settings › Paragraph spacing.
     ".cm-blank-line": { lineHeight: `calc(${v("line-height", "1.65")} * var(--hc-blank-scale, 1))` },
     ".cm-content": {
@@ -52,12 +59,12 @@ export const holocronTheme = EditorView.theme(
 
     // Headings
     ".cm-h": { color: c.heading },
-    ".cm-h1": { fontSize: "2.125em", lineHeight: "1.25", fontWeight: "700", letterSpacing: "-0.01em", paddingTop: "10px" },
-    ".cm-h2": { fontSize: "1.44em", lineHeight: "1.3", fontWeight: "650", paddingTop: "14px" },
-    ".cm-h3": { fontSize: "1.19em", lineHeight: "1.35", fontWeight: "650", paddingTop: "10px" },
-    ".cm-h4": { fontSize: "1.06em", fontWeight: "650", paddingTop: "8px" },
-    ".cm-h5": { fontSize: "0.94em", fontWeight: "650", paddingTop: "6px" },
-    ".cm-h6": { fontSize: "0.88em", fontWeight: "650", color: c.muted, paddingTop: "6px" },
+    ".cm-h1": { fontSize: hs("2.125em"), lineHeight: "1.25", fontWeight: "calc(var(--hc-heading-weight, 650) + 50)", letterSpacing: "-0.01em", paddingTop: "10px" },
+    ".cm-h2": { fontSize: hs("1.44em"), lineHeight: "1.3", fontWeight: hw, paddingTop: "14px" },
+    ".cm-h3": { fontSize: hs("1.19em"), lineHeight: "1.35", fontWeight: hw, paddingTop: "10px" },
+    ".cm-h4": { fontSize: hs("1.06em"), fontWeight: hw, paddingTop: "8px" },
+    ".cm-h5": { fontSize: "0.94em", fontWeight: hw, paddingTop: "6px" },
+    ".cm-h6": { fontSize: "0.88em", fontWeight: hw, color: c.muted, paddingTop: "6px" },
     ".cm-formatting": { color: c.faint },
     ".cm-formatting-header": { fontFamily: MONO, fontWeight: "400", fontSize: "0.78em" },
 
@@ -105,6 +112,9 @@ export const holocronTheme = EditorView.theme(
     ".cm-callout-first": { borderTop: "1px solid rgba(var(--callout), 0.32)", borderRadius: "8px 8px 0 0", paddingTop: "10px !important", marginTop: "4px" },
     ".cm-callout-last": { borderBottom: "1px solid rgba(var(--callout), 0.32)", borderRadius: "0 0 8px 8px", paddingBottom: "10px !important", marginBottom: "4px" },
     ".cm-callout-first.cm-callout-last": { borderRadius: "8px" },
+    // Lists inside quotes and callouts keep their hanging indent on top of the box padding.
+    ".cm-blockquote.cm-list-line": { paddingLeft: "calc(14px + var(--hc-hang)) !important" },
+    ".cm-callout.cm-list-line": { paddingLeft: "calc(16px + var(--hc-hang)) !important" },
     ".cm-callout-title": {
       display: "inline-flex",
       alignItems: "center",

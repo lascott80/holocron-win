@@ -2,6 +2,7 @@
 // resolves link targets to notes.
 
 import { isNote, stem } from "./paths";
+import { stripMarkdown } from "./plainMarkdown";
 
 export interface Heading {
   level: number;
@@ -238,11 +239,12 @@ function parseHeading(line: string, number: number): Heading | null {
  * cleanly in the outline: [[a|b]] → b, [a](x) → a, **b** → b.
  */
 export function plainText(markdown: string): string {
-  return markdown
-    .replace(/\[\[([^\]|]*)\|([^\]]*)\]\]/g, "$2")
-    .replace(/\[\[([^\]]*)\]\]/g, "$1")
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/(\*\*|__|~~|==|\*|_|`)/g, "");
+  return stripMarkdown(markdown).text;
+}
+
+/** plainText for a whole line out of context: heading, quote and list marks go too. */
+export function plainLine(markdown: string): string {
+  return stripMarkdown(markdown, { block: true }).text;
 }
 
 /** Replaces `code spans` with spaces so their content isn't parsed. */

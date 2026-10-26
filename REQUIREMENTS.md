@@ -609,7 +609,7 @@ Added in the Windows port (0.2.0). All of it follows the live-preview rule: rend
   - **Inspector** (min 240, ideal 290, max 420; visibility persisted, default shown) — §11.3
 - **UI-03 Toolbar**: left "Back" (help "Back (⌥⌘←)"), "Forward" ("Forward (⌥⌘→)"), disabled when unavailable; right "Today’s Note" ("Today’s Note (⇧⌘D)"), "Quick Open" ("Quick Open (⌘O)"), "New Note" ("New Note (⌘N)"), "Inspector" ("Show or hide the inspector (⌥⌘I)").
 - **UI-04 Tab bar** (height 36): tabs share the width (each 120–240 px), scroll horizontally, the active one scrolls into view. "+" ("New Tab (⌘T)"). Tab: title (or "New Tab" with a dashed-plus icon), 12 pt, medium + full text colour when active; top corners rounded; active fill = editor background with border, hover fill = chip; tooltip = vault path. Trailing control priority: close × (hovered/active; label "Close <title>") → warning triangle (conflict/missing) → accent dot (unsaved) → nothing. Drag to reorder (2 px accent insertion bar). Context menu: "Close Tab", "Close Other Tabs", "Close Tabs to the Right", "Show in Finder".
-- **UI-05 Breadcrumb** (height 36, 12 pt, tertiary text): vault folders separated by "/" then the file name with extension (emphasised).
+- **UI-05 Breadcrumb** (height 36, 12 pt, tertiary text): the vault name, its folders separated by "/", then the note title (emphasised; non-note files keep their extension).
 - **UI-06 Formatting bar** (height 34; shown when enabled, not in reading view or focus mode). Buttons 28×26 with tooltips "<Title> — <markdown> (<shortcut>)":
   - Bold `**text**` (⌘B) · Italic `*text*` (⌘I) · Strikethrough `~~text~~` (⇧⌘X) · Highlight `==text==` (⇧⌘H) · Inline Code `` `code` `` (⌘E) · Link "[text](url) — or type [[ for a note link" (⌘K)
   - | Heading menu ("Heading 1", "Heading 2", "Heading 3", —, "Body Text"; help "Heading — # Heading, ## Heading… (⌥⌘1–3)") · Bulleted List `- item` · Numbered List `1. item` · Checklist `- [ ] task` (⌘L) · Quote `> quote`
@@ -621,7 +621,7 @@ Added in the Windows port (0.2.0). All of it follows the live-preview rule: rend
 
 ### 11.2 Sidebar
 
-- **UI-08 Vault switcher** (top): logo, vault name, abbreviated path, chevron; menu = other recent vaults, "Open Folder as Vault…", "Create New Vault…", "Show Vault in Finder", "Close Vault".
+- **UI-08 Vault switcher** (top): logo, vault name, its parent folder (middle elided when deep: "~\…\Temp\Work"), chevron; menu = other recent vaults, "Open Folder as Vault…", "Create New Vault…", "Show Vault in Finder", "Close Vault".
 - **UI-09** Segmented "Files" / "Search".
 - **UI-10 File tree**: section header "Files" with the note count (drop target for the root; help "Drop here to move to the top of the vault"; context menu "New Note", "New Folder"). Rows: folder/doc icon + name; cloud-only notes show a small download-cloud icon (filled while downloading; help "Stored in iCloud — downloads when you open it"). Selecting a note opens it. Return renames the selected row; Delete key asks to trash it.
 - **UI-11 Inline rename**: text field (placeholder "Name") pre-filled and focused; Return commits, Esc cancels, losing focus commits. Error "Couldn’t rename “<name>”: <err>".

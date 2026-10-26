@@ -84,7 +84,7 @@
   }
 </script>
 
-<div class="tasks-panel">
+<div class="tasks-panel pane-enter">
   <div class="field">
     <ListChecks size={14} />
     <input bind:this={field} bind:value={filter} type="text" placeholder="Filter tasks (#tag for a tag)" aria-label="Filter tasks" spellcheck="false" onkeydown={onKeydown} />

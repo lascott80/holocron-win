@@ -43,7 +43,7 @@
   </div>
 
   {#if app.sidebarMode === "files"}
-    <div class="scroll">
+    <div class="scroll pane-enter">
       <BookmarksSection />
       <FileTree />
       <TagsSection />

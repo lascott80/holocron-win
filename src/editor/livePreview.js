@@ -526,7 +526,7 @@ function buildDecorations(view) {
               mark(line.from, markNode.from, { class: "cm-list-indent", attributes: { style: `width: ${indent}` } });
             }
             decorations.push(
-              Decoration.line({ class: "cm-list-line", attributes: { style: `padding-left: ${hang}; text-indent: calc(-1 * ${hang})` } }).range(line.from),
+              Decoration.line({ class: "cm-list-line", attributes: { style: `--hc-hang: ${hang}; padding-left: var(--hc-hang); text-indent: calc(-1 * var(--hc-hang))` } }).range(line.from),
             );
             // Continuation lines of this item (not its nested items) line up with its text.
             const lastLine = doc.lineAt(Math.max(item.from, item.to - 1)).number;
@@ -538,7 +538,7 @@ function buildDecorations(view) {
               while (owner && owner.name !== "ListItem") owner = owner.parent;
               if (!owner || owner.from !== item.from) continue;
               if (offset > 0) mark(next.from, next.from + offset, { class: "cm-list-indent", attributes: { style: "width: 0" } });
-              decorations.push(Decoration.line({ class: "cm-list-line", attributes: { style: `padding-left: ${hang}` } }).range(next.from));
+              decorations.push(Decoration.line({ class: "cm-list-line", attributes: { style: `--hc-hang: ${hang}; padding-left: var(--hc-hang)` } }).range(next.from));
             }
             break;
           }

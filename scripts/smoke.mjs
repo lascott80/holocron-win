@@ -1,7 +1,7 @@
 // Launches the built app (run `npm run build` first) against a throwaway
 // copy of a vault, with an isolated profile, and saves screenshots.
 //
-//   node scripts/smoke.mjs [outDir] [--vault <folder>] [--light] [--script <file.mjs>] [--out <build dir>]
+//   node scripts/smoke.mjs [outDir] [--vault <folder>] [--light | --dark] [--script <file.mjs>] [--out <build dir>]
 //
 // A --script module's default export receives { app, page, shot, vault } and
 // can drive the UI before the final screenshot.
@@ -17,7 +17,9 @@ const option = (name) => {
   const index = args.indexOf(name);
   return index >= 0 ? args.splice(index, 2)[1] : null;
 };
-const light = args.includes("--light") ? (args.splice(args.indexOf("--light"), 1), true) : false;
+const flag = (name) => (args.includes(name) ? (args.splice(args.indexOf(name), 1), true) : false);
+const light = flag("--light");
+const dark = flag("--dark");
 const script = option("--script");
 // A build made with `electron-vite build --outDir <dir>` (so parallel builds don't collide).
 const outBuild = option("--out");
@@ -28,9 +30,16 @@ fs.mkdirSync(outDir, { recursive: true });
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "holocron-smoke-"));
 const vault = path.join(work, "Smoke Vault");
 fs.cpSync(sourceVault, vault, { recursive: true });
+// Like the app does when it installs the guide (main/index.ts).
+const now = new Date();
+const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+for (const name of fs.readdirSync(vault).filter((n) => n.endsWith(".md"))) {
+  const file = path.join(vault, name);
+  fs.writeFileSync(file, fs.readFileSync(file, "utf8").replaceAll("{{date}}", today));
+}
 const userData = path.join(work, "profile");
 fs.mkdirSync(userData);
-if (light) fs.writeFileSync(path.join(userData, "holocron.json"), JSON.stringify({ settings: { appearance: "light" } }));
+if (light || dark) fs.writeFileSync(path.join(userData, "holocron.json"), JSON.stringify({ settings: { appearance: light ? "light" : "dark" } }));
 
 const app = await electron.launch({
   args: [outBuild ? path.resolve(outBuild, "main", "index.js") : "."],
