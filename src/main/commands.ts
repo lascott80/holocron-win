@@ -9,6 +9,7 @@ import { defaultSettings, type Settings } from "@shared/settings";
 import { EDIT_ACTIONS, type EditAction } from "@shared/ipc";
 import { openExternalSafely } from "./editorBridge";
 import { exportNote, showExported, type ExportFormat } from "./exporter";
+import { fetchPageTitle } from "./pageTitle";
 import { log, logsFolder } from "./log";
 import type { HolocronApp } from "./index";
 import type { Vault } from "./vault";
@@ -213,6 +214,8 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
     closeSplit: withVault((vault) => vault.closeSplit()),
     splitToTab: withVault((vault) => vault.splitToTab()),
     graphData: withVault((vault) => vault.index.graph()),
+    // Pasted links get their page's title (ED-76); off in Settings returns null.
+    fetchPageTitle: (url) => (app.settings.fetchLinkTitles ? fetchPageTitle(str(url)) : Promise.resolve(null)),
     // Sync conflict copies (UI-41)
     syncConflictTexts: withVault((vault, copy) => vault.syncConflictTexts(str(copy))),
     resolveSyncConflict: withVault((vault, copy, choice) => vault.resolveSyncConflict(str(copy), str(choice) as "original" | "copy" | "combine" | "keepBoth")),

@@ -34,6 +34,7 @@ import { emoji } from "./emoji.js";
 import { livePreview, setRevealMode } from "./livePreview.js";
 import { currentNote, imagePaste, imageViewer, inlineImages, setImageContext } from "./images.js";
 import { mediaEmbeds } from "./media.js";
+import { youtubeCards } from "./youtube.js";
 import { htmlRendering } from "./html.js";
 import { copyMarkdown, richCopy } from "./richCopy.js";
 import { pasteMarkdown, pastePlainText } from "./pasteMarkdown.js";
@@ -237,6 +238,7 @@ function createEditor(parent, pane = "main") {
     footnotes,
     headingNavigation,
     richCopy({ post: send }), // copies rendered HTML alongside the markdown
+    youtubeCards((url) => send({ type: "openURL", url })),
   ];
 
   const modeExtensions = {
@@ -300,6 +302,8 @@ function createEditor(parent, pane = "main") {
     pasteMarkdown({
       saveImage: (mime, data) => window.holocronHost?.call("saveAttachmentData", "", mime, data) ?? Promise.resolve(null),
       importFile: (path) => window.holocronHost?.call("importFiles", [path]).then((texts) => texts?.[0] ?? null) ?? Promise.resolve(null),
+      // A lone pasted link becomes [Page title](url) (ED-76; main returns null when the setting is off).
+      fetchTitle: window.holocronHost ? (url) => window.holocronHost.call("fetchPageTitle", url) : undefined,
     }),
     EditorView.contentAttributes.of({ spellcheck: "true", autocorrect: "off", autocapitalize: "off" }),
     EditorView.domEventHandlers({ focus: () => void claimNoteContext() }),

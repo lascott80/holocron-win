@@ -48,6 +48,8 @@ export interface Settings {
   /** The sticky trail of headings above the note while you scroll. */
   showHeadingTrail: boolean;
   revealMarkup: RevealMarkup;
+  /** Pasting a lone link fetches the page's title and makes it [Title](url) (ED-76). */
+  fetchLinkTitles: boolean;
   /** Cap the text column at `editorLineWidth`; off = notes fill the window. */
   readableLineLength: boolean;
   attachmentFolder: string;
@@ -111,6 +113,7 @@ export const defaultSettings: Settings = {
   codeLineNumbers: false,
   showHeadingTrail: true,
   revealMarkup: "line",
+  fetchLinkTitles: true,
   readableLineLength: true,
   attachmentFolder: "Attachments",
   attachmentLayout: "perNote",

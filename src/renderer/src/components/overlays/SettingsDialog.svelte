@@ -229,6 +229,7 @@
         | "launchAtLogin"
         | "codeLineNumbers"
         | "showHeadingTrail"
+        | "fetchLinkTitles"
         | "spellCheck"
         | "keepHistory"
       ),
@@ -570,6 +571,7 @@
           {@render row("Images in dark themes", darkImages, "Dimmed tones images down; Invert light ones flips mostly-white screenshots and diagrams so they don’t glare. Hover an image to see it as it is.")}
           {@render switchRow("Show line numbers in code blocks (a block can also ask with “linenos”)", s.codeLineNumbers, toggle("codeLineNumbers"))}
           {@render switchRow("Show the headings you’re in above the note while scrolling", s.showHeadingTrail, toggle("showHeadingTrail"))}
+          {@render switchRow("Use the page’s title when you paste a link", s.fetchLinkTitles, toggle("fetchLinkTitles"), "Pasting a lone link on its own makes it [Page title](link). Holocron fetches the page to read its title; the link stays as it is if that fails.")}
         </div>
         <div class="group">
           {@render textRow(

@@ -7,6 +7,7 @@
 //   inside fenced/inline code or frontmatter → the plain text (CodeMirror's own paste)
 //   a spreadsheet grid (tab-separated text)  → tableEditing.js makes a table (ED-33)
 //   a URL over selected text                 → [selection](url) (ED-48)
+//   a lone URL, nothing selected             → the URL, then [Page title](url) once fetched (ED-76)
 //   no HTML                                  → plain text (and images.js saves a pasted picture)
 //   HTML that's just pictures + image data   → images.js saves the picture
 //   inside a table                           → plain text (a converted block would break the table)
@@ -54,6 +55,8 @@ export function pastePlan({ text = "", html = "", imageFiles = 0, context = {} }
   if (!context.table && isSpreadsheet(text)) return pass("spreadsheet");
   const url = context.selection && !context.selection.includes("\n") ? singleUrl(text) : null;
   if (url) return { action: "link", reason: "url", url };
+  const lone = !context.selection && !context.inLink && !context.table && options.titles ? singleUrl(text) : null;
+  if (lone) return { action: "title", reason: "url", url: lone };
   if (!html || !html.trim()) return pass(imageFiles ? "image" : "noHtml");
   const analysis = analyzeHtml(html, options);
   if (imageFiles && analysis.onlyImages) return pass("image");
@@ -71,6 +74,14 @@ function inCode(state, pos) {
   return false;
 }
 
+/** Inside a link already, as in [text](|) or <|>, where a pasted URL must stay as it is. */
+function inLink(state, pos) {
+  for (let node = syntaxTree(state).resolveInner(pos, -1); node; node = node.parent) {
+    if (/^(Link|Image|URL|Autolink)$/.test(node.name)) return true;
+  }
+  return /\]\($|<$/.test(state.doc.sliceString(state.doc.lineAt(pos).from, pos));
+}
+
 function inTable(state, pos) {
   if (!state.doc.lineAt(pos).text.includes("|")) return false;
   return findTables(state.doc).some((table) => pos >= table.from && pos <= table.to);
@@ -84,6 +95,7 @@ export function pasteContext(state) {
     code: inCode(state, main.from) || (!main.empty && inCode(state, main.to)),
     table: inTable(state, main.from),
     selection: state.selection.ranges.length === 1 && !main.empty ? state.sliceDoc(main.from, main.to) : "",
+    inLink: inLink(state, main.from),
   };
 }
 
@@ -128,11 +140,13 @@ const pendingPastes = StateField.define({
     if (transaction.docChanged && value.size) {
       next = new Map();
       for (const [id, range] of value) {
-        next.set(id, { from: transaction.changes.mapPos(range.from, -1), to: transaction.changes.mapPos(range.to, 1) });
+        // A pasted link (tight) keeps to its own text; a picture paste grows with text typed at its edges.
+        const [start, end] = range.tight ? [1, -1] : [-1, 1];
+        next.set(id, { ...range, from: transaction.changes.mapPos(range.from, start), to: transaction.changes.mapPos(range.to, end) });
       }
     }
     for (const effect of transaction.effects) {
-      if (effect.is(trackPaste)) next = new Map(next).set(effect.value.id, { from: effect.value.from, to: effect.value.to });
+      if (effect.is(trackPaste)) next = new Map(next).set(effect.value.id, { from: effect.value.from, to: effect.value.to, tight: Boolean(effect.value.tight) });
       else if (effect.is(finishPaste)) {
         next = new Map(next);
         next.delete(effect.value);
@@ -158,6 +172,11 @@ async function saveImages(images, { saveImage, importFile }) {
 
 let pasteCount = 0;
 
+/** A page title as link text: brackets and backslashes escaped so the link stays a link. */
+export function linkText(title) {
+  return String(title).replace(/[\\[\]]/g, "\\$&").replace(/\s+/g, " ").trim();
+}
+
 /**
  * Handles a paste event; true if it took the paste (its default is then
  * prevented). `saveImage(mime, base64)` and `importFile(path)` save a picture
@@ -165,7 +184,7 @@ let pasteCount = 0;
  * is for tests (see htmlToMarkdown.js). Returns the pending picture save as
  * `handlePaste.pending` (for tests).
  */
-export function handlePaste(event, view, { saveImage, importFile } = {}, options = {}) {
+export function handlePaste(event, view, { saveImage, importFile, fetchTitle } = {}, options = {}) {
   const data = event.clipboardData;
   if (!data) return false;
   let plan;
@@ -175,7 +194,7 @@ export function handlePaste(event, view, { saveImage, importFile } = {}, options
       html: data.getData("text/html"),
       imageFiles: Array.from(data.files ?? []).filter((file) => file.type.startsWith("image/")).length,
       context: pasteContext(view.state),
-    }, options);
+    }, { ...options, titles: Boolean(fetchTitle) });
   } catch (error) {
     console.error("Paste as Markdown failed:", error);
     return false;
@@ -186,6 +205,37 @@ export function handlePaste(event, view, { saveImage, importFile } = {}, options
     event.preventDefault();
     const text = `[${view.state.sliceDoc(from, to)}](${plan.url})`;
     view.dispatch({ changes: { from, to, insert: text }, selection: { anchor: from + text.length }, scrollIntoView: true, userEvent: "input.paste" });
+    return true;
+  }
+  if (plan.action === "title") {
+    event.preventDefault();
+    const url = plan.url;
+    const id = ++pasteCount;
+    view.dispatch({
+      changes: { from, to, insert: url },
+      selection: { anchor: from + url.length },
+      effects: trackPaste.of({ id, from, to: from + url.length, tight: true }),
+      scrollIntoView: true,
+      userEvent: "input.paste",
+    });
+    handlePaste.pending = Promise.resolve()
+      .then(() => fetchTitle(url))
+      .catch(() => null)
+      .then((title) => {
+        const range = view.state.field(pendingPastes, false)?.get(id);
+        if (!range) return; // another note is showing now
+        // Only if the URL is still there, untouched.
+        // Typed onto the URL itself (extending it) also counts as changed.
+        const before = view.state.sliceDoc(range.from - 1, range.from);
+        const after = view.state.sliceDoc(range.to, range.to + 1);
+        const extended = (before && !/[\s([<]/.test(before)) || (after && !/[\s)\]>.,;:!?'"]/.test(after));
+        if (!title || extended || view.state.sliceDoc(range.from, range.to) !== url) {
+          view.dispatch({ effects: finishPaste.of(id) });
+          return;
+        }
+        const text = "[" + linkText(title) + "](" + url + ")";
+        view.dispatch({ changes: { from: range.from, to: range.to, insert: text }, effects: finishPaste.of(id), userEvent: "input.paste.title" });
+      });
     return true;
   }
   const { analysis } = plan;

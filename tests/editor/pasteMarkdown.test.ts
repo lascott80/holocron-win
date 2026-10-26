@@ -215,3 +215,55 @@ describe("pastePlainText", () => {
     expect(pastePlainText({ state } as any)).toBe(false);
   });
 });
+
+describe("pasting a lone link (page titles, ED-76)", () => {
+  it("inserts the link, then swaps in [Page title](url)", async () => {
+    const view = viewAt("See |^| here");
+    const fetchTitle = vi.fn(async () => "Jedi [Archives] Guide");
+    expect(handlePaste(pasteEvent({ text: "https://e.com/a" }), view, { fetchTitle }, { parse })).toBe(true);
+    expect(view.state.doc.toString()).toBe("See https://e.com/a here");
+    await handlePaste.pending;
+    expect(fetchTitle).toHaveBeenCalledWith("https://e.com/a");
+    expect(view.state.doc.toString()).toBe(String.raw`See [Jedi \[Archives\] Guide](https://e.com/a) here`);
+  });
+
+  it("still finishes when you keep typing right after the link", async () => {
+    const view = viewAt("|^|");
+    let release!: (title: string) => void;
+    handlePaste(pasteEvent({ text: "https://e.com" }), view, { fetchTitle: () => new Promise((resolve) => (release = resolve)) }, { parse });
+    view.dispatch({ changes: { from: view.state.doc.length, insert: " is great" } });
+    await Promise.resolve();
+    release("E");
+    await handlePaste.pending;
+    expect(view.state.doc.toString()).toBe("[E](https://e.com) is great");
+  });
+
+  it("follows the link through edits made while waiting, and gives up if it was changed", async () => {
+    const view = viewAt("|^|");
+    let release!: (title: string) => void;
+    handlePaste(pasteEvent({ text: "www.e.com" }), view, { fetchTitle: () => new Promise((resolve) => (release = resolve)) }, { parse });
+    view.dispatch({ changes: { from: 0, insert: "Before: " } });
+    await Promise.resolve(); // the fetch starts a tick after the paste
+    release("E");
+    await handlePaste.pending;
+    expect(view.state.doc.toString()).toBe("Before: [E](https://www.e.com)");
+
+    const edited = viewAt("|^|");
+    let later!: (title: string) => void;
+    handlePaste(pasteEvent({ text: "https://e.com" }), edited, { fetchTitle: () => new Promise((resolve) => (later = resolve)) }, { parse });
+    edited.dispatch({ changes: { from: edited.state.doc.length, insert: "/more" } });
+    await Promise.resolve();
+    later("E");
+    await handlePaste.pending;
+    expect(edited.state.doc.toString()).toBe("https://e.com/more");
+  });
+
+  it("keeps the plain link when no title comes back, and stays out of existing links", async () => {
+    const view = viewAt("|^|");
+    handlePaste(pasteEvent({ text: "https://e.com" }), view, { fetchTitle: async () => null }, { parse });
+    await handlePaste.pending;
+    expect(view.state.doc.toString()).toBe("https://e.com");
+    expect(handlePaste(pasteEvent({ text: "https://e.com" }), viewAt("[x](|^|)"), { fetchTitle: async () => "T" }, { parse })).toBe(false);
+    expect(handlePaste(pasteEvent({ text: "https://e.com" }), viewAt("|^|"), {}, { parse })).toBe(false);
+  });
+});
