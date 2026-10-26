@@ -4,7 +4,7 @@
 
 import { clipboard, shell, type WebContents } from "electron";
 import { edits } from "@core/merge";
-import { Channels, type EditorMessage } from "@shared/ipc";
+import { Channels, type EditorMessage, type EditorPane } from "@shared/ipc";
 import type { EditorPort, Vault } from "./vault";
 
 export class EditorBridge implements EditorPort {
@@ -20,10 +20,14 @@ export class EditorBridge implements EditorPort {
   cursor = { line: 1, column: 1, selectedWords: 0, selectedCharacters: 0 };
   onCursorChange: (() => void) | null = null;
 
-  constructor(private readonly contents: () => WebContents | null) {}
+  /** `pane`: the main editor, or split view's right-hand one (UI-40). */
+  constructor(
+    private readonly contents: () => WebContents | null,
+    private readonly pane: EditorPane = "main",
+  ) {}
 
   private call(method: string, ...args: unknown[]) {
-    this.contents()?.send(Channels.editorCall, { method, args });
+    this.contents()?.send(Channels.editorCall, { method, args, pane: this.pane });
   }
 
   /** The renderer reloaded: the editor must say "ready" again. */
@@ -113,7 +117,7 @@ export class EditorBridge implements EditorPort {
       case "change":
         if (message.id !== this.shown.path || typeof message.text !== "string") return;
         this.shown.text = message.text;
-        vault?.editorChanged(message.id, message.text);
+        vault?.editorChanged(message.id, message.text, this.pane);
         break;
       case "selection":
         if (message.id !== this.shown.path) return;

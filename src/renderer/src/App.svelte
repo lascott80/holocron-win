@@ -14,6 +14,7 @@
   import TabBar from "./components/detail/TabBar.svelte";
   import FormattingBar from "./components/detail/FormattingBar.svelte";
   import Breadcrumb from "./components/detail/Breadcrumb.svelte";
+  import SplitPane from "./components/detail/SplitPane.svelte";
   import MissingBanner from "./components/detail/MissingBanner.svelte";
   import StatusBar from "./components/detail/StatusBar.svelte";
   import EmptyEditor from "./components/detail/EmptyEditor.svelte";
@@ -109,10 +110,15 @@
       {#if vault && app.doc?.isMissing}
         <MissingBanner />
       {/if}
-      <EditorHost visible={Boolean(vault) && hasNote} />
-      {#if vault && !hasNote}
-        <EmptyEditor />
-      {/if}
+      <div class="panes">
+        <div class="main-pane" role="presentation" onfocusin={() => app.focusPane("main")}>
+          <EditorHost visible={Boolean(vault) && hasNote} />
+          {#if vault && !hasNote}
+            <EmptyEditor />
+          {/if}
+        </div>
+        {#if vault}<SplitPane />{/if}
+      </div>
       {#if vault && showChrome}
         <StatusBar />
       {/if}
@@ -180,6 +186,18 @@
     display: flex;
     flex-direction: column;
     background: var(--ui-editor);
+  }
+  /* The main editor, and split view's pane beside it (UI-40). */
+  .panes {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+  }
+  .main-pane {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
   }
   .resize-handle {
     flex: none;

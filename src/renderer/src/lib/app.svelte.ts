@@ -1,9 +1,9 @@
 // The renderer's view of the app: the latest state snapshot pushed by the
 // main process, plus UI-only state (palettes, sidebar mode, focus mode…).
 
-import type { AppState, ContextMenuParams, EditAction, EditorMessage, TreeNode, UiRequest } from "@shared/ipc";
+import type { AppState, ContextMenuParams, EditAction, EditorMessage, EditorPane, TreeNode, UiRequest } from "@shared/ipc";
 import { defaultSettings, type Settings } from "@shared/settings";
-import { call, editor, host, run } from "./host";
+import { activePane, call, editor, editorFor, host, run, setActivePane } from "./host";
 import { buildContextMenu, FORMAT_COMMANDS, mermaidCodeAt, type ContextActions, type ContextTarget } from "./contextMenu";
 import { commandById } from "./commands";
 import { menu } from "./menu.svelte";
@@ -41,6 +41,8 @@ class AppStore {
   cursor = $state({ line: 1, column: 1, selectedWords: 0, selectedCharacters: 0 });
   /** The editor's current text for the shown note (word counts). */
   text = $state("");
+  /** The editor last focused: the main one or split view's right-hand pane (UI-40). */
+  pane = $state<EditorPane>("main");
   editorReady = $state(false);
 
   get vault() {
@@ -85,15 +87,17 @@ class AppStore {
     // that component prevented the default is read later, from the event itself.
     window.addEventListener("contextmenu", (event) => (this.lastContextMenu = { event, time: performance.now() }), true);
     // Main → editor calls (setDocument, applyExternalEdits, …), REQUIREMENTS §2.1.
-    host.onEditorCall(({ method, args }) => {
-      const target = window.holocron?.[method];
-      if (typeof target === "function") target.apply(window.holocron, args);
+    host.onEditorCall(({ method, args, pane }) => {
+      const api = editorFor(pane);
+      const target = api?.[method];
+      if (typeof target === "function") target.apply(api, args);
       // Loading a note or applying a disk change doesn't post "change"; keep word counts current.
+      if ((pane ?? "main") !== activePane()) return;
       if (method === "setDocument") this.text = String(args[0] ?? "");
       else if (method === "applyExternalEdits") this.text = String(args[1] ?? "");
     });
     window.holocronEditorPost = (message: EditorMessage) => {
-      this.tapEditor(message);
+      if ((message.pane ?? "main") === activePane()) this.tapEditor(message);
       if (message.type === "copy") {
         void navigator.clipboard.writeText(message.text);
         return;
@@ -114,6 +118,14 @@ class AppStore {
       this.loaded = true;
     });
     void call<TreeNode[]>("getTree").then((tree) => (this.tree = tree));
+  }
+
+  /** An editor got focus: commands and the status bar follow it from now on. */
+  focusPane(pane: EditorPane) {
+    if (pane === this.pane) return;
+    setActivePane(pane);
+    this.pane = pane;
+    this.text = editor()?.getText() ?? "";
   }
 
   /** Watches editor messages for the status bar. */
@@ -177,6 +189,7 @@ class AppStore {
         });
       },
       openLink: (link, newTab) => run("openLink", link, newTab),
+      openLinkInSplit: (link) => run("openLinkInSplit", link),
       openUrl: (url) => host.postEditor({ type: "openURL", url }),
       copyText: (text) => void navigator.clipboard.writeText(text),
       searchTag: (tag) => this.showQuickOpen(`#${tag}`),

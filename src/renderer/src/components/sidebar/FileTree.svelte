@@ -399,6 +399,7 @@
     }
     return [
       { label: "Open in New Tab", run: () => run("open", path, true) },
+      { label: "Open to the Right", run: () => run("openInSplit", path) },
       "-",
       { label: "Rename", shortcut: "F2", run: () => run("startRenaming", path) },
       { label: "Duplicate", run: () => run("duplicate", path) },

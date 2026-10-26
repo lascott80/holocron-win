@@ -52,6 +52,7 @@
     const others = tabs.filter((other) => other.id !== tab.id && !other.pinned);
     const toTheRight = tabs.slice(index + 1).filter((other) => !other.pinned);
     const entries: MenuEntry[] = [
+      { label: "Open to the Right", disabled: !tab.path, run: () => tab.path && run("openInSplit", tab.path) },
       { label: tab.pinned ? "Unpin Tab" : "Pin Tab", disabled: !tab.path, run: () => run("togglePinTab", tab.id) },
       "-",
       { label: "Close Tab", shortcut: tab.id === activeId ? "Ctrl+W" : undefined, disabled: tab.pinned, run: () => run("closeTab", tab.id) },

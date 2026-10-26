@@ -31,6 +31,14 @@ export interface TabView {
   pinned: boolean;
 }
 
+/** The note in split view's right-hand pane (UI-40). */
+export interface SplitView {
+  path: string;
+  title: string;
+  isDirty: boolean;
+  hasWarning: boolean;
+}
+
 export interface DocView {
   path: string;
   title: string;
@@ -90,6 +98,7 @@ export interface VaultView {
   recentNotes: string[];
   /** Bookmarked note and folder paths, in the user's order (UI-14a). */
   bookmarks: string[];
+  split: SplitView | null;
   toast: ToastView | null;
   doc: DocView | null;
   conflict: ConflictView | null;
@@ -248,8 +257,11 @@ export interface QuickOpenNote {
 
 // ---- Editor bridge ----
 
-/** Messages the editor posts (Editor → native), REQUIREMENTS §2.1. */
-export type EditorMessage =
+/** Which editor: the main one, or split view's right-hand pane (UI-40). */
+export type EditorPane = "main" | "split";
+
+/** Messages the editor posts (Editor → native), REQUIREMENTS §2.1. `pane` is absent for the main editor. */
+export type EditorMessage = { pane?: EditorPane } & (
   | { type: "ready" }
   | { type: "change"; id: string; text: string }
   | { type: "selection"; id: string; line: number; column: number; selectedWords?: number; selectedCharacters?: number }
@@ -262,12 +274,14 @@ export type EditorMessage =
   | { type: "copyRich"; text: string; html: string }
   | { type: "pasteImage"; name: string; mime: string; data: string }
   /** The slash menu's Template… item: open the template picker. */
-  | { type: "insertTemplate" };
+  | { type: "insertTemplate" }
+);
 
-/** A call from main into `window.holocron` in the editor. */
+/** A call from main into an editor: `window.holocron`, or the split pane's when `pane` is "split". */
 export interface EditorCall {
   method: string;
   args: unknown[];
+  pane?: EditorPane;
 }
 
 export const Channels = {

@@ -206,6 +206,12 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
     moveTab: withVault((vault, id, target) => vault.moveTab(str(id), str(target))),
     togglePinTab: withVault((vault, id) => vault.togglePinTab(str(id))),
     toggleBookmark: withVault((vault, path) => vault.toggleBookmark(str(path))),
+    // Split view (UI-40)
+    openInSplit: withVault((vault, path) => vault.openInSplit(str(path))),
+    openLinkInSplit: withVault((vault, target) => vault.openLinkInSplit(str(target))),
+    splitActiveNote: withVault((vault) => vault.splitActiveNote()),
+    closeSplit: withVault((vault) => vault.closeSplit()),
+    splitToTab: withVault((vault) => vault.splitToTab()),
     moveBookmark: withVault((vault, path, target) => vault.moveBookmark(str(path), str(target))),
     selectTabNumber: withVault((vault, number) => vault.selectTabNumber(num(number))),
     nextTab: withVault((vault) => vault.selectNextTab()),

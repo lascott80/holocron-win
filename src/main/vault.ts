@@ -38,6 +38,7 @@ import type {
   ConflictView,
   DocView,
   NoteDetails,
+  SplitView,
   TabView,
   ToastView,
   TreeNode,
@@ -88,6 +89,8 @@ export interface VaultOptions {
   store: StateStore;
   settings: () => Settings;
   editor?: EditorPort;
+  /** The right-hand pane of split view (UI-40). */
+  splitEditor?: EditorPort;
   trash?: TrashItem;
   /** Opens a file in its default app. */
   openPath?: (file: string) => void;
@@ -172,6 +175,9 @@ export class Vault {
 
   private readonly options: VaultOptions;
   private readonly editor: EditorPort;
+  private readonly splitEditor: EditorPort;
+  /** The note in split view's right-hand pane (UI-40), or null when split view is closed. */
+  private splitPath: string | null = null;
   private toastTimer: NodeJS.Timeout | null = null;
   private nextToastId = 1;
   private liveIndexTimer: NodeJS.Timeout | null = null;
@@ -190,12 +196,14 @@ export class Vault {
     this.root = nodePath.resolve(root);
     this.options = options;
     this.editor = options.editor ?? nullEditor;
+    this.splitEditor = options.splitEditor ?? nullEditor;
     this.recentNotes = options.store.get<string[]>(this.recentNotesKey) ?? [];
     this.bookmarks = (options.store.get<string[]>(this.bookmarksKey) ?? []).filter((path) => typeof path === "string" && path !== "");
     this.indexCache = options.indexCacheFolder ? new IndexCache(options.indexCacheFolder, this.root) : null;
     this.history = options.historyFolder ? new NoteHistory(historyFolder(options.historyFolder, this.root), options.now) : null;
     this.reload();
     this.restoreTabs();
+    this.restoreSplit();
   }
 
   get name() {
@@ -804,7 +812,10 @@ export class Vault {
       this.scheduleLiveIndexUpdate(path, text);
       this.scheduleAutoTitle(document);
     };
-    document.onExternalTextChange = (oldText, newText) => this.editor.externalChange(path, oldText, newText);
+    document.onExternalTextChange = (oldText, newText) => {
+      this.editor.externalChange(path, oldText, newText);
+      this.splitEditor.externalChange(path, oldText, newText);
+    };
     document.onStateChange = () => this.changed();
     // The document's own path can change (rename); look it up at write time.
     document.onDidWrite = (previous, contents) => {
@@ -877,6 +888,12 @@ export class Vault {
     this.autoTitleTimers.delete(document);
     this.documents.delete(path);
     this.editor.forget(path);
+    this.splitEditor.forget(path);
+    if (this.splitPath === path) {
+      this.splitPath = null;
+      this.splitEditor.show(null, null);
+      this.saveSplit();
+    }
   }
 
   /**
@@ -897,6 +914,7 @@ export class Vault {
 
   private unloadUnusedDocuments() {
     const inUse = new Set(this.tabs.map((tab) => tab.path).filter((path): path is string => path !== null));
+    if (this.splitPath) inUse.add(this.splitPath);
     for (const [path, document] of [...this.documents]) {
       if (inUse.has(path)) continue;
       if (document.conflict) {
@@ -920,6 +938,56 @@ export class Vault {
     this.options.store.set(this.tabsKey + ":active", this.activeIndex ?? 0);
     // Pinned tabs are always the leftmost ones, so their number is enough.
     this.options.store.set(this.tabsKey + ":pinned", withPaths.filter((tab) => tab.pinned).length || undefined);
+  }
+
+  // MARK: Split view (UI-40)
+
+  /** Shows `path` in the right-hand pane, opening split view if it's closed. */
+  openInSplit(path: string) {
+    if (!P.isNote(path) || !this.loadDocument(path)) return;
+    this.splitPath = path;
+    this.splitEditor.show(path, this.documents.get(path)?.text ?? null);
+    this.saveSplit();
+    this.changed();
+  }
+
+  /** A [[link]] in the right-hand pane (only links to existing notes). */
+  openLinkInSplit(rawTarget: string) {
+    const resolved = this.resolveLink(rawTarget);
+    if (resolved !== null) this.openInSplit(resolved);
+    else this.showError(`“${LinkResolver.linkPath(rawTarget)}” doesn’t exist yet.`);
+  }
+
+  /** Split Right: the active note, in the right-hand pane too. */
+  splitActiveNote() {
+    const path = this.activeTab?.path;
+    if (path) this.openInSplit(path);
+  }
+
+  closeSplit() {
+    if (this.splitPath === null) return;
+    this.splitPath = null;
+    this.splitEditor.show(null, null);
+    this.unloadUnusedDocuments();
+    this.saveSplit();
+    this.changed();
+  }
+
+  /** Moves the right-hand pane's note into a tab of its own and closes split view. */
+  splitToTab() {
+    const path = this.splitPath;
+    if (!path) return;
+    this.closeSplit();
+    this.open(path, true);
+  }
+
+  private saveSplit() {
+    this.options.store.set(this.tabsKey + ":split", this.splitPath ?? undefined);
+  }
+
+  private restoreSplit() {
+    const path = this.options.store.get<string>(this.tabsKey + ":split");
+    if (typeof path === "string" && P.isNote(path) && fsx.exists(this.abs(path))) this.openInSplit(path);
   }
 
   /** Reopens the tabs that were open when this vault was last closed. */
@@ -1300,8 +1368,13 @@ export class Vault {
       this.attach(document, newPath);
       this.documents.set(newPath, document);
       this.editor.documentDidMove(oldPath, newPath);
+      this.splitEditor.documentDidMove(oldPath, newPath);
     }
     for (const tab of this.tabs) tab.remap(remap);
+    if (this.splitPath) {
+      this.splitPath = remap(this.splitPath);
+      this.saveSplit();
+    }
     if (this.selection) this.selection = remap(this.selection);
     if (this.renaming) this.renaming = remap(this.renaming);
     this.recentNotes = this.recentNotes.map(remap);
@@ -2358,10 +2431,21 @@ export class Vault {
 
   // MARK: Editor bridge
 
-  /** The editor's text for the shown note changed. */
-  editorChanged(path: string, text: string) {
-    if (path !== this.activeTab?.path) return;
-    this.documents.get(path)?.setText(text);
+  /**
+   * An editor's text for its shown note changed. When both panes of split
+   * view show that note, the other pane gets the edit too.
+   */
+  editorChanged(path: string, text: string, pane: "main" | "split" = "main") {
+    const isMain = path === this.activeTab?.path;
+    const isSplit = path === this.splitPath;
+    if (pane === "main" ? !isMain : !isSplit) return;
+    const document = this.documents.get(path);
+    if (!document) return;
+    const previous = document.text;
+    if (previous === text) return;
+    document.setText(text);
+    if (pane === "main" && isSplit) this.splitEditor.externalChange(path, previous, text);
+    if (pane === "split" && isMain) this.editor.externalChange(path, previous, text);
   }
 
   /** Pasted image → attachment; returns the text to insert, or null. */
@@ -2398,6 +2482,16 @@ export class Vault {
 
   // MARK: View state
 
+  private splitView(path: string): SplitView {
+    const doc = this.documents.get(path);
+    return {
+      path,
+      title: P.stem(path),
+      isDirty: doc?.isDirty ?? false,
+      hasWarning: Boolean(doc && (doc.conflict || doc.isMissingOnDisk)),
+    };
+  }
+
   view(): VaultView {
     const document = this.document;
     const path = this.activeTab?.path ?? null;
@@ -2420,6 +2514,7 @@ export class Vault {
         };
       }),
       bookmarks: this.bookmarks,
+      split: this.splitPath ? this.splitView(this.splitPath) : null,
       activeTabId: this.activeTabId,
       canGoBack: this.canGoBack,
       canGoForward: this.canGoForward,

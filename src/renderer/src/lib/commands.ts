@@ -141,6 +141,9 @@ export const commands: Command[] = [
   // View
   { id: "toggleSidebar", title: "Toggle Sidebar", shortcut: "Ctrl+\\", enabled: hasVault, checked: () => app.settings.showSidebar, run: () => app.setSetting("showSidebar", !app.settings.showSidebar) },
   { id: "toggleInspector", title: "Toggle Inspector", shortcut: "Ctrl+Alt+I", enabled: hasVault, checked: () => app.settings.showInspector, run: () => app.setSetting("showInspector", !app.settings.showInspector) },
+  // Split view (UI-40)
+  { id: "splitRight", title: "Split Right", shortcut: "Ctrl+Alt+\\", enabled: hasNote, run: () => run("splitActiveNote") },
+  { id: "closeSplit", title: "Close Split View", enabled: () => Boolean(app.vault?.split), run: () => run("closeSplit") },
   { id: "readableLineLength", title: "Readable Line Length", checked: () => app.settings.readableLineLength, run: () => app.setSetting("readableLineLength", !app.settings.readableLineLength) },
   { id: "toggleFormattingBar", title: "Show Formatting Bar", checked: () => app.settings.showFormattingBar, run: () => app.setSetting("showFormattingBar", !app.settings.showFormattingBar) },
   ...FILE_SORTS.map(
@@ -271,7 +274,7 @@ export const menus: { title: string; items: (string | { title: string; items: st
   { title: "Edit", items: ["undo", "redo", "-", "copyMarkdown", "pastePlainText", "-", "find", "findNext", "findPrevious", "searchVault"] },
   {
     title: "View",
-    items: ["toggleSidebar", "toggleInspector", "toggleFormattingBar", "readableLineLength", "showTasks", { title: "Sort Files", items: FILE_SORTS.map(({ value }) => `sortFiles:${value}`) }, "-", "zoomIn", "zoomOut", "zoomReset", "-", "mode:livePreview", "mode:source", "mode:reading", "-", "toggleReading", "toggleSource", "focusMode", "-", "foldHeading", "unfoldHeading", "foldAllHeadings", "unfoldAll"],
+    items: ["toggleSidebar", "toggleInspector", "splitRight", "closeSplit", "toggleFormattingBar", "readableLineLength", "showTasks", { title: "Sort Files", items: FILE_SORTS.map(({ value }) => `sortFiles:${value}`) }, "-", "zoomIn", "zoomOut", "zoomReset", "-", "mode:livePreview", "mode:source", "mode:reading", "-", "toggleReading", "toggleSource", "focusMode", "-", "foldHeading", "unfoldHeading", "foldAllHeadings", "unfoldAll"],
   },
   { title: "Go", items: ["today", "calendar", "previousDaily", "nextDaily", "-", "back", "forward", "-", "nextTab", "previousTab"] },
   {

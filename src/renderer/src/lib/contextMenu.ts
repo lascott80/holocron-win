@@ -36,6 +36,7 @@ export interface ContextActions {
   replaceMisspelling(word: string): void;
   addToDictionary(word: string): void;
   openLink(target: string, newTab: boolean): void;
+  openLinkInSplit(target: string): void;
   openUrl(url: string): void;
   copyText(text: string): void;
   searchTag(tag: string): void;
@@ -101,7 +102,11 @@ export function buildContextMenu(params: ContextMenuParams, target: ContextTarge
     const url = target.url ?? (/^(https?|mailto):/i.test(params.linkURL) ? params.linkURL : undefined);
     if (target.wikilink) {
       const link = target.wikilink;
-      entries.push({ label: "Open Link", run: () => actions.openLink(link, false) }, { label: "Open in New Tab", run: () => actions.openLink(link, true) });
+      entries.push(
+        { label: "Open Link", run: () => actions.openLink(link, false) },
+        { label: "Open in New Tab", run: () => actions.openLink(link, true) },
+        { label: "Open to the Right", run: () => actions.openLinkInSplit(link) },
+      );
     } else if (url) {
       entries.push({ label: "Open Link", run: () => actions.openUrl(url) }, { label: "Copy Link Address", run: () => actions.copyText(url) });
     }

@@ -1,5 +1,6 @@
 // Typed access to the preload's host API (src/preload/index.ts).
 
+import type { EditorPane } from "@shared/ipc";
 import type { HolocronHost } from "../../../preload/index";
 
 declare global {
@@ -9,6 +10,10 @@ declare global {
     holocronEditorPost?: (message: import("@shared/ipc").EditorMessage) => void;
     /** The editor's API (src/editor/main.js). */
     holocron?: EditorApi;
+    /** Creates another editor (split view's right-hand pane, UI-40). */
+    holocronCreateEditor?: (parent: HTMLElement, pane?: EditorPane) => EditorApi;
+    /** Split view's right-hand editor, once created. */
+    holocronSplit?: EditorApi;
   }
 }
 
@@ -43,5 +48,21 @@ export function run(name: string, ...args: unknown[]): void {
 
 /** Runs an editor command if the editor is loaded. */
 export function editor(): EditorApi | null {
-  return window.holocron ?? null;
+  return (activeEditorPane === "split" ? window.holocronSplit : window.holocron) ?? null;
+}
+
+/** The editor that formatting commands, Find and the status bar follow: the one last focused (UI-40). */
+let activeEditorPane: EditorPane = "main";
+
+export function activePane(): EditorPane {
+  return activeEditorPane;
+}
+
+export function setActivePane(pane: EditorPane) {
+  activeEditorPane = pane;
+}
+
+/** The editor for `pane`. */
+export function editorFor(pane: EditorPane | undefined): EditorApi | null {
+  return (pane === "split" ? window.holocronSplit : window.holocron) ?? null;
 }
