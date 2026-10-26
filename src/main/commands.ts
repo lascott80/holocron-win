@@ -212,6 +212,9 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
     splitActiveNote: withVault((vault) => vault.splitActiveNote()),
     closeSplit: withVault((vault) => vault.closeSplit()),
     splitToTab: withVault((vault) => vault.splitToTab()),
+    // Sync conflict copies (UI-41)
+    syncConflictTexts: withVault((vault, copy) => vault.syncConflictTexts(str(copy))),
+    resolveSyncConflict: withVault((vault, copy, choice) => vault.resolveSyncConflict(str(copy), str(choice) as "original" | "copy" | "combine" | "keepBoth")),
     moveBookmark: withVault((vault, path, target) => vault.moveBookmark(str(path), str(target))),
     selectTabNumber: withVault((vault, number) => vault.selectTabNumber(num(number))),
     nextTab: withVault((vault) => vault.selectNextTab()),

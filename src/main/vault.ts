@@ -26,6 +26,7 @@ import {
   type NoteChange,
 } from "@core/attachmentUsage";
 import { VaultIndex } from "@core/vaultIndex";
+import { combineVersions, findSyncConflicts, type SyncConflict } from "@core/syncConflicts";
 import { dailyNoteDate, dailyNotePath, renderPlaceholders } from "@core/dailyNotes";
 import { INVALID_REGEX_MESSAGE, parseQuery, replaceMatches, runSearch, type Replacement } from "@core/vaultSearch";
 import { noteText, renderTemplate } from "@core/templates";
@@ -108,6 +109,8 @@ export interface VaultOptions {
   historyFolder?: string;
   /** The clock, for tests. */
   now?: () => Date;
+  /** This PC's name, which OneDrive puts in its conflict copies (UI-41). */
+  hostname?: string;
   saveDelay?: number;
   autoTitleDelay?: number;
   liveIndexDelay?: number;
@@ -480,6 +483,62 @@ export class Vault {
     this.writeUpdatedLinks(path, toggled);
     this.indexRevision++;
     this.changed();
+  }
+
+  // MARK: Sync conflict copies (UI-41)
+
+  private get ignoredConflictsKey() {
+    return "ignoredSyncConflicts:" + this.root;
+  }
+
+  private conflictCache: { revision: string; conflicts: SyncConflict[] } | null = null;
+
+  /** Conflict copies (Dropbox, OneDrive, Syncthing, Nextcloud) beside their notes, minus the ones kept on purpose. */
+  syncConflicts(): SyncConflict[] {
+    const revision = `${this.treeRevision}:${this.indexRevision}`;
+    if (this.conflictCache?.revision !== revision) {
+      this.conflictCache = { revision, conflicts: findSyncConflicts([...this.index.allNotes.keys()], this.options.hostname ?? null) };
+    }
+    const ignored = new Set(this.options.store.get<string[]>(this.ignoredConflictsKey) ?? []);
+    return this.conflictCache.conflicts.filter((conflict) => !ignored.has(conflict.copy));
+  }
+
+  /** Both texts, for the review sheet. */
+  syncConflictTexts(copy: string): { original: string; copy: string } | null {
+    const conflict = this.syncConflicts().find((candidate) => candidate.copy === copy);
+    if (!conflict) return null;
+    const original = this.textFor(conflict.original);
+    const copyText = this.textFor(conflict.copy);
+    return original === null || copyText === null ? null : { original, copy: copyText };
+  }
+
+  /**
+   * Settles a conflict copy: keep the note as it is, take the copy's text,
+   * or combine both (each followed by the copy going to the Recycle Bin); or
+   * keep both notes and stop asking.
+   */
+  async resolveSyncConflict(copy: string, choice: "original" | "copy" | "combine" | "keepBoth") {
+    const conflict = this.syncConflicts().find((candidate) => candidate.copy === copy);
+    if (!conflict || !["original", "copy", "combine", "keepBoth"].includes(choice)) return;
+    if (choice === "keepBoth") {
+      const ignored = this.options.store.get<string[]>(this.ignoredConflictsKey) ?? [];
+      this.options.store.set(this.ignoredConflictsKey, [...ignored, copy]);
+      this.changed();
+      return;
+    }
+    if (choice !== "original") {
+      const texts = this.syncConflictTexts(copy);
+      if (!texts) return;
+      const next = choice === "copy" ? texts.copy : combineVersions(texts.original, texts.copy);
+      if (next !== texts.original) {
+        if (!this.documents.has(conflict.original)) this.recordVersion(conflict.original, null, texts.original);
+        if (!this.writeUpdatedLinks(conflict.original, next)) return;
+        this.reload([conflict.original]);
+      }
+    }
+    const verb = { original: "Kept", copy: "Used the conflicted copy for", combine: "Combined both versions of" }[choice];
+    await this.delete([copy], false);
+    this.showToast(`${verb} “${P.stem(conflict.original)}”; the copy is in the Recycle Bin`);
   }
 
   // MARK: Bookmarks (UI-14a)
@@ -2515,6 +2574,7 @@ export class Vault {
       }),
       bookmarks: this.bookmarks,
       split: this.splitPath ? this.splitView(this.splitPath) : null,
+      syncConflicts: this.syncConflicts(),
       activeTabId: this.activeTabId,
       canGoBack: this.canGoBack,
       canGoForward: this.canGoForward,

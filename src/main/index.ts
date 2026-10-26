@@ -2,6 +2,7 @@
 // the renderer. (Plays the part of HolocronApp.swift + AppModel.swift.)
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { app, autoUpdater as nativeAutoUpdater, BrowserWindow, dialog, globalShortcut, nativeTheme, Notification, protocol, session, shell, ipcMain } from "electron";
 import { assetResponse } from "./assets";
@@ -228,6 +229,7 @@ export class HolocronApp {
       trash: (file) => this.trash.trash(file),
       indexCacheFolder: path.join(app.getPath("userData"), "index-cache"),
       historyFolder: path.join(app.getPath("userData"), "history"),
+      hostname: os.hostname(),
       openPath: (file) => void shell.openPath(file),
       ui: (request) => {
         if (request.type === "beep") shell.beep();

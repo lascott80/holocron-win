@@ -31,6 +31,14 @@ export interface TabView {
   pinned: boolean;
 }
 
+/** A sync tool's conflict copy of a note (UI-41). */
+export interface SyncConflictView {
+  copy: string;
+  original: string;
+  service: "Dropbox" | "OneDrive" | "Syncthing" | "Nextcloud";
+  device: string | null;
+}
+
 /** The note in split view's right-hand pane (UI-40). */
 export interface SplitView {
   path: string;
@@ -99,6 +107,8 @@ export interface VaultView {
   /** Bookmarked note and folder paths, in the user's order (UI-14a). */
   bookmarks: string[];
   split: SplitView | null;
+  /** Sync tools' conflict copies beside their notes (UI-41). */
+  syncConflicts: SyncConflictView[];
   toast: ToastView | null;
   doc: DocView | null;
   conflict: ConflictView | null;

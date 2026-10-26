@@ -15,6 +15,8 @@
   import FormattingBar from "./components/detail/FormattingBar.svelte";
   import Breadcrumb from "./components/detail/Breadcrumb.svelte";
   import SplitPane from "./components/detail/SplitPane.svelte";
+  import SyncConflictBanner from "./components/detail/SyncConflictBanner.svelte";
+  import SyncConflictSheet from "./components/overlays/SyncConflictSheet.svelte";
   import MissingBanner from "./components/detail/MissingBanner.svelte";
   import StatusBar from "./components/detail/StatusBar.svelte";
   import EmptyEditor from "./components/detail/EmptyEditor.svelte";
@@ -110,6 +112,9 @@
       {#if vault && app.doc?.isMissing}
         <MissingBanner />
       {/if}
+      {#if vault?.syncConflicts.length}
+        <SyncConflictBanner />
+      {/if}
       <div class="panes">
         <div class="main-pane" role="presentation" onfocusin={() => app.focusPane("main")}>
           <EditorHost visible={Boolean(vault) && hasNote} />
@@ -144,6 +149,7 @@
 {#if app.aboutOpen}<AboutDialog />{/if}
 {#if app.historyOpen && app.doc}<HistorySheet />{/if}
 {#if vault?.conflict}<ConflictSheet />{/if}
+{#if app.syncReview}<SyncConflictSheet />{/if}
 {#if vault?.pendingDeletion}<DeleteConfirm />{/if}
 {#if vault?.attachmentCleanup}<AttachmentCleanup />{/if}
 {#if vault?.attachmentOrganise}<OrganiseAttachments />{/if}

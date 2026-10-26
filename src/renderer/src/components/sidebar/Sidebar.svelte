@@ -1,7 +1,7 @@
 <!-- The sidebar (REQUIREMENTS §11.2): vault switcher, Files/Search switch, then the
      file tree and tags or the search panel, and the New Note / New Folder bar. -->
 <script lang="ts">
-  import { FolderPlus, FolderTree, ListChecks, Plus, Search } from "@lucide/svelte";
+  import { FolderPlus, FolderTree, GitCompare, ListChecks, Plus, Search } from "@lucide/svelte";
   import { app } from "../../lib/app.svelte";
   import { runCommand } from "../../lib/commands";
   import VaultSwitcher from "./VaultSwitcher.svelte";
@@ -10,6 +10,9 @@
   import TagsSection from "./TagsSection.svelte";
   import SearchPanel from "./SearchPanel.svelte";
   import TasksPanel from "./TasksPanel.svelte";
+
+  /** Sync tools' conflict copies waiting for review (UI-41). */
+  const conflictCount = $derived(app.vault?.syncConflicts.length ?? 0);
 
   const modes = [
     { mode: "files", label: "Files", icon: FolderTree },
@@ -44,6 +47,13 @@
 
   {#if app.sidebarMode === "files"}
     <div class="scroll pane-enter">
+      {#if conflictCount}
+        <button class="sync-notice" onclick={() => (app.syncReview = app.vault?.syncConflicts[0]?.copy ?? null)}>
+          <GitCompare size={14} />
+          <span>{conflictCount === 1 ? "1 sync conflict" : `${conflictCount} sync conflicts`}</span>
+          <span class="review">Review</span>
+        </button>
+      {/if}
       <BookmarksSection />
       <FileTree />
       <TagsSection />
@@ -66,6 +76,34 @@
 </div>
 
 <style>
+  .sync-notice {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: calc(100% - 16px);
+    margin: 6px 8px 2px;
+    padding: 6px 10px;
+    border: 1px solid color-mix(in srgb, var(--ui-warning) 35%, transparent);
+    border-radius: 7px;
+    background: color-mix(in srgb, var(--ui-warning) 10%, transparent);
+    color: var(--ui-text);
+    font-size: 12px;
+    text-align: left;
+  }
+  .sync-notice > :global(svg) {
+    flex: none;
+    color: var(--ui-warning);
+  }
+  .sync-notice span:first-of-type {
+    flex: 1;
+  }
+  .sync-notice .review {
+    color: var(--ui-accent);
+    font-weight: 500;
+  }
+  .sync-notice:hover {
+    background: color-mix(in srgb, var(--ui-warning) 16%, transparent);
+  }
   .sidebar {
     flex: 1;
     min-height: 0;
