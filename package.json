@@ -85,6 +85,7 @@
     "@lezer/markdown": "^1.7.2",
     "@lucide/svelte": "^1.52.0",
     "@sveltejs/vite-plugin-svelte": "^6.2.4",
+    "@types/d3-force": "^3.0.10",
     "@types/node": "^24.19.1",
     "codemirror-lang-elixir": "^4.0.1",
     "dompurify": "^3.4.16",
@@ -106,6 +107,7 @@
   "dependencies": {
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
     "@parcel/watcher": "^2.6.0",
+    "d3-force": "^3.0.0",
     "electron-updater": "^6.8.9"
   },
   "allowScripts": {

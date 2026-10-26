@@ -144,6 +144,9 @@ export const commands: Command[] = [
   // Split view (UI-40)
   { id: "splitRight", title: "Split Right", shortcut: "Ctrl+Alt+\\", enabled: hasNote, run: () => run("splitActiveNote") },
   { id: "closeSplit", title: "Close Split View", enabled: () => Boolean(app.vault?.split), run: () => run("closeSplit") },
+  // Graph view (UI-42)
+  { id: "graphView", title: "Graph View", shortcut: "Ctrl+G", enabled: hasVault, run: () => ((app.graphScope = "vault"), (app.graphOpen = true)) },
+  { id: "localGraph", title: "Local Graph (This Note)", shortcut: "Ctrl+Shift+G", enabled: hasNote, run: () => ((app.graphScope = "local"), (app.graphOpen = true)) },
   { id: "readableLineLength", title: "Readable Line Length", checked: () => app.settings.readableLineLength, run: () => app.setSetting("readableLineLength", !app.settings.readableLineLength) },
   { id: "toggleFormattingBar", title: "Show Formatting Bar", checked: () => app.settings.showFormattingBar, run: () => app.setSetting("showFormattingBar", !app.settings.showFormattingBar) },
   ...FILE_SORTS.map(
@@ -274,7 +277,7 @@ export const menus: { title: string; items: (string | { title: string; items: st
   { title: "Edit", items: ["undo", "redo", "-", "copyMarkdown", "pastePlainText", "-", "find", "findNext", "findPrevious", "searchVault"] },
   {
     title: "View",
-    items: ["toggleSidebar", "toggleInspector", "splitRight", "closeSplit", "toggleFormattingBar", "readableLineLength", "showTasks", { title: "Sort Files", items: FILE_SORTS.map(({ value }) => `sortFiles:${value}`) }, "-", "zoomIn", "zoomOut", "zoomReset", "-", "mode:livePreview", "mode:source", "mode:reading", "-", "toggleReading", "toggleSource", "focusMode", "-", "foldHeading", "unfoldHeading", "foldAllHeadings", "unfoldAll"],
+    items: ["toggleSidebar", "toggleInspector", "splitRight", "closeSplit", "graphView", "localGraph", "toggleFormattingBar", "readableLineLength", "showTasks", { title: "Sort Files", items: FILE_SORTS.map(({ value }) => `sortFiles:${value}`) }, "-", "zoomIn", "zoomOut", "zoomReset", "-", "mode:livePreview", "mode:source", "mode:reading", "-", "toggleReading", "toggleSource", "focusMode", "-", "foldHeading", "unfoldHeading", "foldAllHeadings", "unfoldAll"],
   },
   { title: "Go", items: ["today", "calendar", "previousDaily", "nextDaily", "-", "back", "forward", "-", "nextTab", "previousTab"] },
   {

@@ -3,7 +3,7 @@
      The system's minimize/maximize/close buttons are drawn over the right edge
      (titleBarOverlay), so the bar leaves room for them. -->
 <script lang="ts">
-  import { ArrowLeft, ArrowRight, CalendarDays, FilePlus2, PanelRight, Search } from "@lucide/svelte";
+  import { ArrowLeft, ArrowRight, CalendarDays, FilePlus2, PanelRight, Search, Waypoints } from "@lucide/svelte";
   import Logo from "./Logo.svelte";
   import CalendarPopover from "./detail/CalendarPopover.svelte";
   import { app } from "../lib/app.svelte";
@@ -111,6 +111,9 @@
         onauxclick={(event) => event.button === 1 && runCommand("today")}
       >
         <CalendarDays size={16} />
+      </button>
+      <button class="icon-button" title="Graph View (Ctrl+G)" aria-label="Graph View" onclick={() => runCommand("graphView")}>
+        <Waypoints size={16} />
       </button>
       <button class="icon-button" title="Quick Open (Ctrl+O)" aria-label="Quick Open" onclick={() => runCommand("quickOpen")}>
         <Search size={16} />

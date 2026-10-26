@@ -17,6 +17,7 @@
   import SplitPane from "./components/detail/SplitPane.svelte";
   import SyncConflictBanner from "./components/detail/SyncConflictBanner.svelte";
   import SyncConflictSheet from "./components/overlays/SyncConflictSheet.svelte";
+  import GraphView from "./components/overlays/GraphView.svelte";
   import MissingBanner from "./components/detail/MissingBanner.svelte";
   import StatusBar from "./components/detail/StatusBar.svelte";
   import EmptyEditor from "./components/detail/EmptyEditor.svelte";
@@ -150,6 +151,7 @@
 {#if app.historyOpen && app.doc}<HistorySheet />{/if}
 {#if vault?.conflict}<ConflictSheet />{/if}
 {#if app.syncReview}<SyncConflictSheet />{/if}
+{#if app.graphOpen && vault}<GraphView />{/if}
 {#if vault?.pendingDeletion}<DeleteConfirm />{/if}
 {#if vault?.attachmentCleanup}<AttachmentCleanup />{/if}
 {#if vault?.attachmentOrganise}<OrganiseAttachments />{/if}

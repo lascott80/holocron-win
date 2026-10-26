@@ -32,6 +32,21 @@ export interface OutgoingLink {
   resolved: string | null;
 }
 
+/** A note (or a link to one that doesn't exist yet) in the graph view (UI-42). */
+export interface GraphNode {
+  /** The note's path, or "missing:<link>" for a note that doesn't exist yet. */
+  id: string;
+  title: string;
+  tags: string[];
+  missing: boolean;
+}
+
+export interface GraphData {
+  nodes: GraphNode[];
+  /** [from, to] node ids: a link from one note to another. */
+  edges: [string, string][];
+}
+
 /** One note's checklist items for the Tasks view (TSK-02). */
 export interface NoteTasks {
   path: string;
@@ -178,6 +193,33 @@ export class VaultIndex {
       result.push({ target, resolved: this._resolver.resolve(link, path) });
     }
     return result;
+  }
+
+  /**
+   * The vault as a graph (UI-42): every note, and an edge for each link
+   * between two notes (once per pair and direction, no self-links). Links to
+   * notes that don't exist yet become `missing` nodes named by the link.
+   */
+  graph(): GraphData {
+    const nodes: GraphNode[] = [];
+    const edges: [string, string][] = [];
+    const missing = new Map<string, GraphNode>();
+    const seen = new Set<string>();
+    for (const [path, note] of this.notes) {
+      nodes.push({ id: path, title: pathTitle(path), tags: note.tags, missing: false });
+      for (const link of this.outgoingLinks(path)) {
+        let target = link.resolved;
+        if (target === null) {
+          target = `missing:${link.target.toLowerCase()}`;
+          if (!missing.has(target)) missing.set(target, { id: target, title: link.target.split("/").pop() ?? link.target, tags: [], missing: true });
+        }
+        const key = `${path}\n${target}`;
+        if (target === path || seen.has(key)) continue;
+        seen.add(key);
+        edges.push([path, target]);
+      }
+    }
+    return { nodes: [...nodes, ...missing.values()], edges };
   }
 
   /**

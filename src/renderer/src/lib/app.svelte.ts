@@ -39,6 +39,10 @@ class AppStore {
   historyOpen = $state(false);
   /** The sync conflict copy being reviewed (UI-41), or null. */
   syncReview = $state<string | null>(null);
+  /** Graph view (UI-42): open, and what it showed last time. */
+  graphOpen = $state(false);
+  graphScope = $state<"vault" | "local">("vault");
+  graphDepth = $state(1);
   /** Cursor and selection in the editor (status bar). */
   cursor = $state({ line: 1, column: 1, selectedWords: 0, selectedCharacters: 0 });
   /** The editor's current text for the shown note (word counts). */

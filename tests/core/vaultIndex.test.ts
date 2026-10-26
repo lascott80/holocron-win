@@ -132,3 +132,21 @@ describe("VaultIndex.allTasks", () => {
     expect(index.allTasks({ tag: "nope" })).toEqual([]);
   });
 });
+
+describe("VaultIndex.graph", () => {
+  test("has every note, one edge per link, and missing notes as their own nodes", () => {
+    const index = build({
+      ...files,
+      "Ideas.md": "Some day: [[Mustafar]], [[mustafar]] and [[Ideas]].\n",
+    });
+    const { nodes, edges } = index.graph();
+    expect(nodes.filter((n) => !n.missing).map((n) => n.title).sort()).toEqual(["2026-10-02", "Ideas", "Ilum", "Kyber Crystal Notes", "Lightsaber Construction"]);
+    expect(nodes.find((n) => n.missing)).toEqual({ id: "missing:mustafar", title: "Mustafar", tags: [], missing: true });
+    expect(edges).toContainEqual(["Lore/Crystals/Ilum.md", "Lore/Crystals/Kyber Crystal Notes.md"]);
+    expect(edges).toContainEqual(["Lore/Crystals/Kyber Crystal Notes.md", "Lore/Crystals/Ilum.md"]);
+    expect(edges).toContainEqual(["Orders/Lightsaber Construction.md", "Lore/Crystals/Kyber Crystal Notes.md"]);
+    // Ilum links to Kyber twice (once with a heading) and Ideas links to itself: one edge, no self-link.
+    expect(edges.filter(([a, b]) => a === "Lore/Crystals/Ilum.md" && b === "Lore/Crystals/Kyber Crystal Notes.md")).toHaveLength(1);
+    expect(edges.filter(([a]) => a === "Ideas.md")).toEqual([["Ideas.md", "missing:mustafar"]]);
+  });
+});
