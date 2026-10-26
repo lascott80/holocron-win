@@ -2,7 +2,7 @@
 // the lines the cursor is on (Obsidian-style). Everything here is decoration;
 // the document text is never changed except by explicit clicks (checkboxes).
 import { Decoration, EditorView, ViewPlugin, WidgetType, keymap } from "@codemirror/view";
-import { Facet, Prec } from "@codemirror/state";
+import { Facet, Prec, StateEffect, StateField } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
 import { embedDepth, parseEmbed } from "./embeds.js";
 import { isImageEmbed } from "./images.js";
@@ -22,9 +22,10 @@ const TASK_STATES = {
 };
 
 class CheckboxWidget extends WidgetType {
-  constructor(state) {
+  constructor(state, ticking = false) {
     super();
     this.state = state;
+    this.ticking = ticking;
   }
   eq(other) {
     return other.state === this.state;
@@ -32,7 +33,7 @@ class CheckboxWidget extends WidgetType {
   toDOM() {
     const name = TASK_STATES[this.state] ?? "done";
     const box = document.createElement("span");
-    box.className = `cm-task-checkbox cm-task-${name}` + (this.state === " " ? "" : " is-checked");
+    box.className = `cm-task-checkbox cm-task-${name}` + (this.state === " " ? "" : " is-checked") + (this.ticking && this.state !== " " ? " is-ticking" : "");
     box.setAttribute("role", "checkbox");
     box.setAttribute("aria-checked", this.state === " " ? "false" : this.state === "/" ? "mixed" : "true");
     box.setAttribute("aria-label", name);
@@ -265,6 +266,24 @@ const collapsedLineKeys = Prec.highest(keymap.of([
   { key: "ArrowUp", run: (view) => stepOntoCollapsedLine(view, -1, false), shift: (view) => stepOntoCollapsedLine(view, -1, true) },
 ]));
 
+// Settings › Show markdown: "Under cursor" (spans) or "Whole line". The module
+// value seeds new editor states, so it survives switching notes.
+let revealSpans = false;
+export const setRevealSpans = StateEffect.define();
+const revealSpansField = StateField.define({
+  create: () => revealSpans,
+  update(value, tr) {
+    for (const effect of tr.effects) if (effect.is(setRevealSpans)) value = effect.value;
+    return value;
+  },
+});
+
+/** Switches the reveal mode for this and every later editor state. */
+export function setRevealMode(view, mode) {
+  revealSpans = mode === "span";
+  view.dispatch({ effects: setRevealSpans.of(revealSpans) });
+}
+
 function buildDecorations(view) {
   const { state } = view;
   const { doc } = state;
@@ -272,6 +291,10 @@ function buildDecorations(view) {
   const decorations = [];
 
   const isActive = (pos) => active.has(doc.lineAt(pos).number);
+  // Inline markup (links, emphasis, code) shows raw on an active line — or, with
+  // revealMarkup "span", only where the selection touches that element.
+  const spans = state.field(revealSpansField, false) ?? false;
+  const editing = (from, to) => isActive(from) && (!spans || state.selection.ranges.some((r) => r.from <= to && r.to >= from));
   const anyLineActive = (from, to) => {
     const first = doc.lineAt(from).number;
     const last = doc.lineAt(to).number;
@@ -377,7 +400,16 @@ function buildDecorations(view) {
               formatting(node.from, node.to);
               break;
             }
-            if (isActive(node.from)) {
+            if (isActive(node.from) && node.from === doc.lineAt(node.from).from) {
+              // The opening #s (and their space) hang in the left margin, so the
+              // heading text stays where it was before the line became active.
+              const end = doc.sliceString(node.to, node.to + 1) === " " ? node.to + 1 : node.to;
+              mark(node.from, end, {
+                class: "cm-formatting cm-formatting-header cm-formatting-hanging",
+                attributes: { style: `margin-left: -${end - node.from}ch` },
+              });
+              lineClass(node.from, "cm-h-editing");
+            } else if (isActive(node.from)) {
               mark(node.from, node.to, { class: "cm-formatting cm-formatting-header" });
             } else if (node.from === doc.lineAt(node.from).from) {
               hideMarkerAndSpace(node.from, node.to);
@@ -394,7 +426,7 @@ function buildDecorations(view) {
 
           case "Escape":
             // \* shows as *, except while editing the line.
-            if (!isActive(node.from)) hide(node.from, node.from + 1);
+            if (!editing(node.from, node.to)) hide(node.from, node.from + 1);
             break;
 
           case "LinkReference":
@@ -404,7 +436,7 @@ function buildDecorations(view) {
           case "EmphasisMark":
           case "HighlightMark":
           case "StrikethroughMark":
-            if (isActive(node.from)) formatting(node.from, node.to);
+            if (editing((parent ?? node).from, (parent ?? node).to)) formatting(node.from, node.to);
             else hide(node.from, node.to);
             break;
 
@@ -414,7 +446,7 @@ function buildDecorations(view) {
 
           case "CodeMark":
             if (parent?.name === "InlineCode") {
-              if (isActive(node.from)) formatting(node.from, node.to);
+              if (editing(parent.from, parent.to)) formatting(node.from, node.to);
               else hide(node.from, node.to);
             }
             break;
@@ -440,7 +472,7 @@ function buildDecorations(view) {
                 if (!href) break; // not a link after all, just brackets
               }
               mark(textFrom, textTo, { class: "cm-md-link", attributes: { "data-href": href } });
-              if (!isActive(node.from)) {
+              if (!editing(node.from, node.to)) {
                 hide(node.from, textFrom);
                 hide(textTo, node.to);
                 return false;
@@ -477,7 +509,7 @@ function buildDecorations(view) {
             }
             const pipe = inner.indexOf("|");
             const target = (pipe >= 0 ? inner.slice(0, pipe) : inner).trim();
-            const lineActive = isActive(node.from);
+            const lineActive = editing(node.from, node.to);
             let textFrom = pipe >= 0 && !lineActive ? node.from + 3 + pipe : node.from + 2;
             // [[#Heading]] in the same note reads as "Heading".
             if (pipe < 0 && !lineActive && inner.startsWith("#")) textFrom += inner.startsWith("#^") ? 2 : 1;
@@ -520,7 +552,19 @@ function buildDecorations(view) {
             const isTask = item.getChild("Task") !== null
               || /^\s*([-*+]|\d+[.)]) \[[^\]]\](?= |$)/.test(line.text);
             const indent = `${(level * LIST_INDENT_EM).toFixed(2)}em`;
-            const hang = `calc(${indent} + ${listMarkerWidth(doc.sliceString(markNode.from, markNode.to), isTask)})`;
+            const markerWidth = listMarkerWidth(doc.sliceString(markNode.from, markNode.to), isTask);
+            const hang = `calc(${indent} + ${markerWidth})`;
+            // While editing, the raw "- " / "- [ ] " takes exactly the room its bullet or
+            // checkbox did, spilling into the margin, so the item's text doesn't move.
+            // (The space after it stays outside, in the text's own font, as it is beside the widget.)
+            const raw = isActive(markNode.from) && /^[-*+](?: \[[^\]]\])?/.exec(doc.sliceString(markNode.from, line.to));
+            if (raw) {
+              const widgetWidth = isTask ? "24px" : "0.9em"; // checkbox + margin, or the bullet glyph
+              mark(markNode.from, markNode.from + raw[0].length, {
+                class: "cm-list-marker-raw",
+                attributes: { style: `margin-left: calc(${widgetWidth} - ${raw[0].length}ch)` },
+              });
+            }
             // Leading whitespace becomes exactly `level` steps wide; it stays editable text.
             if (markNode.from > line.from && /^[ \t]*$/.test(doc.sliceString(line.from, markNode.from))) {
               mark(line.from, markNode.from, { class: "cm-list-indent", attributes: { style: `width: ${indent}` } });
@@ -547,7 +591,7 @@ function buildDecorations(view) {
             const marker = doc.sliceString(node.from + 1, node.from + 2);
             const isChecked = marker !== " ";
             lineClass(node.from, "cm-task-line");
-            if (!isActive(node.from)) replaceWith(node.from, node.to, new CheckboxWidget(marker));
+            if (!isActive(node.from)) replaceWith(node.from, node.to, new CheckboxWidget(marker, justToggled(node.from)));
             if (isChecked) {
               const lineEnd = doc.lineAt(node.from).to;
               mark(node.to, lineEnd, { class: "cm-task-done" });
@@ -753,9 +797,14 @@ function buildDecorations(view) {
 
 // ---------- Plugin ----------
 
+// The checkbox just clicked, so its redrawn widget can play the tick (not every checked box on load).
+let lastToggle = { pos: -1, at: 0 };
+const justToggled = (pos) => lastToggle.pos === pos && Date.now() - lastToggle.at < 500;
+
 export function toggleCheckboxAt(view, pos) {
   const marker = view.state.doc.sliceString(pos, pos + 3);
   if (!/^\[.\]$/.test(marker)) return false;
+  lastToggle = { pos, at: Date.now() };
   view.dispatch({
     changes: { from: pos + 1, to: pos + 2, insert: toggledTaskStatus(marker[1]) },
     userEvent: "input.toggle",
@@ -764,7 +813,7 @@ export function toggleCheckboxAt(view, pos) {
 }
 
 export function livePreview({ onOpenLink, onOpenURL, onOpenTag }) {
-  return [collapsedLineKeys, ViewPlugin.fromClass(
+  return [collapsedLineKeys, revealSpansField, ViewPlugin.fromClass(
     class {
       constructor(view) {
         this.decorations = buildDecorations(view);
@@ -772,6 +821,7 @@ export function livePreview({ onOpenLink, onOpenURL, onOpenTag }) {
       update(update) {
         if (
           update.docChanged ||
+          update.startState.field(revealSpansField, false) !== update.state.field(revealSpansField, false) ||
           update.viewportChanged ||
           update.selectionSet ||
           update.focusChanged ||

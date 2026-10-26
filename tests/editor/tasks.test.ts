@@ -59,3 +59,20 @@ describe("toggleTask (Ctrl+L)", () => {
     expect(view.state.doc.toString()).toBe("- [x] a\n- [x] b\n- [ ] c");
   });
 });
+
+describe("moveDoneTasksDown", () => {
+  it("moves finished items below open ones, children and cursor included", async () => {
+    const { moveDoneTasksDown } = await import("../../src/editor/commands.js");
+    const doc = "# Plan\n\n- [x] Sweep\n  - note\n- [ ] Build\n- [-] Dropped\n- [ ] Source\n\nAfter";
+    const view = makeView(doc, doc.indexOf("Build") + 2);
+    expect(moveDoneTasksDown(view)).toBe(true);
+    const text = view.state.doc.toString();
+    expect(text).toBe("# Plan\n\n- [ ] Build\n- [ ] Source\n- [x] Sweep\n  - note\n- [-] Dropped\n\nAfter");
+    expect(view.state.selection.main.head).toBe(text.indexOf("Build") + 2);
+  });
+
+  it("does nothing outside a list", async () => {
+    const { moveDoneTasksDown } = await import("../../src/editor/commands.js");
+    expect(moveDoneTasksDown(makeView("Just text", 2))).toBe(false);
+  });
+});

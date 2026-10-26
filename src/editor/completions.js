@@ -1,9 +1,10 @@
-// Autocomplete for [[links]], [[Note#headings]], ![[embeds]], #tags, <html> tags and :emoji:.
+// Autocomplete for [[links]], [[Note#headings]], ![[embeds]], #tags, <html> tags, :emoji: and the / menu.
 // Holocron sends the vault's notes, attachments and tags via setVaultData.
 import { autocompletion } from "@codemirror/autocomplete";
 import { syntaxTree } from "@codemirror/language";
 import { EditorView } from "@codemirror/view";
 import { EMOJI } from "./emojiData.js";
+import { slashCompletions } from "./slashMenu.js";
 
 let vault = { notes: [], attachments: [], tags: [] };
 
@@ -21,6 +22,13 @@ export function setVaultData(data) {
   const counts = new Map();
   for (const note of vault.notes) counts.set(note.title.toLowerCase(), (counts.get(note.title.toLowerCase()) ?? 0) + 1);
   for (const note of vault.notes) note.ambiguous = counts.get(note.title.toLowerCase()) > 1;
+}
+
+let currentNote = "";
+
+/** The note being edited (its vault path), which [[ doesn't offer as a link target. */
+export function setCurrentNote(path) {
+  currentNote = (path ?? "").toLowerCase();
 }
 
 /** Counts of what autocomplete knows about (for debugging). */
@@ -60,7 +68,7 @@ function noteTarget(note) {
   return note.ambiguous ? withoutExtension(note.path) : note.title;
 }
 
-function linkCompletions(context) {
+export function linkCompletions(context) {
   const line = context.state.doc.lineAt(context.pos);
   const before = line.text.slice(0, context.pos - line.from);
   const match = /(!?)\[\[([^[\]|\n]*)$/.exec(before);
@@ -92,6 +100,7 @@ function linkCompletions(context) {
 
   const options = [];
   for (const note of vault.notes) {
+    if (note.path.toLowerCase() === currentNote) continue;
     const target = noteTarget(note);
     options.push({
       label: note.title,
@@ -115,7 +124,14 @@ function linkCompletions(context) {
       options.push({ label: name, detail: folderOf(path), apply: applyLink(unique ? name : path) });
     }
   }
-  return { from, options, validFor: /^[^[\]|#\n]*$/ };
+  // A link to a note that doesn't exist yet: clicking it later creates the note.
+  const typed = query.trim();
+  const known = (name) => name.toLowerCase() === typed.toLowerCase();
+  if (typed && !isEmbed && !vault.notes.some((note) => known(note.title) || known(withoutExtension(note.path)) || (note.aliases ?? []).some(known))) {
+    options.push({ label: typed, displayLabel: `Create “${typed}”`, detail: "New note", boost: -99, apply: applyLink(typed) });
+  }
+  // No validFor: the "Create" entry follows what's typed, so the list is rebuilt per keystroke.
+  return { from, options };
 }
 
 function tagCompletions(context) {
@@ -211,7 +227,7 @@ const emojiOptionTheme = EditorView.baseTheme({
 
 export const linkAutocomplete = [
   autocompletion({
-    override: [linkCompletions, tagCompletions, htmlTagCompletions, emojiCompletions],
+    override: [linkCompletions, tagCompletions, htmlTagCompletions, emojiCompletions, slashCompletions],
     icons: false,
     activateOnTyping: true,
     maxRenderedOptions: 60,

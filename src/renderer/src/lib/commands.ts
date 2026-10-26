@@ -197,6 +197,7 @@ export const commands: Command[] = [
   { id: "code", title: "Inline Code", shortcut: "Ctrl+E", editorKey: true, enabled: canFormat, run: ed("code") },
   { id: "link", title: "Insert Link", shortcut: "Ctrl+K", editorKey: true, enabled: canFormat, run: ed("link") },
   { id: "task", title: "Toggle Checklist Item", shortcut: "Ctrl+L", editorKey: true, enabled: canFormat, run: ed("task") },
+  { id: "moveDoneTasksDown", title: "Move Done Tasks to Bottom", enabled: canFormat, run: ed("moveDoneTasksDown") },
   { id: "bulletList", title: "Bulleted List", enabled: canFormat, run: ed("bulletList") },
   { id: "numberedList", title: "Numbered List", enabled: canFormat, run: ed("numberedList") },
   { id: "quote", title: "Quote", enabled: canFormat, run: ed("quote") },
@@ -276,7 +277,7 @@ export const menus: { title: string; items: (string | { title: string; items: st
   {
     title: "Format",
     items: [
-      "insertTemplate", "-", "bold", "italic", "strikethrough", "highlight", "code", "link", "-", "task", "bulletList", "numberedList", "quote", "-",
+      "insertTemplate", "-", "bold", "italic", "strikethrough", "highlight", "code", "link", "-", "task", "moveDoneTasksDown", "bulletList", "numberedList", "quote", "-",
       "codeBlock", "callout", "divider", "-", "tidyNote",
       { title: "Table", items: ["table", "convertToTable", "-", "tableInsertRowAbove", "tableInsertRowBelow", "tableInsertColumnLeft", "tableInsertColumnRight", "-", "tableMoveRowUp", "tableMoveRowDown", "tableMoveColumnLeft", "tableMoveColumnRight", "-", "tableDeleteRow", "tableDeleteColumn"] },
       "-", "heading1", "heading2", "heading3", "heading0",

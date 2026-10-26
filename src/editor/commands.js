@@ -95,6 +95,64 @@ export function toggleTask(view) {
   return true;
 }
 
+const LIST_ITEM = /^(\s*)(?:[-*+]|\d+[.)]) /;
+const DONE_TASK = /^\s*(?:[-*+]|\d+[.)]) \[[xX-]\](?=\s|$)/;
+
+/**
+ * Moves the finished items ([x] and cancelled [-]) of the list around the
+ * cursor below the open ones, keeping each group's order and each item's
+ * nested lines with it. The cursor stays on its item.
+ */
+export function moveDoneTasksDown(view) {
+  const { state } = view;
+  const { doc } = state;
+  const cursorLine = doc.lineAt(state.selection.main.head).number;
+  const inList = (n) => n >= 1 && n <= doc.lines && doc.line(n).text.trim() !== "" && (LIST_ITEM.test(doc.line(n).text) || /^\s/.test(doc.line(n).text));
+  if (!inList(cursorLine)) return false;
+  let first = cursorLine;
+  let last = cursorLine;
+  while (inList(first - 1)) first--;
+  while (inList(last + 1)) last++;
+  while (first <= last && !LIST_ITEM.test(doc.line(first).text)) first++; // an indented paragraph above isn't the list
+  if (first > last) return false;
+
+  const lines = [];
+  for (let n = first; n <= last; n++) lines.push(doc.line(n).text);
+  const base = Math.min(...lines.filter((line) => LIST_ITEM.test(line)).map((line) => LIST_ITEM.exec(line)[1].length));
+  const items = []; // { lines, start (line number) }
+  lines.forEach((line, i) => {
+    const match = LIST_ITEM.exec(line);
+    if ((match && match[1].length === base) || items.length === 0) items.push({ lines: [line], start: first + i });
+    else items[items.length - 1].lines.push(line);
+  });
+  const isDone = (item) => DONE_TASK.test(item.lines[0]);
+  const ordered = [...items.filter((item) => !isDone(item)), ...items.filter(isDone)];
+  if (ordered.every((item, i) => item === items[i])) return true;
+
+  const from = doc.line(first).from;
+  const insert = ordered.map((item) => item.lines.join("\n")).join("\n");
+  // Follow the cursor's item to its new place.
+  const mine = items.findLast((item) => item.start <= cursorLine);
+  const column = state.selection.main.head - doc.line(cursorLine).from;
+  let lineOffset = 0;
+  for (const item of ordered) {
+    if (item === mine) break;
+    lineOffset += item.lines.length;
+  }
+  const newLines = insert.split("\n");
+  const target = lineOffset + (cursorLine - mine.start);
+  let anchor = from;
+  for (let i = 0; i < target; i++) anchor += newLines[i].length + 1;
+  anchor += Math.min(column, newLines[target].length);
+  view.dispatch({
+    changes: { from, to: doc.line(last).to, insert },
+    selection: { anchor },
+    scrollIntoView: true,
+    userEvent: "input.format",
+  });
+  return true;
+}
+
 /** Sets the heading level of each selected line (0 removes the heading). */
 export function setHeading(level) {
   return (view) => {

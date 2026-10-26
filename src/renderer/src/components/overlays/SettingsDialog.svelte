@@ -19,6 +19,7 @@
     type DarkImages,
     type ParagraphSpacing,
     type ReadingFont,
+    type RevealMarkup,
     type EditorFont,
     type Settings,
     type SettingsTab,
@@ -192,6 +193,10 @@
     { value: "mono", label: "Monospaced" },
   ];
   const readingFontOptions: { value: ReadingFont; label: string }[] = [{ value: "same", label: "Same" }, ...fontOptions];
+  const revealOptions: { value: RevealMarkup; label: string }[] = [
+    { value: "line", label: "Whole line" },
+    { value: "span", label: "Under cursor" },
+  ];
   const spacingOptions: { value: ParagraphSpacing; label: string }[] = [
     { value: "compact", label: "Compact" },
     { value: "normal", label: "Normal" },
@@ -552,6 +557,10 @@
             <Segmented label="Reading view font" options={readingFontOptions} value={s.readingFont} onchange={(value) => app.setSetting("readingFont", value)} />
           {/snippet}
           {@render row("Reading view font", readingFont)}
+          {#snippet reveal()}
+            <Segmented label="Show markdown" options={revealOptions} value={s.revealMarkup} onchange={(value) => app.setSetting("revealMarkup", value)} />
+          {/snippet}
+          {@render row("Show markdown", reveal, "Live Preview shows the markdown behind the line you’re on. Under cursor shows only the link or formatting the cursor is in, so the rest of the line doesn’t shift.")}
         </div>
         <div class="group">
           {#snippet darkImages()}

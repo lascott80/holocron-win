@@ -17,6 +17,8 @@ export type ParagraphSpacing = "compact" | "normal" | "relaxed";
 export type ReadingFont = "same" | EditorFont;
 /** How images look in dark themes: as they are, dimmed, or light images (screenshots, diagrams) inverted. */
 export type DarkImages = "normal" | "dim" | "invertLight";
+/** While editing, which markdown shows raw: every mark on the cursor's line, or only the element the cursor is in. */
+export type RevealMarkup = "line" | "span";
 /** "perNote": each note's files in their own subfolder of the attachment folder; "single": all in it. */
 export type AttachmentLayout = "perNote" | "single";
 
@@ -45,6 +47,7 @@ export interface Settings {
   codeLineNumbers: boolean;
   /** The sticky trail of headings above the note while you scroll. */
   showHeadingTrail: boolean;
+  revealMarkup: RevealMarkup;
   /** Cap the text column at `editorLineWidth`; off = notes fill the window. */
   readableLineLength: boolean;
   attachmentFolder: string;
@@ -107,6 +110,7 @@ export const defaultSettings: Settings = {
   darkImages: "normal",
   codeLineNumbers: false,
   showHeadingTrail: true,
+  revealMarkup: "line",
   readableLineLength: true,
   attachmentFolder: "Attachments",
   attachmentLayout: "perNote",
@@ -167,6 +171,7 @@ export function sanitizeSettings(raw: Partial<Record<keyof Settings, unknown>>):
   result.paragraphSpacing = oneOf<ParagraphSpacing>(result.paragraphSpacing, ["compact", "normal", "relaxed"], "normal");
   result.readingFont = oneOf<ReadingFont>(result.readingFont, ["same", "system", "serif", "mono"], "same");
   result.darkImages = oneOf<DarkImages>(result.darkImages, ["normal", "dim", "invertLight"], "normal");
+  result.revealMarkup = oneOf<RevealMarkup>(result.revealMarkup, ["line", "span"], "line");
   result.editorMode = oneOf(result.editorMode, ["livePreview", "source", "reading"], "livePreview");
   result.lastEditingMode = oneOf(result.lastEditingMode, ["livePreview", "source"], "livePreview");
   result.inspectorTab = oneOf(result.inspectorTab, ["outline", "links", "info"], "outline");

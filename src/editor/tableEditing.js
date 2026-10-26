@@ -181,6 +181,30 @@ const tidyOnLeave = EditorState.transactionFilter.of((transaction) => {
   return [transaction, { changes: { from: table.from, to: table.to, insert: tidied }, sequential: true }];
 });
 
+/**
+ * Lines a table up as the cursor enters it too, so a table written elsewhere
+ * doesn't turn into ragged pipes when clicked. The cursor keeps its place in its cell.
+ */
+const tidyOnEnter = EditorState.transactionFilter.of((transaction) => {
+  if (transaction.docChanged || !transaction.selection || transaction.startState.readOnly) return transaction;
+  const state = transaction.startState;
+  const selection = transaction.newSelection;
+  if (selection.ranges.length > 1 || !selection.main.empty) return transaction;
+  const head = selection.main.head;
+  const table = tableAt(state, head);
+  if (!table) return transaction;
+  const before = state.selection.main.head;
+  if (before >= table.from && before <= table.to) return transaction;
+  const { text, cellStarts } = formatTable(table);
+  if (text === state.doc.sliceString(table.from, table.to)) return transaction;
+  const here = cellAt(table, head);
+  if (!here) return transaction;
+  const cell = [table.header, ...table.rows][here.row][here.col];
+  const into = Math.max(0, Math.min(head - cell.from, cell.text.length));
+  const anchor = table.from + cellStarts[here.row][here.col] + into;
+  return [transaction, { changes: { from: table.from, to: table.to, insert: text }, selection: { anchor }, sequential: true }];
+});
+
 // ---------- Paste & convert ----------
 
 /** Splits delimited text into rows of cells, honouring "quoted" cells. */
@@ -302,6 +326,7 @@ export const tableCommands = {
 
 export const tableEditing = [
   tidyOnLeave,
+  tidyOnEnter,
   tablePaste,
   Prec.high(keymap.of([
     { key: "Tab", run: nextCell },

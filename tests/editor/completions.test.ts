@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CompletionContext } from "@codemirror/autocomplete";
-import { htmlTagCompletions } from "../../src/editor/completions.js";
+import { htmlTagCompletions, linkCompletions, setCurrentNote, setVaultData } from "../../src/editor/completions.js";
 import { makeView } from "./helpers";
 
 // The editor is untyped JS; results are checked at runtime by the assertions.
@@ -44,5 +44,30 @@ describe("HTML tag completion", () => {
     const br = result.options.find((o: any) => o.label === "<br>");
     br.apply(view, br, result.from, 2);
     expect(view.state.doc.toString()).toBe("<br>");
+  });
+});
+
+describe("[[ link completion", () => {
+  const links = (doc: string) => {
+    const view = makeView(doc, doc.length);
+    return linkCompletions(new CompletionContext(view.state, doc.length, false)) as any;
+  };
+  setVaultData({ notes: [
+    { path: "Probe.md", title: "Probe", aliases: [] },
+    { path: "Lore/Kyber.md", title: "Kyber", aliases: ["Crystal"] },
+  ] });
+
+  it("leaves out the note being edited", () => {
+    setCurrentNote("Probe.md");
+    expect(links("[[").options.map((o: any) => o.label)).toEqual(["Kyber", "Crystal"]);
+    setCurrentNote("");
+  });
+
+  it("offers to create a note nobody has written yet", () => {
+    const create = links("[[Ilum").options.find((o: any) => o.detail === "New note");
+    expect(create.displayLabel).toBe("Create “Ilum”");
+    expect(links("[[kyber").options.some((o: any) => o.detail === "New note")).toBe(false);
+    expect(links("[[crystal").options.some((o: any) => o.detail === "New note")).toBe(false);
+    expect(links("![[Ilum").options.some((o: any) => o.detail === "New note")).toBe(false);
   });
 });

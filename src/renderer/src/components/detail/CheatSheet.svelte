@@ -9,6 +9,18 @@
 
   const sections: [string, [string, string][]][] = [
     [
+      "Editing",
+      [
+        ["/", "On an empty line: insert a heading, table, callout…"],
+        ["select, then * _ ~ = `", "Wraps the selection (twice for **bold**)"],
+        ["Alt+↑  Alt+↓", "Move the line (or selected lines)"],
+        ["Ctrl+Shift+[  Ctrl+Shift+]", "Fold / unfold the heading’s section"],
+        ["Ctrl+click", "Open a link on the line you’re editing"],
+        ["Ctrl+D", "Select the next match (more cursors)"],
+        [key("tidyNote"), "Tidy Note: fix spacing, lists, tables"],
+      ],
+    ],
+    [
       "Text",
       [
         ["**bold**", withKey("Bold", "bold")],

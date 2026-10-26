@@ -260,7 +260,9 @@ export type EditorMessage =
   | { type: "copy"; text: string }
   /** Rich copy's second pass: markdown plus HTML with images and diagrams loaded. */
   | { type: "copyRich"; text: string; html: string }
-  | { type: "pasteImage"; name: string; mime: string; data: string };
+  | { type: "pasteImage"; name: string; mime: string; data: string }
+  /** The slash menu's Template… item: open the template picker. */
+  | { type: "insertTemplate" };
 
 /** A call from main into `window.holocron` in the editor. */
 export interface EditorCall {

@@ -18,6 +18,7 @@ export interface EditorApi {
   focus(): void;
   setMode(mode: "live" | "source" | "reading"): void;
   setFocusMode(on: boolean): void;
+  setRevealMode(mode: "line" | "span"): void;
   setAppearance(vars: Record<string, string>, mode: "dark" | "light"): void;
   insertTable(rows: number, columns: number): void;
   insertAtPoint(x: number, y: number, text: string): void;

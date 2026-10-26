@@ -67,6 +67,8 @@ export const holocronTheme = EditorView.theme(
     ".cm-h6": { fontSize: "0.88em", fontWeight: hw, color: c.muted, paddingTop: "6px" },
     ".cm-formatting": { color: c.faint },
     ".cm-formatting-header": { fontFamily: MONO, fontWeight: "400", fontSize: "0.78em" },
+    // Hanging #s sit where the fold chevron would; it steps aside while the heading is edited.
+    ".cm-h-editing .cm-heading-fold:not(.is-folded)": { visibility: "hidden" },
 
     // Links & tags
     ".cm-wikilink, .cm-md-link": { color: c.accent, cursor: "pointer" },
@@ -139,6 +141,8 @@ export const holocronTheme = EditorView.theme(
     ".cm-list-indent": { display: "inline-block", overflow: "hidden", whiteSpace: "pre", verticalAlign: "top" },
     // The line's hanging indent (negative text-indent) must not leak into inline boxes (bullets, math…).
     ".cm-list-line *": { textIndent: "0" },
+    // A raw "- [ ] " while editing (livePreview.js sizes it to the checkbox's room).
+    ".cm-list-marker-raw": { fontFamily: MONO, color: c.faint, whiteSpace: "pre" },
     ".cm-task-checkbox": {
       display: "inline-block",
       position: "relative",
@@ -337,7 +341,7 @@ export const holocronTheme = EditorView.theme(
     ".cm-table-widget th, .cm-table-widget td:not(:empty)": { minWidth: "5.5em" },
     // Header kept in view while a tall table scrolls past (tables.js).
     ".cm-table-widget thead": { position: "relative", zIndex: "2" },
-    ".cm-table-widget thead.is-stuck th": { boxShadow: `0 2px 6px rgba(0, 0, 0, 0.12), inset 0 -1px 0 ${c.border}` },
+    ".cm-table-widget thead.is-stuck th": { boxShadow: `0 4px 10px -2px rgba(0, 0, 0, 0.22), inset 0 -1px 0 ${c.strongBorder}` },
     // Reading view: click a header to sort (display only).
     ".cm-table-widget th.cm-table-sortable": { cursor: "pointer", userSelect: "none" },
     ".cm-table-widget th.cm-table-sortable:hover": { color: c.accent },

@@ -371,7 +371,7 @@ For daily notes, dates refer to the note's day.
 
 ### 10.1 Live preview rules
 
-- **ED-01** A line is **active** (shows raw markdown) only if the editor is focused **and** editable **and** a selection range touches it. Unfocused editors and reading view render everything.
+- **ED-01** A line is **active** (shows raw markdown) only if the editor is focused **and** editable **and** a selection range touches it. Unfocused editors and reading view render everything. *Windows:* with `revealMarkup` = "span" (Settings › Editor › Show markdown › Under cursor), inline markup on an active line — links, wikilinks, emphasis, strikethrough, highlight, inline code, escapes — shows raw only where a selection range touches that element; block markers still follow the line. On an active line, a heading's opening `#`s and a bullet's or task's raw `-` / `- [ ]` hang in the left margin, taking exactly the room the rendered marker took, so the text doesn't move (ED-73).
 - **ED-02** Markup is hidden with zero-width replacements; the document text is never changed by rendering, only by explicit actions.
 
 | Syntax | Rendered (line not active) | Active line |
@@ -491,7 +491,7 @@ Clicking a checkbox toggles space ↔ `x` (works in reading view; not inside emb
   - **⇧Return**: leave the table (next blank line, or insert one).
   - **⌃⌥↑/↓** move row (header can't move) · **⌃⌥⇧↑/↓** insert row above/below · **⌃⌥←/→** move column · **⌃⌥⇧←/→** insert column left/right · **⌃⌥⌫** delete row (not the header) · **⌃⌥⇧⌫** delete column (not the last).
   - Empty cells put the cursor right after "| ", not after the padding.
-- **ED-31 Tidy on leave**: when the cursor leaves a table (or the editor loses focus) and it isn't already tidy, pad its columns — appended to the same transaction.
+- **ED-31 Tidy on leave**: when the cursor leaves a table (or the editor loses focus) and it isn't already tidy, pad its columns — appended to the same transaction. *Windows:* tables are also tidied as the cursor enters them (the cursor keeps its place in its cell), so a table written elsewhere shows aligned when clicked.
 - **ED-32 Insert**: "Insert Table" inserts `| Column | Column | Column |` + delimiter + one empty row with the first "Column" selected. The size picker inserts headers "Column 1…N" and R empty rows, with "Column 1" selected. Both go on their own lines with blank lines around.
 - **ED-33 Paste from a spreadsheet**: clipboard text with tabs, ≥2 rows, ≥2 columns, all rows equal width → a tidied table (first row = header; `|` escaped as `\|`; newlines in cells → `<br>`), on its own lines with blank-line padding. Not inside a table or code. Other pastes are unaffected.
 - **ED-34 Convert Selection to Table**: delimiter = tab if present, else `;` if there are no commas, else `,`; quoted CSV with `""` escapes; needs ≥2 columns.
@@ -514,7 +514,7 @@ Clicking a checkbox toggles space ↔ `x` (works in reading view; not inside emb
 
 Active while typing outside code and frontmatter; max 60 options.
 
-- **ED-40 `[[query`**: notes (label = title, detail = folder, ranked by recency) and aliases (detail "→ Title", ranked just below). Inserts the title (or the path without extension if titles are ambiguous; `Target|alias` for aliases) and adds `]]` unless present; cursor after `]]`.
+- **ED-40 `[[query`**: notes (label = title, detail = folder, ranked by recency) and aliases (detail "→ Title", ranked just below). Inserts the title (or the path without extension if titles are ambiguous; `Target|alias` for aliases) and adds `]]` unless present; cursor after `]]`. *Windows:* the note being edited isn't offered; when the query matches no note title, path or alias, a last entry “Create “query”” (detail “New note”) inserts a link to it (not for `![[`).
 - **ED-41 `![[query`**: as above plus attachments (label = file name, detail = folder; full path if the name isn't unique).
 - **ED-42 `[[Note#`**: that note's headings in order (detail "H1"–"H6"); inserts heading text + `]]`.
 - **ED-43 `#tag`** (≥1 character, after whitespace/line start): vault tags with counts, by count, max 50.
@@ -597,6 +597,10 @@ Added in the Windows port (0.2.0). All of it follows the live-preview rule: rend
 - **ED-68 Tables**: columns are at least 5.5em wide so wide tables scroll sideways; a tall table's header row stays in view (below the heading trail) while it scrolls past. In reading view clicking a header sorts the rows on screen only — ascending, descending, then back to the note's order — numbers (“1,200”, “45%”, “$3.50”) by value, text naturally, empty cells last.
 - **ED-69 Gaps closed**: `$$` maths renders inside blockquotes and callouts (all lines with the same `>` depth); inline HTML in table cells (`<span style>`, `<a href>`, `<img>`, `<abbr title>`…) renders through the notes' sanitiser. Footnote references show their text in a popover on hover, and in reading view the first definition gets a “Footnotes” heading.
 - **ED-70 Tidy Note** (Format, Ctrl+Alt+L; not in reading view): one undoable change that leaves code blocks, `$$` maths, HTML blocks, `%%` comments and the frontmatter exactly as they are, and elsewhere: one space after a heading's #s and a blank line around headings; at most one blank line in a row and none at the start or end; `-` for every bullet (rules like `* * *` and bold text stay); ordered lists renumbered from each list's first number, nested lists separately; trailing spaces removed except a two-space hard break before more text; table pipes aligned; exactly one newline at the end. Line endings are kept. Tidying a tidy note changes nothing.
+- **ED-71 Slash menu** (*Windows*): `/` alone on a line (leading spaces allowed), outside code, frontmatter, tables, HTML and comments, opens a completion list in sections — Text: Heading 1–3, Bullet list, Numbered list, Task list, Quote; Callouts: Note, Tip, Warning, Danger, Question; Blocks: Table (3 × 2), Code block, Math block, Mermaid diagram, Collapsible section, Divider, Table of contents; Insert: Today's date (YYYY-MM-DD), Template… (opens the template picker). Typing after the slash filters; choosing replaces the `/query` with a snippet whose fields Tab moves through.
+- **ED-72 Wrap selection** (*Windows*): typing `*`, `_`, `~`, `=` or `` ` `` with text selected wraps each selection instead of replacing it and keeps the text selected, so a second `*` makes `**bold**`. Not in code or frontmatter, not during IME composition. (Brackets and quotes already wrap, ED-44.)
+- **ED-73 Hanging markers** (*Windows*): see ED-01 — measured with JetBrains Mono, heading and task text move by at most 1 px when their line becomes active.
+- **ED-74 Move Done Tasks to Bottom** (*Windows*, Format menu and palette): in the list around the cursor, items whose task status is done (`x`/`X`) or cancelled (`-`) move below the others, keeping each group's order and each item's nested lines; one undoable change; the cursor stays on its item. Ticking a checkbox plays a short pop-and-tick (none under reduced motion).
 
 ## 11. User interface
 
@@ -678,7 +682,7 @@ In order: "New Note" ⌘N · "Open Today’s Note" ⇧⌘D · ("Insert Template�
 
 - **UI-32 Note stats popover**: "Words", "Characters", "Without spaces", "Paragraphs" (non-empty blank-line-separated blocks), "Reading time" (230 wpm: "Under a minute" or "N min" rounded up); with a selection also "Selected words", "Selected characters".
 - **UI-33 Table size picker**: 8×8 grid of 18 px cells; hover selects columns × rows (header row tinted stronger); caption "<cols> × <rows> table"; click inserts (rows−1 body rows, min 1). Default hover 3×3. Accessible label "Table size", value "N columns, N rows".
-- **UI-34 Markdown cheat sheet** (popover, "Markdown cheat sheet"): Text (bold, italic, strikethrough, highlight, code, escape, `%% hidden %%`, `<kbd>`/`<sup>`), Headings (⌥⌘1–3), Links & embeds (`[[Note]]`, alias, heading, `^id`, web link ⌘K, embeds, image width, tags, footnotes), Lists (bullets, numbers, checklist ⌘L, `[-] [/] [>] [!] [?]`), Blocks (quote, callout, folded callout, code block, "| a | b |  then ↩" "Table — Tab and ↩ move between cells", divider, `<details>`), Properties. Syntax shown monospace in accent, selectable. *Windows* adds Mermaid, math, emoji shortcodes, media embeds and HTML, and shows Ctrl-based shortcuts.
+- **UI-34 Markdown cheat sheet** (popover, "Markdown cheat sheet"): *Windows* starts with Editing (`/` menu, wrap selection, Alt+↑/↓ move line, Ctrl+Shift+[ / ] fold, Ctrl+click, Ctrl+D, Tidy Note). Text (bold, italic, strikethrough, highlight, code, escape, `%% hidden %%`, `<kbd>`/`<sup>`), Headings (⌥⌘1–3), Links & embeds (`[[Note]]`, alias, heading, `^id`, web link ⌘K, embeds, image width, tags, footnotes), Lists (bullets, numbers, checklist ⌘L, `[-] [/] [>] [!] [?]`), Blocks (quote, callout, folded callout, code block, "| a | b |  then ↩" "Table — Tab and ↩ move between cells", divider, `<details>`), Properties. Syntax shown monospace in accent, selectable. *Windows* adds Mermaid, math, emoji shortcodes, media embeds and HTML, and shows Ctrl-based shortcuts.
 - **UI-35 Conflict sheet** — §14.5. **Missing-file banner** — §14.2.
 - **UI-36 Settings window** — §13.
 
@@ -696,7 +700,7 @@ Every command must be reachable from a menu (and so from the palette).
 
 **Go**: Today’s Note ⇧⌘D · Previous Daily Note ⌃⌘← · Next Daily Note ⌃⌘→ · Back ⌥⌘← · Forward ⌥⌘→ · Show Next Tab ⌃⇥ · Show Previous Tab ⌃⇧⇥ · Tab 1–8 ⌘1–⌘8 · Last Tab ⌘9
 
-**Format** (disabled with no note or in reading view): Insert Template… ⌥⌘T · Bold ⌘B · Italic ⌘I · Strikethrough ⇧⌘X · Highlight ⇧⌘H · Inline Code ⌘E · Insert Link ⌘K · Toggle Checklist Item ⌘L · Bulleted List · Numbered List · Quote · Code Block · Callout · Divider · **Table ›** (Insert Table · Convert Selection to Table · Insert Row Above ⌃⌥⇧↑ · Insert Row Below ⌃⌥⇧↓ · Insert Column Left ⌃⌥⇧← · Insert Column Right ⌃⌥⇧→ · Move Row Up ⌃⌥↑ · Move Row Down ⌃⌥↓ · Move Column Left ⌃⌥← · Move Column Right ⌃⌥→ · Delete Row ⌃⌥⌫ · Delete Column ⌃⌥⇧⌫) · Heading 1–3 ⌥⌘1–3 · Body Text ⌥⌘0 · *Windows:* Tidy Note Ctrl+Alt+L (ED-70)
+**Format** (disabled with no note or in reading view): Insert Template… ⌥⌘T · Bold ⌘B · Italic ⌘I · Strikethrough ⇧⌘X · Highlight ⇧⌘H · Inline Code ⌘E · Insert Link ⌘K · Toggle Checklist Item ⌘L · *Windows:* Move Done Tasks to Bottom (ED-74) · Bulleted List · Numbered List · Quote · Code Block · Callout · Divider · **Table ›** (Insert Table · Convert Selection to Table · Insert Row Above ⌃⌥⇧↑ · Insert Row Below ⌃⌥⇧↓ · Insert Column Left ⌃⌥⇧← · Insert Column Right ⌃⌥⇧→ · Move Row Up ⌃⌥↑ · Move Row Down ⌃⌥↓ · Move Column Left ⌃⌥← · Move Column Right ⌃⌥→ · Delete Row ⌃⌥⌫ · Delete Column ⌃⌥⇧⌫) · Heading 1–3 ⌥⌘1–3 · Body Text ⌥⌘0 · *Windows:* Tidy Note Ctrl+Alt+L (ED-70)
 
 **Help**: Add Start Here Guide to Vault · *Windows:* Check for Updates… (§22) · About Holocron (version, author Lawrence Scott with www.lascott.net, links to the source and release notes, Electron/Chromium/Node versions, "Copy Version Info"; links open only from a fixed allow-list)
 
@@ -730,6 +734,7 @@ Stored per user (Mac: UserDefaults). Window with four tabs; the last tab is reme
 | Editor | Images in dark themes: As they are / Dimmed / Invert light ones (*Windows*) | `darkImages` | normal | ED-66 |
 | Editor | Show line numbers in code blocks (*Windows*) | `codeLineNumbers` | off | ED-67 |
 | Editor | Show the headings you’re in above the note while scrolling (*Windows*) | `showHeadingTrail` | on | ED-64 |
+| Editor | Show markdown: Whole line / Under cursor (*Windows*) | `revealMarkup` | line | ED-01 |
 | Editor | Readable line length — limit the text width instead of filling the window (*Windows*; also View › Readable Line Length) | `readableLineLength` | on | Off: the text column grows with the window; the Line width slider hides |
 | Editor | Attachment folder (prompt "Vault root") | `attachmentFolder` | "Attachments" | "Pasted images and files dropped in from outside the vault are saved here, relative to the vault. Leave it empty to use the vault root." |
 | Editor | Organise attachments: A folder for each note / One folder (*Windows*) | `attachmentLayout` | perNote | VLT-16 |

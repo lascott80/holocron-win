@@ -42,3 +42,22 @@ html.hc-light .cm-callout-gray   { --callout: var(--hc-callout-gray, 107, 114, 1
 .cm-callout { --hc-quote: var(--hc-callout-body, #C9CDD4); }
 html.hc-light .cm-callout { --hc-quote: var(--hc-callout-body, #3A3F47); }
 .cm-line .cm-callout-title-text span { color: inherit; }
+
+/* A checkbox that was just ticked pops and draws its tick (livePreview.js adds .is-ticking). */
+.cm-task-checkbox.is-ticking {
+  animation: hc-tick-pop 0.22s cubic-bezier(0.3, 1.6, 0.6, 1);
+}
+.cm-task-checkbox.is-ticking::after {
+  animation: hc-tick-draw 0.18s ease-out 0.05s backwards;
+}
+@keyframes hc-tick-pop {
+  from {
+    transform: scale(0.8);
+  }
+}
+@keyframes hc-tick-draw {
+  from {
+    opacity: 0;
+    transform: rotate(45deg) scale(0.4);
+  }
+}

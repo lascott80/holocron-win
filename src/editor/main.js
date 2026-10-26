@@ -15,6 +15,7 @@ import {
   selectSelectionMatches,
 } from "@codemirror/search";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
+import { wrapSelectionOnInput } from "./wrapSelection.js";
 
 import { Frontmatter, Highlight, Tag, WikiLink } from "./syntax.js";
 import { codeBlockTools, codeHighlight, codeLanguage } from "./codeblocks.js";
@@ -30,7 +31,7 @@ import { comments } from "./comments.js";
 import { mermaidDiagrams, setMermaidTheme } from "./mermaid.js";
 import { math } from "./math.js";
 import { emoji } from "./emoji.js";
-import { livePreview } from "./livePreview.js";
+import { livePreview, setRevealMode } from "./livePreview.js";
 import { currentNote, imagePaste, imageViewer, inlineImages, setImageContext } from "./images.js";
 import { mediaEmbeds } from "./media.js";
 import { htmlRendering } from "./html.js";
@@ -39,7 +40,8 @@ import { pasteMarkdown, pastePlainText } from "./pasteMarkdown.js";
 import { configureEmbeds, embedDepth, invalidateEmbeds, noteEmbeds, refreshEmbeds, resolveEmbed } from "./embeds.js";
 import { Prec } from "@codemirror/state";
 import { mergeFrontmatterChanges, properties } from "./properties.js";
-import { linkAutocomplete, setVaultData, vaultDataSummary } from "./completions.js";
+import { linkAutocomplete, setCurrentNote, setVaultData, vaultDataSummary } from "./completions.js";
+import { setSlashHandlers } from "./slashMenu.js";
 import { holocronHighlight, holocronTheme } from "./theme.js";
 import { paragraphSpacing } from "./typography.js";
 import { footnotes } from "./footnotes.js";
@@ -54,6 +56,7 @@ import {
   toggleItalic,
   toggleStrikethrough,
   toggleTask,
+  moveDoneTasksDown,
   toggleHighlight,
   toggleBulletList,
   toggleNumberedList,
@@ -105,6 +108,7 @@ const preview = livePreview({
   onOpenTag: (tag) => post({ type: "openTag", tag }),
 });
 const media = mediaEmbeds({ onOpenLink: (target, newTab) => post({ type: "openLink", target, newTab }) });
+setSlashHandlers({ insertTemplate: () => post({ type: "insertTemplate" }) });
 
 /** The read-only editor inside a note embed: same rendering, no editing. */
 function embeddedEditorExtensions() {
@@ -243,6 +247,7 @@ const extensions = (mode) => [
   paragraphSpacing,
   tableEditing,
   closeBrackets(),
+  wrapSelectionOnInput,
   linkAutocomplete,
   search({ top: true }),
   EditorView.lineWrapping,
@@ -292,6 +297,7 @@ const commands = {
   code: toggleCode,
   link: insertLink,
   task: toggleTask,
+  moveDoneTasksDown,
   heading0: setHeading(0),
   heading1: setHeading(1),
   heading2: setHeading(2),
@@ -330,6 +336,7 @@ window.holocron = {
     const saved = savedStates.get(id);
     currentId = id;
     setImageContext(id);
+    setCurrentNote(id);
     queueMicrotask(refreshEmbeds);
     if (saved && saved.doc.toString() === text) {
       view.setState(saved);
@@ -385,6 +392,7 @@ window.holocron = {
     if (currentId === oldId) {
       currentId = newId;
       setImageContext(newId);
+      setCurrentNote(newId);
     }
   },
 
@@ -419,6 +427,11 @@ window.holocron = {
     focusModeOn = Boolean(on);
     syncMode();
     if (focusModeOn) view.dispatch({ effects: EditorView.scrollIntoView(view.state.selection.main.head, { y: "center" }) });
+  },
+
+  /** "line": an active line shows all its markdown; "span": only the element under the cursor. */
+  setRevealMode(mode) {
+    setRevealMode(view, mode);
   },
 
   /** Switches between "live" (preview), "source" and "reading". */

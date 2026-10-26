@@ -37,6 +37,11 @@
     if (app.editorReady) editor()?.setFocusMode(on);
   });
 
+  $effect(() => {
+    const mode = app.settings.revealMarkup;
+    if (app.editorReady) editor()?.setRevealMode(mode);
+  });
+
   function hasFiles(event: DragEvent) {
     return event.dataTransfer?.types.includes("Files") ?? false;
   }

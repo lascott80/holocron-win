@@ -102,3 +102,21 @@ describe("Tab / Shift+Tab cell navigation", () => {
     expect(nextCell(after)).toBe(false);
   });
 });
+
+describe("tidy on enter", () => {
+  const doc = "Intro\n\n| Planet | Moons |\n| --- | --: |\n| Lothal | 3 |\n";
+  it("lines the table up when the cursor arrives, keeping its cell", () => {
+    const view = makeView(doc, 0, [tableEditing]);
+    const lothal = doc.indexOf("Lothal") + 3; // inside "Lothal"
+    view.dispatch({ selection: { anchor: lothal } });
+    const text = view.state.doc.toString();
+    expect(text).toContain("| Planet | Moons |\n| ------ | ----: |\n| Lothal |     3 |");
+    expect(view.state.selection.main.head).toBe(text.indexOf("Lothal") + 3);
+  });
+  it("leaves a tidy table and moves inside it alone", () => {
+    const tidy = "| a   | b   |\n| --- | --- |\n| 1   | 2   |\n";
+    const view = makeView("x\n\n" + tidy, 0, [tableEditing]);
+    view.dispatch({ selection: { anchor: 4 } });
+    expect(view.state.doc.toString()).toBe("x\n\n" + tidy);
+  });
+});
