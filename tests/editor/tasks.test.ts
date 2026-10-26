@@ -124,3 +124,30 @@ describe("Return on an empty list item ends the list", async () => {
     expect(enter("- [ ] Milk").text).toBe("- [ ] Milk\n- [ ] ");
   });
 });
+
+describe("moving heading sections (outline drag)", async () => {
+  const { moveSectionChanges } = await import("../../src/editor/commands.js");
+  const doc = "# A\na\n## A1\na1\n# B\nb\n# C\nc";
+  const move = (from: number, before: number | null) => {
+    const view = makeView(doc);
+    const result = moveSectionChanges(view.state, from, before);
+    if (!result) return null;
+    const text = result.changes.apply(view.state.doc).toString();
+    return { text, at: text.slice(result.at, result.at + 4) };
+  };
+  it("moves a section with its subsections before another heading", () => {
+    expect(move(5, 1)).toEqual({ text: "# B\nb\n# A\na\n## A1\na1\n# C\nc", at: "# B\n" });
+    expect(move(1, 7)).toEqual({ text: "# B\nb\n# A\na\n## A1\na1\n# C\nc", at: "# A\n" });
+  });
+  it("moves to the end, adding the missing final newline", () => {
+    expect(move(1, null)).toEqual({ text: "# B\nb\n# C\nc\n# A\na\n## A1\na1", at: "# A\n" });
+  });
+  it("moves a subsection out of its parent", () => {
+    expect(move(3, 7)?.text).toBe("# A\na\n# B\nb\n## A1\na1\n# C\nc");
+  });
+  it("refuses drops into the section itself or onto its own place", () => {
+    expect(move(1, 3)).toBeNull();
+    expect(move(1, 5)).toBeNull();
+    expect(move(7, null)).toBeNull();
+  });
+});

@@ -6,7 +6,7 @@
   import { dirname } from "@core/paths";
   import { plainLine, plainText } from "@core/noteParser";
   import { app } from "../../lib/app.svelte";
-  import { call, run } from "../../lib/host";
+  import { call, editorFor, run } from "../../lib/host";
   import Segmented from "../overlays/Segmented.svelte";
 
   const tabs: { value: InspectorTab; label: string }[] = [
@@ -44,6 +44,49 @@
   const shown = $derived(details && detailsPath === path ? details : null);
   const headings = $derived(shown?.headings ?? []);
   const minLevel = $derived(headings.length ? Math.min(...headings.map((h) => h.level)) : 1);
+
+  // ---------- Dragging headings to move their sections (UI-43) ----------
+
+  /** The heading being dragged, and the list position it would land before (headings.length: the end). */
+  let dragFrom = $state<number | null>(null);
+  let dropBefore = $state<number | null>(null);
+
+  /** Index just past heading `index`'s section (its subheadings move with it). */
+  function sectionEnd(index: number): number {
+    const level = headings[index]!.level;
+    let end = index + 1;
+    while (end < headings.length && headings[end]!.level > level) end++;
+    return end;
+  }
+
+  const canDrop = (from: number, before: number) => before < from || before > sectionEnd(from);
+
+  function onDragOver(event: DragEvent, index: number) {
+    if (dragFrom === null) return;
+    const box = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const before = event.clientY < box.top + box.height / 2 ? index : index + 1;
+    if (!canDrop(dragFrom, before)) {
+      dropBefore = null;
+      return;
+    }
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    dropBefore = before;
+  }
+
+  function onDrop(event: DragEvent) {
+    event.preventDefault();
+    if (dragFrom !== null && dropBefore !== null && canDrop(dragFrom, dropBefore)) {
+      const target = dropBefore < headings.length ? headings[dropBefore]!.line : null;
+      editorFor("main")?.moveSection(headings[dragFrom]!.line, target);
+    }
+    endDrag();
+  }
+
+  function endDrag() {
+    dragFrom = null;
+    dropBefore = null;
+  }
   const currentHeading = $derived.by(() => {
     let found = -1;
     headings.forEach((heading, index) => {
@@ -104,8 +147,23 @@
           {:else}
             <ul class="outline">
               {#each headings as heading, index (index)}
-                <li>
+                <li
+                  class:dragging={dragFrom !== null && index >= dragFrom && index < sectionEnd(dragFrom)}
+                  class:drop-before={dropBefore === index}
+                  class:drop-after={dropBefore === headings.length && index === headings.length - 1}
+                  ondragover={(event) => onDragOver(event, index)}
+                  ondrop={onDrop}
+                >
                   <button
+                    draggable={!app.readingView}
+                    ondragstart={(event) => {
+                      dragFrom = index;
+                      if (event.dataTransfer) {
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData("text/plain", plainText(heading.text));
+                      }
+                    }}
+                    ondragend={endDrag}
                     class="heading"
                     class:top-level={heading.level === minLevel}
                     class:current={index === currentHeading}
@@ -266,6 +324,30 @@
   }
 
   /* Outline */
+  /* Dragging a heading: its section dims, a line shows where it will land. */
+  .outline li {
+    position: relative;
+  }
+  .outline li.dragging {
+    opacity: 0.4;
+  }
+  .outline li.drop-before::before,
+  .outline li.drop-after::after {
+    content: "";
+    position: absolute;
+    left: 6px;
+    right: 6px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--ui-accent);
+    pointer-events: none;
+  }
+  .outline li.drop-before::before {
+    top: -1px;
+  }
+  .outline li.drop-after::after {
+    bottom: -1px;
+  }
   .outline {
     list-style: none;
     margin: 0 -6px;

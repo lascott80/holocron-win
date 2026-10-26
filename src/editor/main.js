@@ -58,6 +58,7 @@ import {
   toggleTask,
   markdownKeys,
   moveDoneTasksDown,
+  moveSection,
   toggleHighlight,
   toggleBulletList,
   toggleNumberedList,
@@ -541,6 +542,12 @@ function createEditor(parent, pane = "main") {
         selection: { anchor, head },
         effects: EditorView.scrollIntoView(anchor, { y: "center" }),
       });
+    },
+
+    /** Outline drag (UI-43): the section under the heading on `fromLine` goes before `beforeLine` (null: the end). */
+    moveSection(fromLine, beforeLine) {
+      if (currentMode === "reading") return false;
+      return moveSection(view, fromLine, beforeLine);
     },
 
     /** Moves the cursor to the start of a 1-based line and scrolls it near the top. */

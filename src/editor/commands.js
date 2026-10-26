@@ -1,6 +1,7 @@
 // Formatting commands shared by the keymap and Holocron's Format menu.
 import { EditorSelection, Prec } from "@codemirror/state";
-import { keymap } from "@codemirror/view";
+import { EditorView, keymap } from "@codemirror/view";
+import { allHeadings } from "./headingFolds.js";
 import { deleteMarkupBackward, insertNewlineContinueMarkupCommand } from "@codemirror/lang-markdown";
 
 /**
@@ -173,6 +174,55 @@ export function moveDoneTasksDown(view) {
     selection: { anchor },
     scrollIntoView: true,
     userEvent: "input.format",
+  });
+  return true;
+}
+
+/**
+ * Moves the section of the heading on `fromLine` (the heading and everything
+ * up to the next heading of the same or a higher level) to just before the
+ * heading on `beforeLine`, or to the end of the note when that's null
+ * (UI-43). Returns null when nothing would move (unknown lines, a drop inside
+ * the section itself, or onto its own place); otherwise the changes and where
+ * the moved heading ends up.
+ */
+export function moveSectionChanges(state, fromLine, beforeLine) {
+  const { doc } = state;
+  const headings = allHeadings(doc);
+  const index = headings.findIndex((heading) => heading.line === fromLine);
+  if (index < 0) return null;
+  const heading = headings[index];
+  const next = headings.slice(index + 1).find((other) => other.level <= heading.level);
+  const start = heading.header;
+  const end = next ? next.header : doc.length;
+  let target = doc.length;
+  if (beforeLine !== null) {
+    const before = headings.find((other) => other.line === beforeLine);
+    if (!before) return null;
+    target = before.header;
+  }
+  if (target >= start && target <= end) return null;
+  let body = doc.sliceString(start, end);
+  if (!body.endsWith("\n")) body += "\n";
+  // Moving to the end of a note without a final newline: start on a line of its own.
+  let insert = body;
+  if (target === doc.length && doc.length > 0 && doc.sliceString(doc.length - 1) !== "\n") insert = "\n" + body.slice(0, -1);
+  const changes = state.changes([
+    { from: start, to: end },
+    { from: target, insert },
+  ]);
+  const at = changes.mapPos(target, -1) + (insert.startsWith("\n") && !body.startsWith("\n") ? 1 : 0);
+  return { changes, at };
+}
+
+export function moveSection(view, fromLine, beforeLine) {
+  const move = moveSectionChanges(view.state, fromLine, beforeLine);
+  if (!move) return false;
+  view.dispatch({
+    changes: move.changes,
+    selection: { anchor: move.at },
+    effects: EditorView.scrollIntoView(move.at, { y: "start", yMargin: 48 }),
+    userEvent: "move.section",
   });
   return true;
 }

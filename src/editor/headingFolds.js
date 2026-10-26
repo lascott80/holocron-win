@@ -9,14 +9,8 @@ import { Decoration, ViewPlugin, WidgetType } from "@codemirror/view";
 const ATX = /^ {0,3}(#{1,6})(?:[ \t]|$)/;
 const FENCE = /^\s*(`{3,}|~{3,})/;
 
-/**
- * Foldable heading sections, in document order:
- * { header (line start), from (line end), to, level, line }. The body runs
- * from the end of the heading line to just before the next heading of the
- * same or higher level (or the end of the document). Headings in fenced code
- * and frontmatter don't count; sections with only blank lines are left out.
- */
-export function headingSections(doc) {
+/** Every ATX heading outside the frontmatter and fenced code: { line, level, header (line start), from (line end) }. */
+export function allHeadings(doc) {
   const headings = [];
   let fence = null;
   let start = 1;
@@ -43,6 +37,18 @@ export function headingSections(doc) {
     const atx = ATX.exec(line.text);
     if (atx) headings.push({ line: n, level: atx[1].length, header: line.from, from: line.to });
   }
+  return headings;
+}
+
+/**
+ * Foldable heading sections, in document order:
+ * { header (line start), from (line end), to, level, line }. The body runs
+ * from the end of the heading line to just before the next heading of the
+ * same or higher level (or the end of the document). Headings in fenced code
+ * and frontmatter don't count; sections with only blank lines are left out.
+ */
+export function headingSections(doc) {
+  const headings = allHeadings(doc);
   const sections = [];
   for (let i = 0; i < headings.length; i++) {
     const heading = headings[i];
