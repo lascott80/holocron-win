@@ -1,7 +1,8 @@
-<!-- A segmented control (inspector tabs, appearance picker). ←/→ move between segments. -->
+<!-- A segmented control (inspector tabs, appearance picker). ←/→ move between segments.
+     An option's `font` draws its label in that font (the editor font picker). -->
 <script lang="ts" generics="T extends string">
   let { options, value, label, onchange }: {
-    options: { value: T; label: string }[];
+    options: { value: T; label: string; font?: string }[];
     value: T;
     label: string;
     onchange: (value: T) => void;
@@ -29,6 +30,7 @@
       bind:this={buttons[index]}
       onclick={() => onchange(option.value)}
       onkeydown={(event) => onKeydown(event, index)}
+      style:font-family={option.font}
     >
       {option.label}
     </button>

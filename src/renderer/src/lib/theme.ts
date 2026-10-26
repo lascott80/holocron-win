@@ -17,7 +17,7 @@ export const UI_FONT = "'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-se
 export const editorFonts: Record<EditorFont, { title: string; css: string; headingScale: number; headingWeight: number }> = {
   system: { title: "System", css: "'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif", headingScale: 1, headingWeight: 650 },
   serif: { title: "Serif", css: "Cambria, 'Iowan Old Style', Georgia, ui-serif, serif", headingScale: 1, headingWeight: 650 },
-  mono: { title: "Monospaced", css: "'JetBrains Mono Variable', 'JetBrains Mono', 'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, monospace", headingScale: 0.86, headingWeight: 600 },
+  mono: { title: "JetBrains Mono", css: "'JetBrains Mono Variable', 'JetBrains Mono', 'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, monospace", headingScale: 0.86, headingWeight: 600 },
 };
 
 type ThemeSettings = Pick<Settings, "darkTheme" | "lightTheme">;

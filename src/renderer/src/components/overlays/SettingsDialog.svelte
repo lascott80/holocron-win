@@ -27,7 +27,7 @@
   import { app } from "../../lib/app.svelte";
   import { commands } from "../../lib/commands";
   import { call, run } from "../../lib/host";
-  import { accents, activeTheme, darkThemes, lightThemes } from "../../lib/theme";
+  import { accents, activeTheme, darkThemes, editorFonts, lightThemes } from "../../lib/theme";
   import { accentColors } from "@shared/themes";
   import ThemePicker from "./ThemePicker.svelte";
   import Modal from "./Modal.svelte";
@@ -187,12 +187,13 @@
     { value: "dark", label: "Dark" },
     { value: "light", label: "Light" },
   ];
-  const fontOptions: { value: EditorFont; label: string }[] = [
-    { value: "system", label: "System" },
-    { value: "serif", label: "Serif" },
-    { value: "mono", label: "Monospaced" },
-  ];
-  const readingFontOptions: { value: ReadingFont; label: string }[] = [{ value: "same", label: "Same" }, ...fontOptions];
+  // Each font's name, drawn in that font, so the choice previews itself.
+  const fontOptions: { value: EditorFont; label: string; font: string }[] = (["system", "serif", "mono"] as const).map((value) => ({
+    value,
+    label: editorFonts[value].title,
+    font: editorFonts[value].css,
+  }));
+  const readingFontOptions: { value: ReadingFont; label: string; font?: string }[] = [{ value: "same", label: "Same" }, ...fontOptions];
   const revealOptions: { value: RevealMarkup; label: string }[] = [
     { value: "line", label: "Whole line" },
     { value: "span", label: "Under cursor" },
@@ -537,7 +538,7 @@
         <div class="group">
           {@render switchRow("Show the formatting bar above notes", s.showFormattingBar, toggle("showFormattingBar"))}
           {#snippet font()}
-            <Segmented label="Font" options={fontOptions} value={s.editorFont} onchange={(value) => app.setSetting("editorFont", value)} />
+            <div class="font-picker"><Segmented label="Font" options={fontOptions} value={s.editorFont} onchange={(value) => app.setSetting("editorFont", value)} /></div>
           {/snippet}
           {@render row("Font", font)}
           {#snippet size()}{@render slider("editorFontSize", FONT_SIZE_RANGE, 1, "Text size")}{/snippet}
@@ -554,7 +555,7 @@
           {/snippet}
           {@render row("Paragraph spacing", spacing, "How tall the blank lines between paragraphs are. Your notes don’t change.")}
           {#snippet readingFont()}
-            <Segmented label="Reading view font" options={readingFontOptions} value={s.readingFont} onchange={(value) => app.setSetting("readingFont", value)} />
+            <div class="font-picker"><Segmented label="Reading view font" options={readingFontOptions} value={s.readingFont} onchange={(value) => app.setSetting("readingFont", value)} /></div>
           {/snippet}
           {@render row("Reading view font", readingFont)}
           {#snippet reveal()}
@@ -763,6 +764,11 @@
   .row-control :global(.segmented) {
     width: 264px;
     max-width: 100%;
+  }
+  /* Font names are drawn in their fonts, and JetBrains Mono runs wide: size to the labels. */
+  .row-control .font-picker :global(.segmented) {
+    width: auto;
+    min-width: 264px;
   }
   .text-field {
     width: 220px;
