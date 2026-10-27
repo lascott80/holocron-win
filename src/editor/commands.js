@@ -15,7 +15,170 @@ export const continueMarkup = insertNewlineContinueMarkupCommand({ nonTightLists
 export const markdownKeys = Prec.high(keymap.of([
   { key: "Enter", run: continueMarkup },
   { key: "Backspace", run: deleteMarkupBackward },
+  { key: "Tab", run: (view) => shiftListItem(view, 1), shift: (view) => shiftListItem(view, -1) },
 ]));
+
+const LIST_MARKER = /^([ \t]*)(?:([-*+])|(\d+)([.)]))( +|$)/;
+
+/** A list item line's indent, marker and content column; null for other lines. */
+function listItem(doc, n) {
+  const text = doc.line(n).text;
+  const match = LIST_MARKER.exec(text);
+  if (!match) return null;
+  const indentText = match[1];
+  return {
+    n,
+    indentText,
+    indent: column(indentText),
+    content: column(indentText) + match[0].length - indentText.length + (match[5] ? 0 : 1),
+    number: match[3] === undefined ? null : Number(match[3]),
+    numberFrom: indentText.length,
+    numberTo: indentText.length + (match[3]?.length ?? 0),
+  };
+}
+
+function column(whitespace) {
+  let col = 0;
+  for (const ch of whitespace) col = ch === "\t" ? col + 4 - (col % 4) : col + 1;
+  return col;
+}
+
+const leadingColumn = (doc, n) => column(/^[ \t]*/.exec(doc.line(n).text)[0]);
+const isBlank = (doc, n) => doc.line(n).text.trim() === "";
+
+/** The last line of item `n`'s subtree: the lines below it indented past it (blank lines inside included). */
+function subtreeEnd(doc, n, indent) {
+  let end = n;
+  for (let i = n + 1; i <= doc.lines; i++) {
+    if (isBlank(doc, i)) continue;
+    if (leadingColumn(doc, i) <= indent) break;
+    end = i;
+  }
+  return end;
+}
+
+/** The nearest item above line `n` indented at most `maxIndent`, skipping deeper lines; stops at the list's edge. */
+function itemAbove(doc, n, maxIndent) {
+  for (let i = n - 1; i >= 1; i--) {
+    if (isBlank(doc, i)) continue;
+    const item = listItem(doc, i);
+    if (item && item.indent <= maxIndent) return item;
+    if (!item && leadingColumn(doc, i) === 0) return null;
+  }
+  return null;
+}
+
+/** The items sharing item `n`'s parent and indent, top to bottom. */
+function siblings(doc, n) {
+  const own = listItem(doc, n);
+  const group = [own];
+  const inGroup = (i, add) => {
+    if (isBlank(doc, i)) return true;
+    const item = listItem(doc, i);
+    const col = leadingColumn(doc, i);
+    if (col < own.indent || (!item && col === own.indent)) return false;
+    if (item && item.indent === own.indent) add(item);
+    return true;
+  };
+  for (let i = n - 1; i >= 1 && inGroup(i, (item) => group.unshift(item)); i--);
+  for (let i = n + 1; i <= doc.lines && inGroup(i, (item) => group.push(item)); i++);
+  return group;
+}
+
+/**
+ * Renumbers the numbered items among `n`'s siblings in order. The count starts
+ * at 1 when the first of them is in `fresh` (it just started this group), else
+ * at its own number; a lazy list (every item the same number) stays that way.
+ */
+function renumberChanges(doc, n, fresh) {
+  const numbered = siblings(doc, n).filter((item) => item.number !== null);
+  if (!numbered.length) return [];
+  const lazy = numbered.length > 1 && numbered.every((item) => item.number === numbered[0].number);
+  const start = fresh.has(numbered[0].n) ? 1 : numbered[0].number;
+  const changes = [];
+  numbered.forEach((item, i) => {
+    const want = lazy ? start : start + i;
+    if (item.number === want) return;
+    const from = doc.line(item.n).from;
+    changes.push({ from: from + item.numberFrom, to: from + item.numberTo, insert: String(want) });
+  });
+  return changes;
+}
+
+/**
+ * Tab / Shift-Tab on list items (direction 1 / -1). Tab nests the item (with
+ * its children) under the item above, at that item's content column, so
+ * "1. a" + "2. b" becomes "1. a" + "   1. b"; Shift-Tab moves it out to its
+ * parent's level. Numbered items are renumbered on both levels. Anything else
+ * (no list item, several cursors, nothing to nest under) falls through to the
+ * plain indent.
+ */
+export function shiftListItem(view, direction) {
+  const { state } = view;
+  const { doc } = state;
+  if (state.selection.ranges.length !== 1) return false;
+  const range = state.selection.main;
+  const firstLine = doc.lineAt(range.from).number;
+  let lastLine = doc.lineAt(range.to).number;
+  if (lastLine > firstLine && range.to === doc.line(lastLine).from) lastLine--;
+  const item = listItem(doc, firstLine);
+  if (!item) return false;
+  for (let i = firstLine + 1; i <= lastLine; i++) {
+    if (!isBlank(doc, i) && leadingColumn(doc, i) < item.indent) return false;
+  }
+
+  let newIndentText;
+  const previousSibling = itemAbove(doc, firstLine, item.indent);
+  if (direction > 0) {
+    if (!previousSibling || previousSibling.indent !== item.indent) return false;
+    newIndentText = item.indentText + " ".repeat(previousSibling.content - previousSibling.indent);
+  } else {
+    if (item.indent === 0) return false;
+    const parent = itemAbove(doc, firstLine, item.indent - 1);
+    newIndentText = parent ? parent.indentText : "";
+  }
+
+  // Move the item, the rest of the selection and its children by the same amount.
+  const end = subtreeEnd(doc, lastLine, lastLine === firstLine ? item.indent : leadingColumn(doc, lastLine));
+  const nextSibling = (() => {
+    for (let i = end + 1; i <= doc.lines; i++) {
+      if (isBlank(doc, i)) continue;
+      const next = listItem(doc, i);
+      return next && next.indent === item.indent ? next : null;
+    }
+    return null;
+  })();
+  const shift = [];
+  for (let i = firstLine; i <= end; i++) {
+    const line = doc.line(i);
+    if (isBlank(doc, i)) continue;
+    if (line.text.startsWith(item.indentText)) {
+      shift.push({ from: line.from, to: line.from + item.indentText.length, insert: newIndentText });
+    } else if (direction > 0) {
+      shift.push({ from: line.from, insert: newIndentText.slice(item.indentText.length) });
+    }
+  }
+  const moved = state.update({ changes: shift });
+  const after = moved.state.doc;
+
+  // Renumber where the item went, where it left, and the group its old next sibling now heads or joins.
+  const fresh = new Set([firstLine]);
+  const anchors = [firstLine];
+  if (previousSibling && previousSibling.indent === item.indent) anchors.push(previousSibling.n);
+  if (nextSibling) {
+    fresh.add(nextSibling.n);
+    anchors.push(nextSibling.n);
+  }
+  const renumber = new Map();
+  for (const n of anchors) {
+    for (const change of renumberChanges(after, n, fresh)) renumber.set(change.from, change);
+  }
+  view.dispatch(
+    { changes: shift, scrollIntoView: true, userEvent: direction > 0 ? "input.indent" : "delete.dedent" },
+    { changes: [...renumber.values()], sequential: true },
+  );
+  return true;
+}
 
 /**
  * Applies line-marker changes ("- ", "- [ ] ", "1. ", "> ", "## "). A cursor
