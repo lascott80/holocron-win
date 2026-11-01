@@ -399,8 +399,8 @@
     }
     return [
       { label: "Open in New Tab", run: () => run("open", path, true) },
-      // A canvas only has its read-only viewer, never an editor pane (UI-45).
-      ...(node.kind === "canvas" ? [] : [{ label: "Open to the Right", run: () => run("openInSplit", path) }]),
+      { label: "Open to the Right", run: () => run("openInSplit", path, "row") },
+      { label: "Open Below", run: () => run("openInSplit", path, "column") },
       "-",
       { label: "Rename", shortcut: "F2", run: () => run("startRenaming", path) },
       { label: "Duplicate", run: () => run("duplicate", path) },

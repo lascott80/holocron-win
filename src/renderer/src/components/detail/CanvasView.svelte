@@ -14,7 +14,8 @@
   import { app } from "../../lib/app.svelte";
   import { call, host, run } from "../../lib/host";
 
-  let { canvas }: { canvas: CanvasTabView } = $props();
+  /** `reportStats`: the status bar shows this canvas's counts (the active tab's; a pane's viewer keeps quiet, UI-40). */
+  let { canvas, reportStats = true }: { canvas: CanvasTabView; reportStats?: boolean } = $props();
 
   const MIN_ZOOM = 0.1;
   const MAX_ZOOM = 3;
@@ -54,7 +55,7 @@
           error = result.reason;
         }
       }
-      app.canvasStats = data ? canvasCounts(data) : null;
+      if (reportStats) app.canvasStats = data ? canvasCounts(data) : null;
       if (data && !data.nodes.some((node) => node.id === selected)) selected = null;
       if (fitted !== path) {
         fitted = path;
@@ -69,7 +70,7 @@
 
   $effect(() => {
     return () => {
-      app.canvasStats = null;
+      if (reportStats) app.canvasStats = null;
     };
   });
 

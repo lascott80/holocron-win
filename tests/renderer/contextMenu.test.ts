@@ -112,14 +112,20 @@ describe("buildContextMenu", () => {
     expect(labels(buildContextMenu(params({ isEditable: false, selectionText: "Backlinks" }), field, actions()))).toEqual(["Copy"]);
   });
 
-  it("opens wikilinks in this tab, a new one or split view", () => {
+  it("opens wikilinks in this tab, a new one, or a pane beside or below", () => {
     const a = actions();
     const entries = buildContextMenu(params(), { inEditor: true, wikilink: "Kyber Crystals" }, a);
-    expect(labels(entries).slice(0, 4)).toEqual(["Open Link", "Open in New Tab", "Open to the Right", "-"]);
+    expect(labels(entries).slice(0, 5)).toEqual(["Open Link", "Open in New Tab", "Open to the Right", "Open Below", "-"]);
     item(entries, "Open Link").run!();
     item(entries, "Open in New Tab").run!();
     item(entries, "Open to the Right").run!();
-    expect(a.calls).toEqual([["openLink", "Kyber Crystals", false], ["openLink", "Kyber Crystals", true], ["openLinkInSplit", "Kyber Crystals"]]);
+    item(entries, "Open Below").run!();
+    expect(a.calls).toEqual([
+      ["openLink", "Kyber Crystals", false],
+      ["openLink", "Kyber Crystals", true],
+      ["openLinkInSplit", "Kyber Crystals", "row"],
+      ["openLinkInSplit", "Kyber Crystals", "column"],
+    ]);
   });
 
   it("opens and copies URLs, including Chromium's own link URL", () => {

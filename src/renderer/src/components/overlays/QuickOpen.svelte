@@ -6,7 +6,7 @@
   import { fuzzyMatch, type QuickOpenHit } from "@core/quickOpen";
   import { dirname, stem, withoutExtension } from "@core/paths";
   import { app } from "../../lib/app.svelte";
-  import { commandById, commands, type Command } from "../../lib/commands";
+  import { commandById, commands, workspaceCommands, type Command } from "../../lib/commands";
   import { call, run } from "../../lib/host";
   import Modal from "./Modal.svelte";
   import Highlighted from "./Highlighted.svelte";
@@ -66,6 +66,7 @@
   const ordered: Command[] = [
     ...preferred.map((id) => commandById.get(id)).filter((command): command is Command => Boolean(command)),
     ...commands.filter((command) => !preferred.includes(command.id)),
+    ...workspaceCommands(),
   ].filter((command) => !command.hidden && command.id !== "quickOpen");
 
   function matchingCommands(text: string, limit: number): Row[] {

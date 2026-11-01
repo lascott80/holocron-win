@@ -36,7 +36,8 @@ export interface ContextActions {
   replaceMisspelling(word: string): void;
   addToDictionary(word: string): void;
   openLink(target: string, newTab: boolean): void;
-  openLinkInSplit(target: string): void;
+  /** In a new pane beside ("row") or under ("column") the focused one (UI-40). */
+  openLinkInSplit(target: string, direction: "row" | "column"): void;
   openUrl(url: string): void;
   copyText(text: string): void;
   searchTag(tag: string): void;
@@ -105,7 +106,8 @@ export function buildContextMenu(params: ContextMenuParams, target: ContextTarge
       entries.push(
         { label: "Open Link", run: () => actions.openLink(link, false) },
         { label: "Open in New Tab", run: () => actions.openLink(link, true) },
-        { label: "Open to the Right", run: () => actions.openLinkInSplit(link) },
+        { label: "Open to the Right", run: () => actions.openLinkInSplit(link, "row") },
+        { label: "Open Below", run: () => actions.openLinkInSplit(link, "column") },
       );
     } else if (url) {
       entries.push({ label: "Open Link", run: () => actions.openUrl(url) }, { label: "Copy Link Address", run: () => actions.copyText(url) });

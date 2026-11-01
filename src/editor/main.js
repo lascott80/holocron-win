@@ -199,9 +199,9 @@ const noFocusMode = [];
 
 /**
  * Creates an editor in `parent` and returns its API (what Swift / the app
- * calls). "main" is `window.holocron`; "split" is split view's right-hand pane
- * (UI-40), whose messages carry `pane: "split"`. Each has its own note, undo
- * history, mode and saved states.
+ * calls). "main" is `window.holocron`; any other `pane` is another pane of the
+ * layout (UI-40) or a stacked tab's column (UI-48), whose messages carry that
+ * `pane` id. Each has its own note, undo history, mode and saved states.
  */
 function createEditor(parent, pane = "main") {
   const send = pane === "main" ? post : (message) => post({ ...message, pane });
@@ -627,6 +627,38 @@ function createEditor(parent, pane = "main") {
     exportHtml(title) {
       return exportHtml(view.state.doc.toString(), title);
     },
+
+    // ---------- Linked scrolling (UI-47) ----------
+
+    /** The 1-based line at the top of the view (fractional: how far into it the view is scrolled) and the note's line count. */
+    getScrollLine() {
+      const doc = view.state.doc;
+      const height = Math.max(0, view.scrollDOM.scrollTop - view.documentPadding.top);
+      const block = view.lineBlockAtHeight(height);
+      const line = doc.lineAt(block.from).number;
+      const within = block.height > 0 ? Math.min(1, Math.max(0, (height - block.top) / block.height)) : 0;
+      return { line: line + within, lines: doc.lines };
+    },
+
+    /** Scrolls so that (fractional, 1-based) `line` is at the top, without moving the cursor. */
+    setScrollLine(line) {
+      const doc = view.state.doc;
+      const number = Math.max(1, Math.min(doc.lines, Math.floor(line)));
+      const block = view.lineBlockAt(doc.line(number).from);
+      const top = block.top + Math.min(1, Math.max(0, line - number)) * block.height + view.documentPadding.top;
+      view.scrollDOM.scrollTop = top;
+    },
+
+    /** Calls `listener` whenever the view scrolls; returns a function that stops that. */
+    onScroll(listener) {
+      view.scrollDOM.addEventListener("scroll", listener);
+      return () => view.scrollDOM.removeEventListener("scroll", listener);
+    },
+
+    /** Tears the editor down (a pane closed). */
+    destroy() {
+      view.destroy();
+    },
   };
 
   send({ type: "ready" });
@@ -634,8 +666,8 @@ function createEditor(parent, pane = "main") {
 }
 
 window.holocron = createEditor(document.getElementById("editor"), "main");
-/** Split view's right-hand editor (UI-40): the app creates it when the pane first opens. */
-window.holocronCreateEditor = (parent, pane = "split") => createEditor(parent, pane);
+/** Another pane's editor (UI-40) or a stacked tab's (UI-48): the app creates one per pane, named by its id. */
+window.holocronCreateEditor = (parent, pane) => createEditor(parent, pane);
 
 // Dev mode (opened in a normal browser): load ?sample=<url> for visual checks.
 if (!nativeHandler) {

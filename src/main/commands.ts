@@ -5,8 +5,9 @@ import os from "node:os";
 import { app as electronApp, clipboard, ClipboardItem, shell } from "electron";
 import { quickOpenSearch } from "@core/quickOpen";
 import { stem } from "@core/paths";
+import type { PaneMode, SplitDirection } from "@core/layout";
 import { defaultSettings, type Settings } from "@shared/settings";
-import { EDIT_ACTIONS, type EditAction } from "@shared/ipc";
+import { EDIT_ACTIONS, type EditAction, type WorkspaceUi } from "@shared/ipc";
 import { openExternalSafely } from "./editorBridge";
 import { exportNote, showExported, type ExportFormat } from "./exporter";
 import { fetchPageTitle } from "./pageTitle";
@@ -37,6 +38,27 @@ const num = (value: unknown): number => {
 const strings = (value: unknown): string[] => {
   if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) throw new TypeError("Expected strings");
   return value;
+};
+const numbers = (value: unknown): number[] => {
+  if (!Array.isArray(value) || !value.every((item) => typeof item === "number" && Number.isFinite(item))) throw new TypeError("Expected numbers");
+  return value;
+};
+/** A pane split direction (UI-40): "column" stacks, anything else puts side by side. */
+const splitDirection = (value: unknown): SplitDirection => (value === "column" ? "column" : "row");
+const paneMode = (value: unknown): PaneMode | null => (value === "live" || value === "source" || value === "reading" ? value : null);
+/** The side panels' state saved with a workspace (UI-49), or null when the renderer sent nothing usable. */
+const workspaceUi = (value: unknown): WorkspaceUi | null => {
+  if (!value || typeof value !== "object") return null;
+  const ui = value as Record<string, unknown>;
+  const width = (raw: unknown, fallback: number) => (typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : fallback);
+  return {
+    showSidebar: ui.showSidebar !== false,
+    showInspector: ui.showInspector !== false,
+    sidebarWidth: width(ui.sidebarWidth, 260),
+    inspectorWidth: width(ui.inspectorWidth, 290),
+    sidebarMode: ui.sidebarMode === "search" || ui.sidebarMode === "tasks" ? ui.sidebarMode : "files",
+    inspectorTab: ui.inspectorTab === "links" || ui.inspectorTab === "info" ? ui.inspectorTab : "outline",
+  };
 };
 
 /** Most a rich copy may put on the clipboard (text + HTML, UTF-16 units). */
@@ -219,12 +241,27 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
     moveTab: withVault((vault, id, target) => vault.moveTab(str(id), str(target))),
     togglePinTab: withVault((vault, id) => vault.togglePinTab(str(id))),
     toggleBookmark: withVault((vault, path) => vault.toggleBookmark(str(path))),
-    // Split view (UI-40)
-    openInSplit: withVault((vault, path) => vault.openInSplit(str(path))),
-    openLinkInSplit: withVault((vault, target) => vault.openLinkInSplit(str(target))),
-    splitActiveNote: withVault((vault) => vault.splitActiveNote()),
+    // Panes (UI-40, UI-47): `direction` is "row" (beside) or "column" (below)
+    openInSplit: withVault((vault, path, direction) => vault.openInSplit(str(path), splitDirection(direction))),
+    openLinkInSplit: withVault((vault, target, direction) => vault.openLinkInSplit(str(target), splitDirection(direction))),
+    splitActiveNote: withVault((vault, direction) => vault.splitActiveNote(splitDirection(direction))),
+    splitPane: withVault((vault, target, direction, path, before) => vault.splitPane(splitDirection(direction), { target: str(target), path: optStr(path), before: bool(before) })),
+    showInPane: withVault((vault, id, path) => vault.showInPane(str(id), str(path))),
+    closePane: withVault((vault, id) => vault.closePane(optStr(id) ?? undefined)),
     closeSplit: withVault((vault) => vault.closeSplit()),
-    splitToTab: withVault((vault) => vault.splitToTab()),
+    splitToTab: withVault((vault, id) => vault.splitToTab(optStr(id) ?? undefined)),
+    focusPane: withVault((vault, id) => vault.focusPane(str(id))),
+    focusNextPane: withVault((vault, delta) => vault.focusNextPane(num(delta) < 0 ? -1 : 1)),
+    setPaneRatios: withVault((vault, id, ratios) => vault.setPaneRatios(str(id), numbers(ratios))),
+    setPaneLinked: withVault((vault, id, linked) => vault.setPaneLinked(str(id), bool(linked))),
+    setPaneMode: withVault((vault, id, mode) => vault.setPaneMode(str(id), paneMode(mode))),
+    openReadingViewBeside: withVault((vault) => vault.openReadingViewBeside()),
+    // Stacked tabs (UI-48) and workspaces (UI-49)
+    setStackTabs: withVault((vault, on) => vault.setStackTabs(bool(on))),
+    saveWorkspace: withVault((vault, name, ui) => vault.saveWorkspace(str(name), workspaceUi(ui))),
+    loadWorkspace: withVault((vault, name) => vault.loadWorkspace(str(name))),
+    loadLastWorkspace: withVault((vault) => vault.loadLastWorkspace()),
+    deleteWorkspace: withVault((vault, name) => vault.deleteWorkspace(str(name))),
     graphData: withVault((vault) => vault.index.graph()),
     // Pasted links get their page's title (ED-76); off in Settings returns null.
     fetchPageTitle: (url) => (app.settings.fetchLinkTitles ? fetchPageTitle(str(url)) : Promise.resolve(null)),

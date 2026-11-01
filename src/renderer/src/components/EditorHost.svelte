@@ -5,7 +5,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { app } from "../lib/app.svelte";
-  import { call, editor, editorFor } from "../lib/host";
+  import { call, editorFor } from "../lib/host";
   import { editorVariables } from "../lib/theme";
   import { editorHotkeys, zoomText } from "../lib/commands";
   import BacklinksPanel from "./detail/BacklinksPanel.svelte";
@@ -22,25 +22,26 @@
     return () => host.removeEventListener("wheel", onWheel);
   });
 
+  // The main editor's own settings; other panes apply theirs in PaneEditor (UI-40).
   $effect(() => {
     const vars = editorVariables(app.state.isDark, app.settings);
     const mode = app.state.isDark ? "dark" : "light";
-    if (app.editorReady) editor()?.setAppearance(vars, mode);
+    if (app.editorReady) editorFor("main")?.setAppearance(vars, mode);
   });
 
   $effect(() => {
     const mode = app.settings.editorMode === "livePreview" ? "live" : app.settings.editorMode;
-    if (app.editorReady) editor()?.setMode(mode);
+    if (app.editorReady) editorFor("main")?.setMode(mode);
   });
 
   $effect(() => {
     const on = app.focusMode;
-    if (app.editorReady) editor()?.setFocusMode(on);
+    if (app.editorReady) editorFor("main")?.setFocusMode(on);
   });
 
   $effect(() => {
     const mode = app.settings.revealMarkup;
-    if (app.editorReady) editor()?.setRevealMode(mode);
+    if (app.editorReady) editorFor("main")?.setRevealMode(mode);
   });
 
   // Custom shortcuts (HK-01): the editor's keymap follows Settings › Hotkeys at once.
@@ -53,8 +54,10 @@
     return event.dataTransfer?.types.includes("Files") ?? false;
   }
 
+  const mainReading = $derived(app.settings.editorMode === "reading");
+
   function onDragOver(event: DragEvent) {
-    if (!hasFiles(event) || app.readingView) return;
+    if (!hasFiles(event) || mainReading) return;
     event.preventDefault();
     event.stopPropagation();
     if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
@@ -76,14 +79,14 @@
 
   async function onDrop(event: DragEvent) {
     dragging = false;
-    if (!hasFiles(event) || app.readingView) return;
+    if (!hasFiles(event) || mainReading) return;
     // Handle file drops ourselves: CodeMirror would insert file contents.
     event.preventDefault();
     event.stopPropagation();
     const files = [...(event.dataTransfer?.files ?? [])].map((file) => window.holocronHost.pathForFile(file)).filter(Boolean);
     if (!files.length) return;
     const texts = await call<string[]>("importFiles", files);
-    if (texts?.length) editor()?.insertAtPoint(event.clientX, event.clientY, texts.join("\n") + "\n");
+    if (texts?.length) editorFor("main")?.insertAtPoint(event.clientX, event.clientY, texts.join("\n") + "\n");
   }
 </script>
 

@@ -7,6 +7,7 @@
 import fs from "node:fs";
 import nodePath from "node:path";
 import os from "node:os";
+import { randomUUID } from "node:crypto";
 import * as P from "@core/paths";
 import { LinkResolver, parse as parseNote, toggleTaskLine } from "@core/noteParser";
 import { rewrite as rewriteLinks, relativePath as relativeLinkPath } from "@core/linkRewriter";
@@ -33,6 +34,7 @@ import { INVALID_REGEX_MESSAGE, parseQuery, replaceMatches, runSearch, type Repl
 import { buildTagTree, isValidTagName, renameTagInText, type TagNode, type TagSort } from "@core/tagTree";
 import { noteText, renderTemplate } from "@core/templates";
 import { isPlaceholderName, titleFromContent } from "@core/autoTitle";
+import * as L from "@core/layout";
 import type { Settings } from "@shared/settings";
 import type {
   AttachmentCleanupItem,
@@ -41,12 +43,13 @@ import type {
   ConflictView,
   DocView,
   NoteDetails,
+  PaneInfo,
   PropertySummary,
-  SplitView,
   TabView,
   ToastView,
   TreeNode,
   VaultView,
+  WorkspaceUi,
 } from "@shared/ipc";
 import * as fsx from "./fsx";
 import { isServableAsset } from "./assets";
@@ -93,8 +96,8 @@ export interface VaultOptions {
   store: StateStore;
   settings: () => Settings;
   editor?: EditorPort;
-  /** The right-hand pane of split view (UI-40). */
-  splitEditor?: EditorPort;
+  /** The editor for a pane other than the primary one (UI-40) or a stacked tab's column (UI-48), by id. */
+  paneEditor?: (id: string) => EditorPort;
   trash?: TrashItem;
   /** Opens a file in its default app. */
   openPath?: (file: string) => void;
@@ -126,6 +129,16 @@ const INVALID_NAME = "Names can’t be empty, start with a dot, or contain “/�
 
 interface Toast extends ToastView {
   action: (() => void) | null;
+}
+
+/** A saved workspace (UI-49), as stored under `workspaces:<root>`. */
+interface Workspace {
+  layout: L.Layout;
+  /** Vault paths of the tabs showing a file; the first `pinned` are pinned. */
+  tabs: string[];
+  pinned: number;
+  active: number;
+  ui: WorkspaceUi | null;
 }
 
 /** One change in `.holocron/attachment-log.json` (REQUIREMENTS VLT-23). */
@@ -185,9 +198,12 @@ export class Vault {
 
   private readonly options: VaultOptions;
   private readonly editor: EditorPort;
-  private readonly splitEditor: EditorPort;
-  /** The note in split view's right-hand pane (UI-40), or null when split view is closed. */
-  private splitPath: string | null = null;
+  /** The detail column's pane tree (UI-40, UI-47); the primary pane shows the active tab. */
+  layout: L.Layout = L.singlePane();
+  /** Editors of the other panes and of stacked tabs' columns, by id (created on demand). */
+  private readonly paneEditors = new Map<string, EditorPort>();
+  /** View › Stack Tabs (UI-48): the primary pane shows every tab as a column of its own. */
+  stackTabs = false;
   private toastTimer: NodeJS.Timeout | null = null;
   private nextToastId = 1;
   private liveIndexTimer: NodeJS.Timeout | null = null;
@@ -206,14 +222,15 @@ export class Vault {
     this.root = nodePath.resolve(root);
     this.options = options;
     this.editor = options.editor ?? nullEditor;
-    this.splitEditor = options.splitEditor ?? nullEditor;
+    this.stackTabs = options.store.get<boolean>("stackTabs:" + this.root) === true;
     this.recentNotes = options.store.get<string[]>(this.recentNotesKey) ?? [];
     this.bookmarks = (options.store.get<string[]>(this.bookmarksKey) ?? []).filter((path) => typeof path === "string" && path !== "");
     this.indexCache = options.indexCacheFolder ? new IndexCache(options.indexCacheFolder, this.root) : null;
     this.history = options.historyFolder ? new NoteHistory(historyFolder(options.historyFolder, this.root), options.now) : null;
     this.reload();
+    // The layout first: showing the restored tabs would otherwise save (and so wipe) a single-pane one.
+    this.restoreLayout();
     this.restoreTabs();
-    this.restoreSplit();
   }
 
   get name() {
@@ -385,11 +402,15 @@ export class Vault {
     const changedNotes = paths.filter((path) => P.isNote(path));
     this.reload(changedNotes);
     // A canvas on show changed (or went away): the viewer reloads it, or its tabs close (UI-45).
-    const shownCanvases = new Set(this.tabs.map((tab) => tab.path).filter((path): path is string => path !== null && P.isCanvas(path)));
+    const shownCanvases = new Set([...this.tabs, ...L.leaves(this.layout.root)].map((shown) => shown.path).filter((path): path is string => path !== null && P.isCanvas(path)));
     for (const path of shownCanvases) {
       if (!paths.some((changed) => changed === "" || P.isUnder(path, changed))) continue;
       if (fsx.exists(this.abs(path))) this.canvasRevision++;
-      else this.closeTabsShowing(path);
+      else {
+        this.closeTabsShowing(path);
+        for (const leaf of L.leaves(this.layout.root)) if (leaf.path === path && leaf.id !== L.MAIN_PANE) this.layout = L.removePane(this.layout, leaf.id);
+        this.syncPanes();
+      }
     }
     if (shownCanvases.size) this.changed();
     for (const [path, document] of [...this.documents]) {
@@ -1020,8 +1041,7 @@ export class Vault {
       this.scheduleAutoTitle(document);
     };
     document.onExternalTextChange = (oldText, newText) => {
-      this.editor.externalChange(path, oldText, newText);
-      this.splitEditor.externalChange(path, oldText, newText);
+      for (const view of this.editorViews()) if (view.path === path) view.port.externalChange(path, oldText, newText);
     };
     document.onStateChange = () => this.changed();
     // The document's own path can change (rename); look it up at write time.
@@ -1109,12 +1129,14 @@ export class Vault {
     this.autoTitleTimers.delete(document);
     this.documents.delete(path);
     this.editor.forget(path);
-    this.splitEditor.forget(path);
-    if (this.splitPath === path) {
-      this.splitPath = null;
-      this.splitEditor.show(null, null);
-      this.saveSplit();
+    for (const port of this.paneEditors.values()) port.forget(path);
+    // A pane whose note is gone closes (UI-40); a linked one just empties.
+    for (const leaf of L.leaves(this.layout.root)) {
+      if (leaf.id === L.MAIN_PANE || leaf.path !== path) continue;
+      if (leaf.linked) this.layout = L.updatePane(this.layout, leaf.id, { path: null });
+      else this.layout = L.removePane(this.layout, leaf.id);
     }
+    this.syncPanes();
   }
 
   /**
@@ -1127,17 +1149,22 @@ export class Vault {
     const path = this.activeTab?.path ?? null;
     this.selection = path;
     if (path && !P.isCanvas(path)) this.rememberRecent(path);
+    // Linked panes follow the active tab (UI-47) before unused notes are unloaded.
+    for (const leaf of L.leaves(this.layout.root)) {
+      if (leaf.id !== L.MAIN_PANE && leaf.linked && leaf.path !== path) this.layout = L.updatePane(this.layout, leaf.id, { path });
+    }
     this.unloadUnusedDocuments();
     this.saveTabs();
     // A canvas tab shows the viewer instead of the editor (UI-45).
     if (path && P.isCanvas(path)) this.editor.show(null, null);
     else this.editor.show(path, this.document?.text ?? null);
+    this.syncPanes();
     this.changed();
   }
 
   private unloadUnusedDocuments() {
     const inUse = new Set(this.tabs.map((tab) => tab.path).filter((path): path is string => path !== null));
-    if (this.splitPath) inUse.add(this.splitPath);
+    for (const leaf of L.leaves(this.layout.root)) if (leaf.id !== L.MAIN_PANE && leaf.path) inUse.add(leaf.path);
     for (const [path, document] of [...this.documents]) {
       if (inUse.has(path)) continue;
       if (document.conflict) {
@@ -1163,54 +1190,341 @@ export class Vault {
     this.options.store.set(this.tabsKey + ":pinned", withPaths.filter((tab) => tab.pinned).length || undefined);
   }
 
-  // MARK: Split view (UI-40)
+  // MARK: Pane layout (UI-40, UI-47), stacked tabs (UI-48) and workspaces (UI-49)
 
-  /** Shows `path` in the right-hand pane, opening split view if it's closed. */
-  openInSplit(path: string) {
-    if (!P.isNote(path) || !this.loadDocument(path)) return;
-    this.splitPath = path;
-    this.splitEditor.show(path, this.documents.get(path)?.text ?? null);
-    this.saveSplit();
-    this.changed();
+  /** The id of the editor in a stacked tab's column (UI-48). */
+  static tabPane(tabId: string) {
+    return "tab:" + tabId;
   }
 
-  /** A [[link]] in the right-hand pane (only links to existing notes). */
-  openLinkInSplit(rawTarget: string) {
+  private get layoutKey() {
+    return "layout:" + this.root;
+  }
+
+  /** The pane commands act on: the one last clicked. */
+  get focusedPane() {
+    return this.layout.focused;
+  }
+
+  /** The file a pane shows: the active tab's for the primary pane. */
+  panePath(id: string): string | null {
+    return id === L.MAIN_PANE ? (this.activeTab?.path ?? null) : (L.findLeaf(this.layout, id)?.path ?? null);
+  }
+
+  /** The editor port for a pane id ("main" is the primary pane's). */
+  private portFor(id: string): EditorPort {
+    if (id === L.MAIN_PANE) return this.editor;
+    let port = this.paneEditors.get(id);
+    if (!port) {
+      port = this.options.paneEditor?.(id) ?? nullEditor;
+      this.paneEditors.set(id, port);
+    }
+    return port;
+  }
+
+  /** Whether a pane editor with this id is still in use (the app drops bridges of closed panes). */
+  usesPane(id: string): boolean {
+    return this.paneEditors.has(id);
+  }
+
+  /** Every editor and the file it shows: the primary pane, the other panes and, with stacked tabs, a column per tab. */
+  private editorViews(): { id: string; path: string | null; port: EditorPort }[] {
+    const views = [{ id: L.MAIN_PANE, path: this.activeTab?.path ?? null, port: this.editor }];
+    for (const leaf of L.leaves(this.layout.root)) {
+      if (leaf.id !== L.MAIN_PANE) views.push({ id: leaf.id, path: leaf.path, port: this.portFor(leaf.id) });
+    }
+    if (this.stackTabs) {
+      for (const tab of this.tabs) views.push({ id: Vault.tabPane(tab.id), path: tab.path, port: this.portFor(Vault.tabPane(tab.id)) });
+    }
+    return views;
+  }
+
+  /** A file a pane can show: an existing note (loaded) or canvas. */
+  private canShowInPane(path: string): boolean {
+    if (P.isCanvas(path)) return fsx.exists(this.abs(path));
+    return P.isNote(path) && this.loadDocument(path) !== null;
+  }
+
+  /** Shows each pane's file in its editor, lets go of editors whose pane is gone, and remembers the layout. */
+  private syncPanes() {
+    const wanted = new Set<string>();
+    for (const view of this.editorViews()) {
+      if (view.id === L.MAIN_PANE) continue;
+      wanted.add(view.id);
+      const path = view.path;
+      const document = path && P.isNote(path) ? this.loadDocument(path) : null;
+      view.port.show(document ? path : null, document?.text ?? null);
+    }
+    for (const [id, port] of [...this.paneEditors]) {
+      if (wanted.has(id)) continue;
+      port.show(null, null);
+      this.paneEditors.delete(id);
+    }
+    this.saveLayout();
+  }
+
+  /**
+   * Splits a pane (the focused one unless `target` says otherwise) in
+   * `direction`, showing `path` (the target's own file unless given) in the
+   * new pane, which takes the focus. Returns the new pane's id, or null when
+   * there are already MAX_PANES panes or the file can't be shown.
+   */
+  splitPane(direction: L.SplitDirection, options: { target?: string; path?: string | null; before?: boolean; linked?: boolean; mode?: L.PaneMode } = {}): string | null {
+    const target = L.findLeaf(this.layout, options.target ?? this.layout.focused) ?? L.findLeaf(this.layout, L.MAIN_PANE)!;
+    const path = options.path === undefined ? this.panePath(target.id) : options.path;
+    if (path !== null && !this.canShowInPane(path)) return null;
+    if (L.paneCount(this.layout) >= L.MAX_PANES) {
+      this.showToast(`Holocron shows at most ${L.MAX_PANES} panes.`, null, "", true);
+      return null;
+    }
+    const leaf: L.PaneLeaf = { kind: "pane", id: randomUUID(), path };
+    if (options.linked) leaf.linked = true;
+    if (options.mode) leaf.mode = options.mode;
+    const next = L.splitPane(this.layout, target.id, direction, leaf, options.before, randomUUID());
+    if (!next) return null;
+    this.layout = L.focusPane(next, leaf.id);
+    this.syncPanes();
+    this.changed();
+    return leaf.id;
+  }
+
+  /** "Open to the Right" / "Open Below": `path` in a new pane beside or under the focused one. */
+  openInSplit(path: string, direction: L.SplitDirection = "row") {
+    this.splitPane(direction, { path });
+  }
+
+  /** A [[link]] in a new pane (only links to existing notes). */
+  openLinkInSplit(rawTarget: string, direction: L.SplitDirection = "row") {
     const resolved = this.resolveLink(rawTarget);
-    if (resolved !== null) this.openInSplit(resolved);
+    if (resolved !== null) this.openInSplit(resolved, direction);
     else this.showError(`“${LinkResolver.linkPath(rawTarget)}” doesn’t exist yet.`);
   }
 
-  /** Split Right: the active note, in the right-hand pane too. */
-  splitActiveNote() {
-    const path = this.activeTab?.path;
-    if (path) this.openInSplit(path);
+  /** Split Right / Split Down: the focused pane's file again, beside or under it. */
+  splitActiveNote(direction: L.SplitDirection = "row") {
+    this.splitPane(direction);
   }
 
-  closeSplit() {
-    if (this.splitPath === null) return;
-    this.splitPath = null;
-    this.splitEditor.show(null, null);
+  /** Open Reading View Beside (UI-47): the active note in a linked pane to the right, in reading view. */
+  openReadingViewBeside() {
+    this.splitPane("row", { path: this.activeTab?.path ?? null, linked: true, mode: "reading" });
+  }
+
+  /** Close Pane: the focused pane (the primary one can't close, so it beeps). Its parent split collapses. */
+  closePane(id = this.layout.focused) {
+    if (id === L.MAIN_PANE || !L.findLeaf(this.layout, id)) {
+      this.options.ui?.({ type: "beep" });
+      return;
+    }
+    this.layout = L.removePane(this.layout, id);
     this.unloadUnusedDocuments();
-    this.saveSplit();
+    this.syncPanes();
     this.changed();
   }
 
-  /** Moves the right-hand pane's note into a tab of its own and closes split view. */
-  splitToTab() {
-    const path = this.splitPath;
-    if (!path) return;
-    this.closeSplit();
+  /** Close Other Panes: back to the primary pane alone. */
+  closeSplit() {
+    if (L.paneCount(this.layout) <= 1) return;
+    this.layout = { root: L.findLeaf(this.layout, L.MAIN_PANE)!, focused: L.MAIN_PANE };
+    this.unloadUnusedDocuments();
+    this.syncPanes();
+    this.changed();
+  }
+
+  /** Moves a pane's file into a tab of its own and closes the pane. */
+  splitToTab(id = this.layout.focused) {
+    const path = this.panePath(id);
+    if (id === L.MAIN_PANE || !path) return;
+    this.closePane(id);
     this.open(path, true);
   }
 
-  private saveSplit() {
-    this.options.store.set(this.tabsKey + ":split", this.splitPath ?? undefined);
+  focusPane(id: string) {
+    if (id === this.layout.focused || !L.findLeaf(this.layout, id)) return;
+    this.layout = L.focusPane(this.layout, id);
+    this.saveLayout();
+    this.changed();
   }
 
-  private restoreSplit() {
-    const path = this.options.store.get<string>(this.tabsKey + ":split");
-    if (typeof path === "string" && P.isNote(path) && fsx.exists(this.abs(path))) this.openInSplit(path);
+  /** Focus Next / Previous Pane, in reading order, wrapping around. */
+  focusNextPane(delta: 1 | -1) {
+    this.focusPane(L.neighbourPane(this.layout, this.layout.focused, delta));
+  }
+
+  /** The divider between a split's children was dragged. */
+  setPaneRatios(splitId: string, ratios: number[]) {
+    if (!L.findSplit(this.layout, splitId)) return;
+    this.layout = L.setRatios(this.layout, splitId, ratios);
+    this.saveLayout();
+    this.changed();
+  }
+
+  /** The pane header's link toggle (UI-47): a linked pane shows what the primary pane shows. */
+  setPaneLinked(id: string, linked: boolean) {
+    const leaf = L.findLeaf(this.layout, id);
+    if (!leaf || id === L.MAIN_PANE) return;
+    this.layout = L.updatePane(this.layout, id, { linked: linked || undefined, path: linked ? (this.activeTab?.path ?? null) : leaf.path });
+    this.unloadUnusedDocuments();
+    this.syncPanes();
+    this.changed();
+  }
+
+  /** A pane's own view mode (null: follow the editor mode setting). */
+  setPaneMode(id: string, mode: L.PaneMode | null) {
+    if (!L.findLeaf(this.layout, id) || id === L.MAIN_PANE) return;
+    this.layout = L.updatePane(this.layout, id, { mode: mode ?? undefined });
+    this.saveLayout();
+    this.changed();
+  }
+
+  /** Shows `path` in an existing pane (a file-tree row dropped on it, say). */
+  showInPane(id: string, path: string) {
+    const leaf = L.findLeaf(this.layout, id);
+    if (!leaf) return;
+    if (id === L.MAIN_PANE) {
+      this.open(path);
+      return;
+    }
+    if (!this.canShowInPane(path)) return;
+    this.layout = L.focusPane(L.updatePane(this.layout, id, { path, linked: undefined }), id);
+    this.unloadUnusedDocuments();
+    this.syncPanes();
+    this.changed();
+  }
+
+  private saveLayout() {
+    const bare = L.paneCount(this.layout) <= 1;
+    this.options.store.set(this.layoutKey, bare ? undefined : this.layout);
+  }
+
+  /** A file a restored pane may show: an existing note or canvas. */
+  private paneFileExists = (path: string) => (P.isNote(path) || P.isCanvas(path)) && fsx.exists(this.abs(path));
+
+  /** Restores the layout saved for this vault, dropping panes whose files are gone (and 0.10's single split pane). */
+  private restoreLayout() {
+    const stored = this.options.store.get<unknown>(this.layoutKey);
+    let layout = L.sanitizeLayout(stored, this.paneFileExists, randomUUID);
+    const legacy = this.options.store.get<string>(this.tabsKey + ":split");
+    if (stored === undefined && typeof legacy === "string" && this.paneFileExists(legacy)) {
+      layout = L.splitPane(layout, L.MAIN_PANE, "row", { kind: "pane", id: randomUUID(), path: legacy }, false, randomUUID()) ?? layout;
+    }
+    this.options.store.set(this.tabsKey + ":split", undefined);
+    this.layout = layout;
+    this.followPrimary();
+    this.syncPanes();
+  }
+
+  /** Linked panes show the active tab's file (UI-47). */
+  private followPrimary() {
+    const path = this.activeTab?.path ?? null;
+    for (const leaf of L.leaves(this.layout.root)) {
+      if (leaf.id !== L.MAIN_PANE && leaf.linked && leaf.path !== path) this.layout = L.updatePane(this.layout, leaf.id, { path });
+    }
+  }
+
+  /** View › Stack Tabs (UI-48), remembered per vault. */
+  setStackTabs(on: boolean) {
+    if (on === this.stackTabs) return;
+    this.stackTabs = on;
+    this.options.store.set("stackTabs:" + this.root, on || undefined);
+    this.syncPanes();
+    this.changed();
+  }
+
+  private paneInfos(): Record<string, PaneInfo> {
+    const infos: Record<string, PaneInfo> = {};
+    for (const leaf of L.leaves(this.layout.root)) {
+      if (leaf.id === L.MAIN_PANE) continue;
+      const path = leaf.path;
+      const doc = path ? this.documents.get(path) : undefined;
+      infos[leaf.id] = {
+        path,
+        title: path ? (P.isCanvas(path) ? P.basename(path) : P.stem(path)) : "Empty pane",
+        isDirty: doc?.isDirty ?? false,
+        hasWarning: Boolean(doc && (doc.conflict || doc.isMissingOnDisk)),
+        kind: path === null ? "empty" : P.isCanvas(path) ? "canvas" : "note",
+        revision: this.canvasRevision,
+      };
+    }
+    return infos;
+  }
+
+  // Workspaces (UI-49): named snapshots of the panes, tabs and side panels, per vault.
+
+  private get workspacesKey() {
+    return "workspaces:" + this.root;
+  }
+
+  private get workspaces(): Record<string, Workspace> {
+    const stored = this.options.store.get<unknown>(this.workspacesKey);
+    return stored && typeof stored === "object" && !Array.isArray(stored) ? (stored as Record<string, Workspace>) : {};
+  }
+
+  workspaceNames(): string[] {
+    return Object.keys(this.workspaces).sort((a, b) => a.localeCompare(b));
+  }
+
+  get lastWorkspace(): string | null {
+    const name = this.options.store.get<string>(this.workspacesKey + ":last");
+    return typeof name === "string" && name in this.workspaces ? name : null;
+  }
+
+  /** Save Layout As…: the panes, every tab and the side panels' state (`ui`, which the window chrome knows). */
+  saveWorkspace(name: string, ui: WorkspaceUi | null = null) {
+    const trimmed = name.trim();
+    if (trimmed === "") return;
+    const withPaths = this.tabs.filter((tab) => tab.path !== null);
+    const workspace: Workspace = {
+      layout: this.layout,
+      tabs: withPaths.map((tab) => tab.path!),
+      pinned: withPaths.filter((tab) => tab.pinned).length,
+      active: Math.max(0, withPaths.findIndex((tab) => tab.id === this.activeTabId)),
+      ui,
+    };
+    this.options.store.set(this.workspacesKey, { ...this.workspaces, [trimmed]: workspace });
+    this.options.store.set(this.workspacesKey + ":last", trimmed);
+    this.changed();
+  }
+
+  /**
+   * Loads a workspace: saves the open notes first, then replaces the tabs and
+   * panes (files that no longer exist are dropped). Returns the side panels'
+   * state for the window chrome to apply, or null when there's no such workspace.
+   */
+  loadWorkspace(name: string): WorkspaceUi | null {
+    const workspace = this.workspaces[name];
+    if (!workspace || typeof workspace !== "object") return null;
+    this.saveAll();
+    const stored = Array.isArray(workspace.tabs) ? workspace.tabs.filter((path): path is string => typeof path === "string") : [];
+    const pinnedCount = Math.max(0, Math.min(typeof workspace.pinned === "number" ? workspace.pinned : 0, stored.length));
+    const paths: { path: string; pinned: boolean }[] = [];
+    stored.forEach((path, index) => {
+      if (this.paneFileExists(path)) paths.push({ path, pinned: index < pinnedCount });
+    });
+    this.tabs = paths.map(({ path, pinned }) => new EditorTab(path, pinned));
+    const active = Math.min(typeof workspace.active === "number" ? workspace.active : 0, this.tabs.length - 1);
+    this.activeTabId = this.tabs.length ? this.tabs[Math.max(0, active)].id : null;
+    this.layout = L.sanitizeLayout(workspace.layout, this.paneFileExists, randomUUID);
+    if (this.activeTab?.path) this.loadDocument(this.activeTab.path);
+    this.didChangeTabs();
+    this.options.store.set(this.workspacesKey + ":last", name);
+    this.changed();
+    return workspace.ui && typeof workspace.ui === "object" ? workspace.ui : null;
+  }
+
+  /** Load Last Workspace: the one saved or loaded most recently. */
+  loadLastWorkspace(): WorkspaceUi | null {
+    const name = this.lastWorkspace;
+    return name ? this.loadWorkspace(name) : null;
+  }
+
+  deleteWorkspace(name: string) {
+    const all = { ...this.workspaces };
+    if (!(name in all)) return;
+    delete all[name];
+    this.options.store.set(this.workspacesKey, Object.keys(all).length ? all : undefined);
+    if (this.options.store.get<string>(this.workspacesKey + ":last") === name) this.options.store.set(this.workspacesKey + ":last", undefined);
+    this.changed();
   }
 
   /** Reopens the tabs that were open when this vault was last closed. */
@@ -1591,13 +1905,11 @@ export class Vault {
       this.attach(document, newPath);
       this.documents.set(newPath, document);
       this.editor.documentDidMove(oldPath, newPath);
-      this.splitEditor.documentDidMove(oldPath, newPath);
+      for (const port of this.paneEditors.values()) port.documentDidMove(oldPath, newPath);
     }
     for (const tab of this.tabs) tab.remap(remap);
-    if (this.splitPath) {
-      this.splitPath = remap(this.splitPath);
-      this.saveSplit();
-    }
+    this.layout = L.mapPaths(this.layout, remap);
+    this.saveLayout();
     if (this.selection) this.selection = remap(this.selection);
     if (this.renaming) this.renaming = remap(this.renaming);
     this.recentNotes = this.recentNotes.map(remap);
@@ -2699,20 +3011,19 @@ export class Vault {
   // MARK: Editor bridge
 
   /**
-   * An editor's text for its shown note changed. When both panes of split
-   * view show that note, the other pane gets the edit too.
+   * An editor's text for its shown note changed. Every other pane (or stacked
+   * tab) showing that note gets the edit too (UI-40).
    */
-  editorChanged(path: string, text: string, pane: "main" | "split" = "main") {
-    const isMain = path === this.activeTab?.path;
-    const isSplit = path === this.splitPath;
-    if (pane === "main" ? !isMain : !isSplit) return;
+  editorChanged(path: string, text: string, pane: string = L.MAIN_PANE) {
+    const views = this.editorViews();
+    const source = views.find((view) => view.id === pane);
+    if (!source || source.path !== path) return;
     const document = this.documents.get(path);
     if (!document) return;
     const previous = document.text;
     if (previous === text) return;
     document.setText(text);
-    if (pane === "main" && isSplit) this.splitEditor.externalChange(path, previous, text);
-    if (pane === "split" && isMain) this.editor.externalChange(path, previous, text);
+    for (const view of views) if (view !== source && view.path === path) view.port.externalChange(path, previous, text);
   }
 
   /** Pasted image → attachment; returns the text to insert, or null. */
@@ -2749,16 +3060,6 @@ export class Vault {
 
   // MARK: View state
 
-  private splitView(path: string): SplitView {
-    const doc = this.documents.get(path);
-    return {
-      path,
-      title: P.stem(path),
-      isDirty: doc?.isDirty ?? false,
-      hasWarning: Boolean(doc && (doc.conflict || doc.isMissingOnDisk)),
-    };
-  }
-
   view(): VaultView {
     const document = this.document;
     const path = this.activeTab?.path ?? null;
@@ -2781,7 +3082,11 @@ export class Vault {
         };
       }),
       bookmarks: this.bookmarks,
-      split: this.splitPath ? this.splitView(this.splitPath) : null,
+      layout: this.layout,
+      panes: this.paneInfos(),
+      stackTabs: this.stackTabs,
+      workspaces: this.workspaceNames(),
+      lastWorkspace: this.lastWorkspace,
       syncConflicts: this.syncConflicts(),
       activeTabId: this.activeTabId,
       canGoBack: this.canGoBack,

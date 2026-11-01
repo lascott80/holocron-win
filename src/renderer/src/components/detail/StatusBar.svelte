@@ -5,6 +5,7 @@
   import type { EditorMode } from "@shared/settings";
   import Popover from "./Popover.svelte";
   import { app } from "../../lib/app.svelte";
+  import { run } from "../../lib/host";
   import { menu } from "../../lib/menu.svelte";
 
   const modes: { mode: EditorMode; title: string }[] = [
@@ -75,7 +76,17 @@
   });
 
   // View mode menu
-  const modeTitle = $derived(modes.find((m) => m.mode === app.settings.editorMode)?.title ?? "Live Preview");
+  /** The focused pane's mode (UI-40): another pane's own mode, or the setting for the primary pane and stacked tabs. */
+  const paneId = $derived(app.pane !== "main" && !app.pane.startsWith("tab:") ? app.pane : null);
+  const currentMode = $derived.by((): EditorMode => {
+    const mode = app.paneMode(app.pane);
+    return mode === "live" ? "livePreview" : mode;
+  });
+  const modeTitle = $derived(modes.find((m) => m.mode === currentMode)?.title ?? "Live Preview");
+  function setMode(mode: EditorMode) {
+    if (paneId) run("setPaneMode", paneId, mode === "livePreview" ? "live" : mode);
+    else app.setSetting("editorMode", mode);
+  }
   let modeButton = $state<HTMLButtonElement>();
   let modeOpen = $state(false);
 
@@ -91,8 +102,8 @@
     menu.open(
       modes.map(({ mode, title }) => ({
         label: title,
-        checked: app.settings.editorMode === mode,
-        run: () => app.setSetting("editorMode", mode),
+        checked: currentMode === mode,
+        run: () => setMode(mode),
       })),
       rect.right - 220,
       rect.top - 4 - (modes.length * 28 + 10),

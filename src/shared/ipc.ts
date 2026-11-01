@@ -3,6 +3,7 @@
 // snapshots; the renderer calls named commands. Editor bridge messages
 // (REQUIREMENTS §2.1) travel on their own channels.
 
+import type { Layout } from "@core/layout";
 import type { Settings } from "./settings";
 import type { SnippetView } from "./snippets";
 
@@ -51,12 +52,26 @@ export interface CanvasTabView {
   revision: number;
 }
 
-/** The note in split view's right-hand pane (UI-40). */
-export interface SplitView {
-  path: string;
+/** What a pane other than the primary one shows (UI-40): the file, its state and how to draw it. */
+export interface PaneInfo {
+  path: string | null;
   title: string;
   isDirty: boolean;
   hasWarning: boolean;
+  /** "note": an editor; "canvas": the canvas viewer; "empty": nothing yet. */
+  kind: "note" | "canvas" | "empty";
+  /** Bumped when a canvas on show changes on disk (UI-45). */
+  revision: number;
+}
+
+/** The sidebar and inspector state a workspace remembers (UI-49); the renderer owns it. */
+export interface WorkspaceUi {
+  showSidebar: boolean;
+  showInspector: boolean;
+  sidebarWidth: number;
+  inspectorWidth: number;
+  sidebarMode: "files" | "search" | "tasks";
+  inspectorTab: "outline" | "links" | "info";
 }
 
 export interface DocView {
@@ -118,7 +133,14 @@ export interface VaultView {
   recentNotes: string[];
   /** Bookmarked note and folder paths, in the user's order (UI-14a). */
   bookmarks: string[];
-  split: SplitView | null;
+  /** The pane tree (UI-40, UI-47) and, per pane except the primary one, what it shows. */
+  layout: Layout;
+  panes: Record<string, PaneInfo>;
+  /** View › Stack Tabs (UI-48), per vault. */
+  stackTabs: boolean;
+  /** Saved workspaces (UI-49), sorted by name, and the one saved or loaded last. */
+  workspaces: string[];
+  lastWorkspace: string | null;
   /** Sync tools' conflict copies beside their notes (UI-41). */
   syncConflicts: SyncConflictView[];
   toast: ToastView | null;
@@ -299,8 +321,12 @@ export interface QuickOpenNote {
 
 // ---- Editor bridge ----
 
-/** Which editor: the main one, or split view's right-hand pane (UI-40). */
-export type EditorPane = "main" | "split";
+/**
+ * Which editor: "main" is the primary pane's; every other pane of the layout
+ * has one named by its pane id (UI-40), and stacked tabs (UI-48) one per tab
+ * named "tab:<tab id>".
+ */
+export type EditorPane = string;
 
 /** Messages the editor posts (Editor → native), REQUIREMENTS §2.1. `pane` is absent for the main editor. */
 export type EditorMessage = { pane?: EditorPane } & (
@@ -319,7 +345,7 @@ export type EditorMessage = { pane?: EditorPane } & (
   | { type: "insertTemplate" }
 );
 
-/** A call from main into an editor: `window.holocron`, or the split pane's when `pane` is "split". */
+/** A call from main into an editor: `window.holocron`, or another pane's editor when `pane` names it. */
 export interface EditorCall {
   method: string;
   args: unknown[];

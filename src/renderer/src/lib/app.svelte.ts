@@ -1,7 +1,8 @@
 // The renderer's view of the app: the latest state snapshot pushed by the
 // main process, plus UI-only state (palettes, sidebar mode, focus mode…).
 
-import type { AppState, ContextMenuParams, EditAction, EditorMessage, EditorPane, TreeNode, UiRequest } from "@shared/ipc";
+import type { AppState, ContextMenuParams, EditAction, EditorMessage, EditorPane, TreeNode, UiRequest, WorkspaceUi } from "@shared/ipc";
+import { findLeaf, singlePane, type PaneMode } from "@core/layout";
 import { defaultSettings, type Settings } from "@shared/settings";
 import { activePane, call, editor, editorFor, host, run, setActivePane } from "./host";
 import { buildContextMenu, FORMAT_COMMANDS, mermaidCodeAt, type ContextActions, type ContextTarget } from "./contextMenu";
@@ -52,9 +53,14 @@ class AppStore {
   text = $state("");
   /** What the canvas viewer shows, for the status bar (UI-45); null when no canvas is open or it couldn't be read. */
   canvasStats = $state<{ cards: number; connections: number } | null>(null);
-  /** The editor last focused: the main one or split view's right-hand pane (UI-40). */
+  /** The editor last focused: the primary pane's ("main"), another pane's (its id, UI-40) or a stacked tab's ("tab:<id>", UI-48). */
   pane = $state<EditorPane>("main");
   editorReady = $state(false);
+  /** Save Layout As… / Delete… (UI-49), or null. */
+  workspaceDialog = $state<"save" | "delete" | null>(null);
+  /** Panel widths (UI-02): sidebar 200–400 (260), inspector 240–420 (290); remembered in localStorage. */
+  sidebarWidth = $state(storedWidth("sidebarWidth", 260));
+  inspectorWidth = $state(storedWidth("inspectorWidth", 290));
 
   get vault() {
     return this.state.vault;
@@ -68,8 +74,35 @@ class AppStore {
     return this.state.vault?.doc ?? null;
   }
 
+  /** A pane's view mode: its own (UI-47) or, for the primary pane and stacked tabs, the editor mode setting. */
+  paneMode(pane: EditorPane): PaneMode {
+    const own = pane !== "main" ? findLeaf(this.vault?.layout ?? singlePane(), pane)?.mode : undefined;
+    if (own) return own;
+    const mode = this.settings.editorMode;
+    return mode === "livePreview" ? "live" : mode;
+  }
+
+  /** The side panels' state a workspace remembers (UI-49). */
+  workspaceUi(): WorkspaceUi {
+    const s = this.settings;
+    return { showSidebar: s.showSidebar, showInspector: s.showInspector, sidebarWidth: this.sidebarWidth, inspectorWidth: this.inspectorWidth, sidebarMode: this.sidebarMode, inspectorTab: s.inspectorTab };
+  }
+
+  applyWorkspaceUi(ui: WorkspaceUi | null) {
+    if (!ui) return;
+    this.setSetting("showSidebar", ui.showSidebar);
+    this.setSetting("showInspector", ui.showInspector);
+    this.setSetting("inspectorTab", ui.inspectorTab);
+    this.sidebarMode = ui.sidebarMode;
+    this.sidebarWidth = Math.min(400, Math.max(200, ui.sidebarWidth));
+    this.inspectorWidth = Math.min(420, Math.max(240, ui.inspectorWidth));
+    rememberWidth("sidebarWidth", this.sidebarWidth);
+    rememberWidth("inspectorWidth", this.inspectorWidth);
+  }
+
+  /** The focused pane is in reading view: no formatting (UI-40, UI-47). */
   get readingView() {
-    return this.state.settings.editorMode === "reading";
+    return this.paneMode(this.pane) === "reading";
   }
 
   start() {
@@ -91,6 +124,11 @@ class AppStore {
     host.onState((state) => {
       this.state = state;
       this.loaded = true;
+      // The focused pane closed (or the vault changed): commands go back to the primary pane.
+      const layout = state.vault?.layout;
+      const tabs = state.vault?.tabs ?? [];
+      const exists = this.pane === "main" || (layout && findLeaf(layout, this.pane) !== null) || tabs.some((tab) => state.vault?.stackTabs && "tab:" + tab.id === this.pane);
+      if (!exists) this.focusPane("main");
     });
     host.onTree((tree) => (this.tree = tree));
     host.onUi((request: UiRequest) => this.handleUi(request));
@@ -131,12 +169,15 @@ class AppStore {
     void call<TreeNode[]>("getTree").then((tree) => (this.tree = tree));
   }
 
-  /** An editor got focus: commands and the status bar follow it from now on. */
+  /** An editor got focus: commands and the status bar follow it from now on; main remembers the layout's focused pane. */
   focusPane(pane: EditorPane) {
     if (pane === this.pane) return;
     setActivePane(pane);
     this.pane = pane;
     this.text = editor()?.getText() ?? "";
+    // A stacked tab's column belongs to the primary pane.
+    const layoutPane = pane.startsWith("tab:") ? "main" : pane;
+    if (this.vault && this.vault.layout.focused !== layoutPane) run("focusPane", layoutPane);
   }
 
   /** Watches editor messages for the status bar. */
@@ -200,7 +241,7 @@ class AppStore {
         });
       },
       openLink: (link, newTab) => run("openLink", link, newTab),
-      openLinkInSplit: (link) => run("openLinkInSplit", link),
+      openLinkInSplit: (link, direction) => run("openLinkInSplit", link, direction),
       openUrl: (url) => host.postEditor({ type: "openURL", url }),
       copyText: (text) => void navigator.clipboard.writeText(text),
       searchTag: (tag) => this.showQuickOpen(`#${tag}`),
@@ -269,6 +310,23 @@ class AppStore {
 }
 
 export const app = new AppStore();
+
+function storedWidth(key: string, fallback: number) {
+  try {
+    const value = Number(localStorage.getItem(key));
+    return Number.isFinite(value) && value > 0 ? value : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export function rememberWidth(key: "sidebarWidth" | "inspectorWidth", value: number) {
+  try {
+    localStorage.setItem(key, String(value));
+  } catch {
+    // Not important.
+  }
+}
 
 /** What a right-click landed on, read from the DOM (see contextMenu.ts). */
 function describeTarget(element: Element | null): ContextTarget {

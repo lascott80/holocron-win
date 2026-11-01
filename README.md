@@ -179,6 +179,10 @@ Mostly ⌘ → Ctrl, with these deliberate changes (REQUIREMENTS §17.2):
 | Hover preview, open link in new tab | ⌘ | Ctrl |
 | Copy as Markdown / Paste as Plain Text | — | Ctrl+Shift+C / Ctrl+Shift+V |
 | Fold / unfold heading | — | Ctrl+Shift+[ / Ctrl+Shift+] |
+| Split Right / Split Down | — | Ctrl+Alt+\ / Ctrl+Alt+- |
+| Close Pane · Focus Next / Previous Pane | — | Ctrl+Alt+W · Ctrl+Alt+] / Ctrl+Alt+[ |
+| Open Reading View Beside (linked pane) | — | Ctrl+Alt+Shift+E |
+| Stack Tabs | — | Ctrl+Alt+S |
 | Quick capture (system-wide) | — | Win+Alt+N (Settings › General); in its window Ctrl+Enter saves, Esc cancels |
 
 App shortcuts match on the character typed, so AltGr combinations on

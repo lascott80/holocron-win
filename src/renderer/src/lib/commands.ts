@@ -6,6 +6,7 @@ import { app } from "./app.svelte";
 import { SEARCH_SORTS, searchState } from "../components/sidebar/searchState.svelte";
 import { accents, activeTheme, themes } from "./theme";
 import { call, editor, run } from "./host";
+import type { WorkspaceUi } from "@shared/ipc";
 import { defaultSettings, FONT_SIZE_RANGE, shortcutLabel, type Accent, type Appearance, type EditorMode, type FileSort } from "@shared/settings";
 import { effectiveHotkeys, hotkeyLabel, normalizeHotkey, resolveBindings, resolveHotkey, toCodeMirrorKey, type HotkeyBinding, type HotkeyMap } from "@shared/hotkeys";
 import type { MenuEntry } from "./menu.svelte";
@@ -65,6 +66,8 @@ export const FILE_SORTS: { value: FileSort; label: string }[] = [
 const hasVault = () => app.vault !== null;
 const hasNote = () => app.doc !== null;
 const canFormat = () => hasNote() && !app.readingView;
+/** More than the primary pane is open (UI-40). */
+const hasPanes = () => Boolean(app.vault && app.vault.layout.root.kind === "split");
 
 /** Runs an editor command (formatting, find…). */
 function ed(name: string) {
@@ -168,9 +171,20 @@ export const commands: Command[] = [
   // View
   { id: "toggleSidebar", title: "Toggle Sidebar", shortcut: "Ctrl+\\", enabled: hasVault, checked: () => app.settings.showSidebar, run: () => app.setSetting("showSidebar", !app.settings.showSidebar) },
   { id: "toggleInspector", title: "Toggle Inspector", shortcut: "Ctrl+Alt+I", enabled: hasVault, checked: () => app.settings.showInspector, run: () => app.setSetting("showInspector", !app.settings.showInspector) },
-  // Split view (UI-40)
-  { id: "splitRight", title: "Split Right", shortcut: "Ctrl+Alt+\\", enabled: hasNote, run: () => run("splitActiveNote") },
-  { id: "closeSplit", title: "Close Split View", enabled: () => Boolean(app.vault?.split), run: () => run("closeSplit") },
+  // Panes (UI-40, UI-47)
+  { id: "splitRight", title: "Split Right", shortcut: "Ctrl+Alt+\\", enabled: hasVault, run: () => run("splitActiveNote", "row") },
+  { id: "splitDown", title: "Split Down", shortcut: "Ctrl+Alt+-", enabled: hasVault, run: () => run("splitActiveNote", "column") },
+  // Ctrl+Alt+E is Toggle Source Mode, so this one takes Shift as well.
+  { id: "openReadingViewBeside", title: "Open Reading View Beside", shortcut: "Ctrl+Alt+Shift+E", enabled: hasNote, run: () => run("openReadingViewBeside") },
+  { id: "closePane", title: "Close Pane", shortcut: "Ctrl+Alt+W", enabled: hasPanes, run: () => run("closePane") },
+  { id: "closeSplit", title: "Close Other Panes", enabled: hasPanes, run: () => run("closeSplit") },
+  { id: "focusNextPane", title: "Focus Next Pane", shortcut: "Ctrl+Alt+]", enabled: hasPanes, run: () => run("focusNextPane", 1) },
+  { id: "focusPreviousPane", title: "Focus Previous Pane", shortcut: "Ctrl+Alt+[", enabled: hasPanes, run: () => run("focusNextPane", -1) },
+  // Stacked tabs (UI-48) and workspaces (UI-49)
+  { id: "stackTabs", title: "Stack Tabs", shortcut: "Ctrl+Alt+S", enabled: hasVault, checked: () => app.vault?.stackTabs ?? false, run: () => run("setStackTabs", !app.vault?.stackTabs) },
+  { id: "saveWorkspace", title: "Save Layout As…", enabled: hasVault, run: () => (app.workspaceDialog = "save") },
+  { id: "deleteWorkspace", title: "Delete Workspace…", enabled: () => (app.vault?.workspaces.length ?? 0) > 0, run: () => (app.workspaceDialog = "delete") },
+  { id: "loadLastWorkspace", title: "Load Last Workspace", enabled: () => Boolean(app.vault?.lastWorkspace), run: () => void call<WorkspaceUi | null>("loadLastWorkspace").then((ui) => app.applyWorkspaceUi(ui)) },
   // Graph view (UI-42)
   { id: "graphView", title: "Graph View", shortcut: "Ctrl+G", enabled: hasVault, run: () => ((app.graphScope = "vault"), (app.graphOpen = true)) },
   { id: "localGraph", title: "Local Graph (This Note)", shortcut: "Ctrl+Shift+G", enabled: hasNote, run: () => ((app.graphScope = "local"), (app.graphOpen = true)) },
@@ -306,13 +320,34 @@ export const commands: Command[] = [
 
 export const commandById = new Map(commands.map((command) => [command.id, command]));
 
+/** "Workspace: <name>" for each saved workspace (UI-49): View › Workspaces and the palette. */
+export function workspaceCommands(): Command[] {
+  return (app.vault?.workspaces ?? []).map((name) => ({
+    id: `workspace:${name}`,
+    title: `Workspace: ${name}`,
+    group: "View",
+    run: () => void call<WorkspaceUi | null>("loadWorkspace", name).then((ui) => app.applyWorkspaceUi(ui)),
+  }));
+}
+
+/** A command by id, the registry's or a workspace's. */
+export function findCommand(id: string): Command | undefined {
+  return commandById.get(id) ?? (id.startsWith("workspace:") ? workspaceCommands().find((command) => command.id === id) : undefined);
+}
+
 export function runCommand(id: string) {
-  const command = commandById.get(id);
+  const command = findCommand(id);
   if (command && (command.enabled?.() ?? true)) command.run();
 }
 
+/** A submenu whose items are known only when it opens (the saved workspaces). */
+export interface MenuGroup {
+  title: string;
+  items: string[] | (() => string[]);
+}
+
 /** The menu bar (REQUIREMENTS §12). "-" separates groups. */
-export const menus: { title: string; items: (string | { title: string; items: string[] })[] }[] = [
+export const menus: { title: string; items: (string | MenuGroup)[] }[] = [
   {
     title: "File",
     items: ["newNote", "newNoteFromTemplate", "newFolder", "newTab", "pinTab", "bookmark", "-", "quickCapture", "quickOpen", "commandPalette", "-", "openVault", "createVault", "-", "save", "closeTab", "closeVault", "-", "versionHistory", "showNoteInExplorer", "showVaultInExplorer", "-", "exportPdf", "exportHtml", "print", "-", { title: "Attachments", items: ["organiseAttachments", "organiseNoteAttachments", "-", "cleanUpAttachments", "emptyUnusedAttachments", "-", "undoAttachmentChange"] }, "-", "settings", "-", "quitApp"],
@@ -320,7 +355,12 @@ export const menus: { title: string; items: (string | { title: string; items: st
   { title: "Edit", items: ["undo", "redo", "-", "copyMarkdown", "pastePlainText", "-", "find", "findNext", "findPrevious", "selectNextOccurrence", "searchVault", "copySearchResults"] },
   {
     title: "View",
-    items: ["toggleSidebar", "toggleInspector", "splitRight", "closeSplit", "graphView", "localGraph", "toggleFormattingBar", "readableLineLength", "backlinksInNote", "showTasks", { title: "Sort Files", items: FILE_SORTS.map(({ value }) => `sortFiles:${value}`) }, { title: "Sort Search Results", items: SEARCH_SORTS.map(({ value }) => `sortSearch:${value}`) }, "-", "zoomIn", "zoomOut", "zoomReset", "-", "mode:livePreview", "mode:source", "mode:reading", "-", "toggleReading", "toggleSource", "focusMode", "-", "foldHeading", "unfoldHeading", "foldAllHeadings", "unfoldAll"],
+    items: [
+      "toggleSidebar", "toggleInspector", "-",
+      "splitRight", "splitDown", "openReadingViewBeside", "closePane", "closeSplit", "focusNextPane", "focusPreviousPane", "stackTabs",
+      { title: "Workspaces", items: () => ["saveWorkspace", "deleteWorkspace", "loadLastWorkspace", "-", ...workspaceCommands().map((command) => command.id)] },
+      "-", "graphView", "localGraph", "toggleFormattingBar", "readableLineLength", "backlinksInNote", "showTasks", { title: "Sort Files", items: FILE_SORTS.map(({ value }) => `sortFiles:${value}`) }, { title: "Sort Search Results", items: SEARCH_SORTS.map(({ value }) => `sortSearch:${value}`) }, "-", "zoomIn", "zoomOut", "zoomReset", "-", "mode:livePreview", "mode:source", "mode:reading", "-", "toggleReading", "toggleSource", "focusMode", "-", "foldHeading", "unfoldHeading", "foldAllHeadings", "unfoldAll",
+    ],
   },
   { title: "Go", items: ["today", "calendar", "previousDaily", "nextDaily", "-", "back", "forward", "-", "nextTab", "previousTab"] },
   {
@@ -336,14 +376,14 @@ export const menus: { title: string; items: (string | { title: string; items: st
 ];
 
 /** Menu entries for command ids ("-" = separator, nested groups = submenus). */
-export function menuEntries(items: (string | { title: string; items: string[] })[]): MenuEntry[] {
+export function menuEntries(items: (string | MenuGroup)[]): MenuEntry[] {
   return items.map((item): MenuEntry => {
     if (item === "-") return "-";
-    if (typeof item !== "string") return { label: item.title, items: menuEntries(item.items) };
-    const command = commandById.get(item);
+    if (typeof item !== "string") return { label: item.title, items: menuEntries(typeof item.items === "function" ? item.items() : item.items) };
+    const command = findCommand(item);
     if (!command) throw new Error(`Unknown command ${item}`);
     return {
-      label: command.title.replace(/^View Mode: /, "").replace(/^Table: /, ""),
+      label: command.title.replace(/^View Mode: /, "").replace(/^Table: /, "").replace(/^Workspace: /, ""),
       shortcut: command.shortcut,
       checked: command.checked?.(),
       disabled: !(command.enabled?.() ?? true),
@@ -425,10 +465,10 @@ export function hotkeyGroups(): { title: string; commands: Command[] }[] {
     if (!groups.has(title)) groups.set(title, []);
     groups.get(title)!.push(command);
   };
-  const walk = (title: string, items: (string | { title: string; items: string[] })[]) => {
+  const walk = (title: string, items: (string | MenuGroup)[]) => {
     for (const item of items) {
       if (item === "-") continue;
-      if (typeof item !== "string") walk(title, item.items);
+      if (typeof item !== "string") walk(title, typeof item.items === "function" ? item.items() : item.items);
       else {
         const command = commandById.get(item);
         if (command) add(title, command);

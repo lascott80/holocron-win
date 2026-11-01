@@ -63,8 +63,8 @@ export class HolocronApp {
   errorMessage: string | null = null;
   recentVaults: string[] = (this.store.get<string[]>("recentVaultPaths") ?? []).filter(folderExists);
   readonly editor = new EditorBridge(() => this.window?.webContents ?? null);
-  /** Split view's right-hand pane (UI-40). */
-  readonly splitEditor = new EditorBridge(() => this.window?.webContents ?? null, "split");
+  /** The editors of the other panes (UI-40) and stacked tabs' columns (UI-48), by id, made when the vault first needs one. */
+  readonly paneEditors = new Map<string, EditorBridge>();
   readonly search = new SearchService(() => this.vault?.index.searchSnapshot() ?? []);
   readonly updater = new Updater({ store: this.store, settings: () => this.settings, pushState: () => this.pushState(), saveAll: () => this.saveAll() });
   readonly trash = createTrash(path.join(app.getPath("userData"), "trash-staging"), (file) => shell.trashItem(file));
@@ -123,7 +123,20 @@ export class HolocronApp {
       this.stateQueued = false;
       this.window?.webContents.send(Channels.state, this.state());
       this.scheduleJumpList();
+      // Bridges of panes that have closed since.
+      for (const id of [...this.paneEditors.keys()]) if (!this.vault?.usesPane(id)) this.paneEditors.delete(id);
     });
+  }
+
+  /** The bridge for a pane's editor, made on first use (the vault's `paneEditor` option). */
+  paneEditor(id: string): EditorBridge {
+    let bridge = this.paneEditors.get(id);
+    if (!bridge) {
+      bridge = new EditorBridge(() => this.window?.webContents ?? null, id);
+      bridge.vault = this.vault;
+      this.paneEditors.set(id, bridge);
+    }
+    return bridge;
   }
 
   pushTree() {
@@ -229,7 +242,7 @@ export class HolocronApp {
       store: this.store,
       settings: () => this.settings,
       editor: this.editor,
-      splitEditor: this.splitEditor,
+      paneEditor: (id) => this.paneEditor(id),
       trash: (file) => this.trash.trash(file),
       indexCacheFolder: path.join(app.getPath("userData"), "index-cache"),
       historyFolder: path.join(app.getPath("userData"), "history"),
@@ -248,7 +261,7 @@ export class HolocronApp {
     });
     this.vault = vault;
     this.editor.vault = vault;
-    this.splitEditor.vault = vault;
+    for (const bridge of this.paneEditors.values()) bridge.vault = vault;
     this.rememberVault(vault.root);
     this.watcher = new VaultWatcher(vault.root, (paths) => vault.handleDiskChanges(paths));
     this.watcher.start().catch((error) => console.error("Watcher failed:", error));
@@ -269,8 +282,11 @@ export class HolocronApp {
     this.vault = null;
     this.editor.vault = null;
     this.editor.show(null, null);
-    this.splitEditor.vault = null;
-    this.splitEditor.show(null, null);
+    for (const bridge of this.paneEditors.values()) {
+      bridge.vault = null;
+      bridge.show(null, null);
+    }
+    this.paneEditors.clear();
     this.search.clear();
     this.window?.setTitle("Holocron");
     this.pushTree();
@@ -727,7 +743,7 @@ export class HolocronApp {
     contents.on("did-start-navigation", (event) => {
       if (event.isMainFrame && !event.isSameDocument) {
         this.editor.reset();
-        this.splitEditor.reset();
+        for (const bridge of this.paneEditors.values()) bridge.reset();
       }
     });
     contents.on("before-input-event", (event, input) => {
@@ -893,7 +909,7 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.on(Channels.editorMessage, (event, message: EditorMessage) => {
       if (holocron?.capture.owns(event.sender)) return;
       if (!message || typeof message !== "object") return;
-      (message.pane === "split" ? holocron?.splitEditor : holocron?.editor)?.handle(message);
+      (message.pane && message.pane !== "main" ? holocron?.paneEditors.get(message.pane) : holocron?.editor)?.handle(message);
     });
     // electron-updater's quitAndInstall announces itself here before quitting.
     nativeAutoUpdater.on("before-quit-for-update", () => holocron?.prepareToQuit());
