@@ -33,6 +33,9 @@ import { INVALID_REGEX_MESSAGE, parseQuery, replaceMatches, runSearch, type Repl
 import { buildTagTree, isValidTagName, renameTagInText, type TagNode, type TagSort } from "@core/tagTree";
 import { noteText, renderTemplate } from "@core/templates";
 import { isPlaceholderName, titleFromContent } from "@core/autoTitle";
+import { appendToNote, bodyWithoutFrontmatter, headingRename, lineEnding, locateSelection, sectionAt } from "@core/noteComposer";
+import { fragmentMatchesHeading, renamedFragment, rewriteFragmentLinks, type FragmentLink, type FragmentRewrite } from "@core/headingLinks";
+import type { Heading } from "@core/noteParser";
 import type { Settings } from "@shared/settings";
 import type {
   AttachmentCleanupItem,
@@ -116,6 +119,8 @@ export interface VaultOptions {
   hostname?: string;
   saveDelay?: number;
   autoTitleDelay?: number;
+  /** How long after typing pauses a renamed heading is looked for (LNK-16). */
+  headingLinksDelay?: number;
   liveIndexDelay?: number;
   missingFileGracePeriod?: number;
 }
@@ -194,6 +199,9 @@ export class Vault {
   /** Documents still being named from their first line. */
   private readonly autoTitled = new Set<NoteDocument>();
   private readonly autoTitleTimers = new Map<NoteDocument, NodeJS.Timeout>();
+  /** Each open note's headings as last checked, to spot a renamed one (LNK-16). */
+  private readonly headingBaselines = new Map<NoteDocument, Heading[]>();
+  private readonly headingTimers = new Map<NoteDocument, NodeJS.Timeout>();
   private readonly missingTimers = new Set<NodeJS.Timeout>();
   private indexQueue: Promise<void> = Promise.resolve();
   private closed = false;
@@ -1005,6 +1013,7 @@ export class Vault {
       });
       this.attach(document, path);
       if (isPlaceholderName(path)) this.autoTitled.add(document);
+      this.headingBaselines.set(document, parseNote(document.text).headings);
       this.documents.set(path, document);
       return document;
     } catch (error) {
@@ -1018,10 +1027,13 @@ export class Vault {
     document.onTextChange = (text) => {
       this.scheduleLiveIndexUpdate(path, text);
       this.scheduleAutoTitle(document);
+      this.scheduleHeadingCheck(document);
     };
     document.onExternalTextChange = (oldText, newText) => {
       this.editor.externalChange(path, oldText, newText);
       this.splitEditor.externalChange(path, oldText, newText);
+      // Text from disk (or a rewrite) isn't the user renaming a heading.
+      this.resetHeadingBaseline(document);
     };
     document.onStateChange = () => this.changed();
     // The document's own path can change (rename); look it up at write time.
@@ -1107,6 +1119,8 @@ export class Vault {
     const timer = this.autoTitleTimers.get(document);
     if (timer) clearTimeout(timer);
     this.autoTitleTimers.delete(document);
+    this.headingBaselines.delete(document);
+    this.resetHeadingBaseline(document); // clears its timer
     this.documents.delete(path);
     this.editor.forget(path);
     this.splitEditor.forget(path);
@@ -1238,13 +1252,14 @@ export class Vault {
   // MARK: Toasts
 
   /** Shows `message` for a few seconds, optionally with a button (Undo, Review…). */
-  showToast(text: string, action: (() => void) | null = null, actionTitle = "Undo", isWarning = false) {
+  /** Shows a toast (UI-31). `duration` overrides the 3 s / 6 s / 12 s rule, e.g. for a question that needs the warning's time. */
+  showToast(text: string, action: (() => void) | null = null, actionTitle = "Undo", isWarning = false, duration?: number) {
     if (this.toastTimer) clearTimeout(this.toastTimer);
     const toast: Toast = { id: this.nextToastId++, message: text, actionTitle: action ? actionTitle : null, isWarning, action };
     this.toast = toast;
     this.toastTimer = setTimeout(() => {
       if (this.toast === toast) this.dismissToast();
-    }, action === null ? 3000 : isWarning ? 12000 : 6000);
+    }, duration ?? (action === null ? 3000 : isWarning ? 12000 : 6000));
     this.changed();
   }
 
@@ -1412,6 +1427,258 @@ export class Vault {
       void this.delete([copy], false);
     });
     return copy;
+  }
+
+  // MARK: Note composer (FOP-14…FOP-16)
+
+  /** A file name for a new note from what the user typed or a heading, cleaned like a first-line title (FOP-05). */
+  private noteNameFrom(raw: string): string | null {
+    return titleFromContent(raw);
+  }
+
+  /**
+   * Puts earlier texts back into notes that still hold the later ones (a
+   * later edit wins), through open documents or on disk. Returns how many
+   * notes were restored.
+   */
+  private restoreTexts(before: Map<string, string>, after: Map<string, string>): number {
+    let restored = 0;
+    for (const [path, text] of before) {
+      if (this.textFor(path) === after.get(path) && this.writeUpdatedLinks(path, text)) restored++;
+    }
+    return restored;
+  }
+
+  /**
+   * Extract Selection to New Note (FOP-14): the selected text becomes a note
+   * beside the current one, and the selection a link (or embed) to it. The
+   * note's offsets come from the editor; `selected` checks they still hold.
+   * Returns the new note's path.
+   */
+  extractSelection(path: string, from: number, to: number, selected: string, rawName: string, embed: boolean): string | null {
+    const document = this.documents.get(path);
+    if (!document) return null;
+    const text = document.text;
+    const range = locateSelection(text, from, to, selected);
+    if (!range) {
+      this.showError("The selection has changed. Select the text again, then extract it.");
+      return null;
+    }
+    const name = this.noteNameFrom(rawName);
+    if (name === null) {
+      this.showError(INVALID_NAME);
+      return null;
+    }
+    const newPath = this.uniquePath(name, "md", P.dirname(path));
+    const eol = lineEnding(text);
+    const contents = selected.endsWith("\n") ? selected : selected + eol;
+    try {
+      fsx.writeAtomic(this.abs(newPath), contents, { withoutOverwriting: true });
+    } catch (error) {
+      this.showError(`Couldn’t create “${name}”: ${message(error)}`);
+      return null;
+    }
+    const newName = P.stem(newPath);
+    const link = `${embed ? "!" : ""}[[${newName}]]`;
+    const [start, end] = range;
+    const replaced = text.slice(0, start) + link + text.slice(end);
+    document.replaceContents(replaced);
+    this.reload([newPath]);
+    this.open(newPath, true);
+    this.showToast(`Extracted “${newName}”`, () => {
+      const current = this.textFor(path);
+      if (current !== null && current.slice(start, start + link.length) === link) {
+        this.writeUpdatedLinks(path, current.slice(0, start) + selected + current.slice(start + link.length));
+      }
+      void this.delete([newPath], false);
+    });
+    return newPath;
+  }
+
+  /**
+   * Merge Note Into (FOP-15): the current note's body goes to the end of
+   * `target` (under a "## Title" heading if asked), every link to it is
+   * pointed at the target, and it goes to the Recycle Bin. One Undo reverses
+   * all three.
+   */
+  async mergeNote(source: string, target: string, withHeading: boolean): Promise<boolean> {
+    if (source === target || !P.isNote(source) || !P.isNote(target)) return false;
+    this.documents.get(source)?.save();
+    const sourceText = this.textFor(source);
+    const targetText = this.textFor(target);
+    if (sourceText === null || targetText === null) {
+      this.showError(`Couldn’t read “${P.stem(sourceText === null ? source : target)}”.`);
+      return false;
+    }
+    // Links to the merged note now point at the target, as after a rename
+    // (LNK-12, LNK-13); the merged text's own relative links are recomputed
+    // for the target's folder, as if the note had moved there.
+    const mapping = new Map([[source, target]]);
+    const changes = this.planLinkRewrites(mapping, this.allNotes.filter((path) => path !== source));
+    const movedText = this.planLinkRewrites(mapping, [source]).get(target) ?? sourceText;
+    const merged = appendToNote(changes.get(target) ?? targetText, bodyWithoutFrontmatter(movedText), withHeading ? P.stem(source) : null);
+    changes.set(target, merged);
+    const before = new Map<string, string>();
+    for (const path of changes.keys()) before.set(path, this.textFor(path) ?? "");
+    for (const [path, text] of changes) this.writeUpdatedLinks(path, text);
+    const trashed = await this.delete([source], false);
+    this.reload([...changes.keys()]);
+    this.open(target);
+    const restorable = trashed.length === 1 && trashed[0].restore !== null;
+    this.showToast(`Merged ${this.describe([source])} into ${this.describe([target])}`, restorable ? () => {
+      this.restoreFromTrash(trashed);
+      this.restoreTexts(before, changes);
+      this.reload([...changes.keys()]);
+    } : null);
+    return true;
+  }
+
+  /**
+   * Split Note at Heading (FOP-16): the section around the cursor becomes a
+   * note named after its heading, the section a link to it, and links to
+   * that heading links to the new note. Returns the new note's path.
+   */
+  splitAtHeading(path: string, line: number): string | null {
+    const text = this.textFor(path);
+    if (text === null) return null;
+    const section = sectionAt(text, line);
+    if (!section) {
+      this.showError("Put the cursor on a heading, or in the text under one, then split the note there.");
+      return null;
+    }
+    const heading = section.heading.text;
+    const name = this.noteNameFrom(heading);
+    if (name === null) {
+      this.showError(INVALID_NAME);
+      return null;
+    }
+    const newPath = this.uniquePath(name, "md", P.dirname(path));
+    try {
+      fsx.writeAtomic(this.abs(newPath), section.body, { withoutOverwriting: true });
+    } catch (error) {
+      this.showError(`Couldn’t create “${name}”: ${message(error)}`);
+      return null;
+    }
+    const newName = P.stem(newPath);
+    const link = `[[${newName}]]`;
+    const eol = section.eol;
+    const replaced = text.slice(0, section.from) + link + eol + (section.to < text.length ? eol : "") + text.slice(section.to);
+    // [[Note#Heading]] everywhere (and [[#Heading]] in the note) → [[New Note]].
+    const newResolver = new LinkResolver([...this.allNotes, newPath]);
+    const { changes } = this.planHeadingLinkRewrites(path, heading, new Map([[path, replaced]]), (target, source) =>
+      target.kind === "wiki"
+        ? { path: wikiTarget(newPath, target.path, newResolver), fragment: "" }
+        : { path: target.path.startsWith("/") ? "/" + newPath : relativeLinkPath(P.dirname(source), newPath), fragment: "" },
+    );
+    if (!changes.has(path)) changes.set(path, replaced);
+    const before = new Map<string, string>();
+    for (const changed of changes.keys()) before.set(changed, this.textFor(changed) ?? "");
+    for (const [changed, updated] of changes) this.writeUpdatedLinks(changed, updated);
+    this.reload([newPath, ...changes.keys()]);
+    this.open(newPath, true);
+    this.showToast(`Split “${heading}” into ${this.describe([newPath])}`, () => {
+      this.restoreTexts(before, changes);
+      void this.delete([newPath], false);
+    });
+    return newPath;
+  }
+
+  /**
+   * Every note's text with its links to `heading` of `notePath` rewritten
+   * as `rewrite` says (LNK-16): only notes that have such a link, matched
+   * like LNK-09. `texts` overrides a note's current text.
+   */
+  private planHeadingLinkRewrites(
+    notePath: string,
+    heading: string,
+    texts: Map<string, string>,
+    rewrite: (link: FragmentLink, source: string) => FragmentRewrite,
+  ): { changes: Map<string, string>; links: number } {
+    const changes = new Map<string, string>();
+    let links = 0;
+    const resolver = this.resolver;
+    const targetOf = (link: { target: string; kind: "wiki" | "markdown" }, source: string) =>
+      LinkResolver.linkPath(link.target) === "" ? source : resolver.resolve(link, source);
+    for (const source of new Set([...this.allNotes, ...texts.keys()])) {
+      const text = texts.get(source) ?? this.textFor(source);
+      if (text === null) continue;
+      // Cheap filter: the index's links (a fresh parse for texts it hasn't seen).
+      const info = texts.has(source) ? parseNote(text) : (this.index.info(source) ?? parseNote(text));
+      if (!info.links.some((link) => /#/.test(link.target) && targetOf(link, source) === notePath)) continue;
+      const rewritten = rewriteFragmentLinks(text, (link) => {
+        const target = link.path === "" ? source : link.kind === "wiki" ? resolver.resolveWiki(link.path) : resolver.resolveMarkdown(link.path, source);
+        if (target !== notePath || !fragmentMatchesHeading(link.fragment, heading)) return null;
+        links++;
+        return rewrite(link, source);
+      });
+      if (rewritten !== text) changes.set(source, rewritten);
+    }
+    return { changes, links };
+  }
+
+  // MARK: Heading renames (LNK-16)
+
+  private scheduleHeadingCheck(document: NoteDocument) {
+    if (!this.headingBaselines.has(document)) return;
+    const existing = this.headingTimers.get(document);
+    if (existing) clearTimeout(existing);
+    this.headingTimers.set(
+      document,
+      setTimeout(() => {
+        this.headingTimers.delete(document);
+        this.checkHeadingRename(document);
+      }, this.options.headingLinksDelay ?? 1000),
+    );
+  }
+
+  /** Takes the note's headings as they are now as the baseline (text that arrived from outside isn't a rename). */
+  private resetHeadingBaseline(document: NoteDocument) {
+    const timer = this.headingTimers.get(document);
+    if (timer) clearTimeout(timer);
+    this.headingTimers.delete(document);
+    if (this.headingBaselines.has(document)) this.headingBaselines.set(document, parseNote(document.text).headings);
+  }
+
+  /**
+   * After typing pauses: if exactly one heading's text changed (and no
+   * heading was added or removed) and links point at the old heading,
+   * offers to update them.
+   */
+  checkHeadingRename(document: NoteDocument) {
+    const timer = this.headingTimers.get(document);
+    if (timer) clearTimeout(timer);
+    this.headingTimers.delete(document);
+    const after = parseNote(document.text).headings;
+    const before = this.headingBaselines.get(document);
+    this.headingBaselines.set(document, after);
+    const path = this.pathOf(document);
+    if (!before || path === null || !this.settings.updateHeadingLinks) return;
+    const rename = headingRename(before, after);
+    if (!rename) return;
+    const plan = this.planHeadingLinkRewrites(path, rename.from, new Map(), (link) => ({ fragment: renamedFragment(link.fragment, rename.from, rename.to, link.kind) }));
+    if (plan.links === 0) return;
+    this.showToast(
+      `Heading renamed — update ${plural(plan.links, "link")} in ${plural(plan.changes.size, "note")}?`,
+      () => this.updateHeadingLinks(path, rename.from, rename.to),
+      "Update Links",
+      false,
+      12000,
+    );
+  }
+
+  /** Points every `[[Note#from]]` / `[x](Note.md#from)` at the heading `to`, with Undo. */
+  updateHeadingLinks(path: string, from: string, to: string): number {
+    const { changes, links } = this.planHeadingLinkRewrites(path, from, new Map(), (link) => ({ fragment: renamedFragment(link.fragment, from, to, link.kind) }));
+    if (links === 0) return 0;
+    const before = new Map<string, string>();
+    for (const changed of changes.keys()) before.set(changed, this.textFor(changed) ?? "");
+    for (const [changed, text] of changes) this.writeUpdatedLinks(changed, text);
+    this.reload([...changes.keys()]);
+    this.showToast(`Updated ${plural(links, "link")}`, () => {
+      this.restoreTexts(before, changes);
+      this.reload([...changes.keys()]);
+    });
+    return links;
   }
 
   /** Asks before moving items to the Recycle Bin (see `pendingDeletion`). */
@@ -1741,12 +2008,12 @@ export class Vault {
    * For each note whose links point at a moving note (or that moves and has
    * relative markdown links), its new text — keyed by its path after the move.
    */
-  private planLinkRewrites(mapping: Map<string, string>): Map<string, string> {
+  private planLinkRewrites(mapping: Map<string, string>, sources: Iterable<string> = this.allNotes): Map<string, string> {
     const oldResolver = this.resolver;
     const newResolver = new LinkResolver(this.allNotes.map((path) => mapping.get(path) ?? path));
     const result = new Map<string, string>();
 
-    for (const sourceOld of this.allNotes) {
+    for (const sourceOld of sources) {
       const sourceNew = mapping.get(sourceOld) ?? sourceOld;
       const sourceMoves = mapping.has(sourceOld);
       let text: string;

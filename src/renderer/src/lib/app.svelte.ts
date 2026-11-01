@@ -3,10 +3,25 @@
 
 import type { AppState, ContextMenuParams, EditAction, EditorMessage, EditorPane, TreeNode, UiRequest } from "@shared/ipc";
 import { defaultSettings, type Settings } from "@shared/settings";
+import { titleFromContent } from "@core/autoTitle";
 import { activePane, call, editor, editorFor, host, run, setActivePane } from "./host";
 import { buildContextMenu, FORMAT_COMMANDS, mermaidCodeAt, type ContextActions, type ContextTarget } from "./contextMenu";
 import { commandById } from "./commands";
 import { menu } from "./menu.svelte";
+
+/** Quick Open used as a picker: notes only, `onPick` gets the chosen path (QO-08). */
+export interface NotePick {
+  /** The field's placeholder, e.g. "Merge into…". */
+  title: string;
+  /** Notes left out (the one being merged). */
+  exclude: string[];
+  onPick: (path: string) => void;
+}
+
+/** The note composer's dialogs (FOP-14, FOP-15). */
+export type ComposerRequest =
+  | { kind: "extract"; path: string; from: number; to: number; text: string; defaultName: string }
+  | { kind: "merge"; source: string; target: string };
 
 class AppStore {
   state = $state<AppState>({
@@ -26,8 +41,10 @@ class AppStore {
   loaded = $state(false);
 
   // UI-only state
-  quickOpen = $state<{ query: string; mode: "notes" | "commands" } | null>(null);
+  quickOpen = $state<{ query: string; mode: "notes" | "commands"; pick?: NotePick } | null>(null);
   templatePicker = $state<"insert" | "newNote" | null>(null);
+  /** The note composer's name prompt or merge confirmation, or null. */
+  composer = $state<ComposerRequest | null>(null);
   sidebarMode = $state<"files" | "search" | "tasks">("files");
   searchFocusRequest = $state(0);
   /** Bumped to open the daily-notes calendar from a command (DAY-07). */
@@ -223,7 +240,9 @@ class AppStore {
       const command = commandById.get(id);
       return command ? [{ label, shortcut: command.shortcut, run: command.run }] : [];
     });
-    const entries = buildContextMenu(params, target, actions, format);
+    const extractCommand = commandById.get("extractSelection");
+    const extract = extractCommand && (extractCommand.enabled?.() ?? true) ? { label: extractCommand.title, run: extractCommand.run } : undefined;
+    const entries = buildContextMenu(params, target, actions, format, extract);
     if (!entries.length) return;
     menu.open(entries, last?.clientX ?? params.x, last?.clientY ?? params.y, { onClose: restoreFocus });
   }
@@ -235,6 +254,39 @@ class AppStore {
 
   showCommandPalette() {
     this.quickOpen = { query: ">", mode: "commands" };
+  }
+
+  /** Quick Open as a note picker (QO-08). */
+  pickNote(pick: NotePick) {
+    if (!this.vault) return;
+    this.quickOpen = { query: "", mode: "notes", pick };
+  }
+
+  /** The note the focused editor shows: the active tab's, or split view's right-hand one (UI-40). */
+  private get editedPath(): string | null {
+    return this.pane === "split" ? (this.vault?.split?.path ?? null) : (this.doc?.path ?? null);
+  }
+
+  /** Extract Selection to New Note… (FOP-14): asks for a name, then main does the rest. */
+  extractSelection() {
+    const path = this.editedPath;
+    const selection = editor()?.getSelection();
+    if (!path || !selection || selection.from === selection.to || this.readingView) return;
+    this.composer = { kind: "extract", path, ...selection, defaultName: titleFromContent(selection.text) ?? "" };
+  }
+
+  /** Merge Note Into… (FOP-15): pick the target, then confirm. */
+  mergeNote() {
+    const source = this.editedPath;
+    if (!source) return;
+    this.pickNote({ title: "Merge into…", exclude: [source], onPick: (target) => (this.composer = { kind: "merge", source, target }) });
+  }
+
+  /** Split Note at Heading… (FOP-16): the section around the cursor. */
+  splitAtHeading() {
+    const path = this.editedPath;
+    if (!path || this.readingView) return;
+    run("splitAtHeading", path, this.cursor.line);
   }
 
   showSearch(query?: string) {

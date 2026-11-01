@@ -179,7 +179,7 @@ function rewriteLine(line: string, transform: Transform, options: RewriteOptions
 }
 
 /** UTF-16 ranges of `code spans` (backtick pairs) in a line. */
-function inlineCodeRanges(line: string): Range[] {
+export function inlineCodeRanges(line: string): Range[] {
   const ranges: Range[] = [];
   let start: number | null = null;
   for (let offset = line.indexOf("`"); offset >= 0; offset = line.indexOf("`", offset + 1)) {

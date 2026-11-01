@@ -622,6 +622,11 @@ function createEditor(parent, pane = "main") {
       }
       return null;
     },
+    /** The main selection: offsets into getText() and the text between them (empty when nothing is selected). */
+    getSelection() {
+      const { from, to } = view.state.selection.main;
+      return { from, to, text: view.state.sliceDoc(from, to) };
+    },
 
     /** The note as a standalone HTML page for Export as PDF / HTML and Print (exporter.js). */
     exportHtml(title) {

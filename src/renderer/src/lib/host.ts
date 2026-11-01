@@ -35,6 +35,8 @@ export interface EditorApi {
   getText(): string;
   /** The #tag at the cursor without the "#", or null (FOP-13). */
   tagAtCursor(): string | null;
+  /** The main selection's offsets into getText() and its text ("" when nothing is selected). */
+  getSelection(): { from: number; to: number; text: string };
   exportHtml(title: string): Promise<string>;
   [method: string]: unknown;
 }

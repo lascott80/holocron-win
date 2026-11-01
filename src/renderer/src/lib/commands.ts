@@ -267,6 +267,10 @@ export const commands: Command[] = [
   { id: "tableMoveColumnRight", title: "Table: Move Column Right", shortcut: "Alt+Shift+Right", editorKey: true, enabled: canFormat, run: ed("tableMoveColumnRight") },
   { id: "tableDeleteRow", title: "Table: Delete Row", shortcut: "Alt+Shift+Backspace", editorKey: true, enabled: canFormat, run: ed("tableDeleteRow") },
   { id: "tableDeleteColumn", title: "Table: Delete Column", shortcut: "Ctrl+Alt+Shift+Backspace", editorKey: true, enabled: canFormat, run: ed("tableDeleteColumn") },
+  // Note composer (FOP-14…FOP-16)
+  { id: "extractSelection", title: "Extract Selection to New Note…", enabled: () => canFormat() && app.cursor.selectedCharacters > 0, run: () => app.extractSelection() },
+  { id: "mergeNote", title: "Merge Note Into…", enabled: hasNote, run: () => app.mergeNote() },
+  { id: "splitAtHeading", title: "Split Note at Heading…", enabled: canFormat, run: () => app.splitAtHeading() },
 
   // Help
   { id: "starterGuide", title: "Add Start Here Guide to Vault", enabled: hasVault, run: () => run("addStarterGuide") },
@@ -329,6 +333,7 @@ export const menus: { title: string; items: (string | { title: string; items: st
       "insertTemplate", "-", "bold", "italic", "strikethrough", "highlight", "code", "link", "-", "task", "moveDoneTasksDown", "bulletList", "numberedList", "quote", "-",
       "codeBlock", "callout", "divider", "-", "tidyNote", "renameTag",
       { title: "Table", items: ["table", "convertToTable", "-", "tableInsertRowAbove", "tableInsertRowBelow", "tableInsertColumnLeft", "tableInsertColumnRight", "-", "tableMoveRowUp", "tableMoveRowDown", "tableMoveColumnLeft", "tableMoveColumnRight", "-", "tableDeleteRow", "tableDeleteColumn"] },
+      { title: "Note", items: ["extractSelection", "mergeNote", "splitAtHeading"] },
       "-", "heading1", "heading2", "heading3", "heading0",
     ],
   },
