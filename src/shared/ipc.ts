@@ -229,12 +229,16 @@ export interface Backlink {
   source: string;
   title: string;
   contexts: string[];
+  /** 1-based line of each context, for revealing it. */
+  lines: number[];
 }
 
 export interface Mention {
   source: string;
   title: string;
   context: string;
+  /** 1-based line of the mention. */
+  line: number;
 }
 
 export interface OutgoingLink {

@@ -10,6 +10,7 @@ import os from "node:os";
 import * as P from "@core/paths";
 import { LinkResolver, parse as parseNote, toggleTaskLine } from "@core/noteParser";
 import { rewrite as rewriteLinks, relativePath as relativeLinkPath } from "@core/linkRewriter";
+import { linkMentionOnLine } from "@core/mentions";
 import * as Attachments from "@core/attachments";
 import {
   attachmentUsage,
@@ -483,6 +484,57 @@ export class Vault {
     this.writeUpdatedLinks(path, toggled);
     this.indexRevision++;
     this.changed();
+  }
+
+  // MARK: Linking unlinked mentions (LNK-15)
+
+  /**
+   * Turns the unlinked mentions of `path` (IDX-02) in `sources` — or in
+   * every note when null — into wikilinks: on each source's mention line the
+   * first occurrence becomes `[[Title]]` or `[[Title|as written]]`. Open notes
+   * change through their document, others are rewritten atomically. Shows a
+   * toast with Undo. Returns how many notes changed.
+   */
+  linkMentions(path: string, sources: string[] | null = null): number {
+    if (!this.index.hasPath(path)) return 0;
+    const title = P.stem(path);
+    const names = [title, ...(this.index.info(path)?.aliases ?? [])].filter((name) => [...name].length >= 3);
+    const wanted = sources ? new Set(sources) : null;
+    const before = new Map<string, string>();
+    const after = new Map<string, string>();
+    for (const mention of this.index.unlinkedMentions(path)) {
+      if (wanted && !wanted.has(mention.source)) continue;
+      const text = this.textFor(mention.source);
+      if (text === null) continue;
+      // A bare [[Title]] must reach this note from there; a twin nearer the root means writing the path.
+      const target = this.resolver.resolveWiki(title) === path ? title : P.withoutExtension(path);
+      const linked = linkMentionOnLine(text, mention.line, names, target);
+      if (!linked || linked.text === text) continue;
+      before.set(mention.source, text);
+      after.set(mention.source, linked.text);
+    }
+    if (after.size === 0) {
+      this.showToast("Nothing to link");
+      return 0;
+    }
+    for (const [source, text] of after) this.writeUpdatedLinks(source, text);
+    this.indexRevision++;
+    this.changed();
+    const notes = after.size;
+    const summary = notes === 1 ? `Linked “${title}” in “${P.stem([...after.keys()][0])}”` : `Linked ${plural(notes, "mention")} in ${plural(notes, "note")}`;
+    this.showToast(summary, () => {
+      let restored = 0;
+      for (const [source, text] of before) {
+        // Only undo notes still showing the link; later edits win.
+        if (this.index.hasPath(source) && this.textFor(source) === after.get(source)) {
+          if (this.writeUpdatedLinks(source, text)) restored++;
+        }
+      }
+      this.indexRevision++;
+      this.changed();
+      if (restored < notes) this.showToast(`Restored ${plural(restored, "note")}; ${notes - restored === 1 ? "1 note has" : `${notes - restored} notes have`} changed since`, null, "Undo", true);
+    });
+    return notes;
   }
 
   // MARK: Sync conflict copies (UI-41)

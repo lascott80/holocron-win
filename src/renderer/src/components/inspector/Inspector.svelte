@@ -1,13 +1,14 @@
 <!-- The right-hand panel (UI-16..UI-19): the open note's outline, its links and file info. -->
 <script lang="ts">
-  import { FileText, FolderOpen, Link2, CornerDownRight } from "@lucide/svelte";
-  import type { NoteDetails } from "@shared/ipc";
+  import { FolderOpen, Link2, CornerDownRight } from "@lucide/svelte";
   import type { InspectorTab } from "@shared/settings";
   import { dirname } from "@core/paths";
-  import { plainLine, plainText } from "@core/noteParser";
+  import { plainText } from "@core/noteParser";
   import { app } from "../../lib/app.svelte";
-  import { call, editorFor, run } from "../../lib/host";
+  import { editorFor, run } from "../../lib/host";
+  import { noteDetails } from "../../lib/noteDetails.svelte";
   import Segmented from "../overlays/Segmented.svelte";
+  import LinkCards from "./LinkCards.svelte";
 
   const tabs: { value: InspectorTab; label: string }[] = [
     { value: "outline", label: "Outline" },
@@ -18,30 +19,8 @@
   const tab = $derived(app.settings.inspectorTab);
   const path = $derived(app.doc?.path ?? null);
 
-  let details = $state<NoteDetails | null>(null);
-  /** The path `details` belongs to, so a stale note's data never shows. */
-  let detailsPath = $state<string | null>(null);
-  let request = 0;
-
-  $effect(() => {
-    const current = path;
-    void app.vault?.indexRevision;
-    if (!current) {
-      details = null;
-      detailsPath = null;
-      return;
-    }
-    const id = ++request;
-    call<NoteDetails | undefined>("details", current)
-      .then((result) => {
-        if (id !== request) return;
-        details = result ?? null;
-        detailsPath = current;
-      })
-      .catch((error: unknown) => console.error("[details]", error));
-  });
-
-  const shown = $derived(details && detailsPath === path ? details : null);
+  const details = noteDetails(() => path);
+  const shown = $derived(details.current);
   const headings = $derived(shown?.headings ?? []);
   const minLevel = $derived(headings.length ? Math.min(...headings.map((h) => h.level)) : 1);
 
@@ -180,37 +159,7 @@
           {/if}
         {:else if tab === "links"}
           {#if shown}
-            <section>
-              {@render sectionHeader("Backlinks", shown.backlinks.length)}
-              {#if shown.backlinks.length === 0}
-                <p class="empty">No other notes link here yet.</p>
-              {:else}
-                <div class="cards">
-                  {#each shown.backlinks as backlink (backlink.source)}
-                    <button class="card" title={backlink.source} onclick={() => run("open", backlink.source)}>
-                      <span class="card-title"><FileText size={13} />{backlink.title}</span>
-                      {#each backlink.contexts.slice(0, 3) as context, index (index)}
-                        <span class="card-context">{plainLine(context.trim())}</span>
-                      {/each}
-                    </button>
-                  {/each}
-                </div>
-              {/if}
-            </section>
-
-            {#if shown.mentions.length > 0}
-              <section>
-                {@render sectionHeader("Unlinked mentions", shown.mentions.length)}
-                <div class="rows">
-                  {#each shown.mentions as mention (mention.source)}
-                    <button class="link-row" title={mention.source} onclick={() => run("open", mention.source)}>
-                      <span class="link-title">{mention.title}</span>
-                      <span class="link-detail">{plainLine(mention.context.trim())}</span>
-                    </button>
-                  {/each}
-                </div>
-              </section>
-            {/if}
+            <LinkCards {path} details={shown} />
 
             {#if shown.outgoing.length > 0}
               <section>
@@ -386,55 +335,7 @@
     color: var(--ui-accent-text);
   }
 
-  /* Links */
-  .cards {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .card {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    width: 100%;
-    padding: 9px 10px;
-    border: 1px solid var(--ui-border);
-    border-radius: 8px;
-    background: var(--ui-raised);
-    text-align: left;
-    transition: border-color 0.12s, background 0.12s;
-  }
-  .card:hover {
-    border-color: var(--ui-strong-border);
-    background: color-mix(in srgb, var(--ui-raised) 80%, var(--ui-chip));
-  }
-  .card-title {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-width: 0;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--ui-text);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .card-title :global(svg) {
-    flex: none;
-    color: var(--ui-text-3);
-  }
-  .card-context {
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    font-size: 12px;
-    line-height: 1.4;
-    color: var(--ui-text-2);
-    overflow-wrap: anywhere;
-  }
+  /* Links (backlinks and mentions: LinkCards.svelte) */
   .rows {
     display: flex;
     flex-direction: column;

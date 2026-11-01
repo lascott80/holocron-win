@@ -12,12 +12,16 @@ export interface Backlink {
   title: string;
   /** The lines containing the links. */
   contexts: string[];
+  /** 1-based line number of each context. */
+  lines: number[];
 }
 
 export interface Mention {
   source: string;
   title: string;
   context: string;
+  /** 1-based line number of the mention. */
+  line: number;
 }
 
 export interface TagCount {
@@ -146,10 +150,14 @@ export class VaultIndex {
     const result: Backlink[] = [];
     for (const [source, info] of this.notes) {
       if (source === path) continue;
-      const contexts = [
-        ...new Set(info.links.filter((link) => this._resolver.resolve(link, source) === path).map((link) => link.context)),
-      ];
-      if (contexts.length > 0) result.push({ source, title: VaultIndex.title(source), contexts });
+      const contexts: string[] = [];
+      const lines: number[] = [];
+      for (const link of info.links) {
+        if (contexts.includes(link.context) || this._resolver.resolve(link, source) !== path) continue;
+        contexts.push(link.context);
+        lines.push(link.line);
+      }
+      if (contexts.length > 0) result.push({ source, title: VaultIndex.title(source), contexts, lines });
     }
     return result.sort((a, b) => naturalCompare(a.title, b.title));
   }
@@ -173,7 +181,7 @@ export class VaultIndex {
       for (let index = 0; index < lines.length; index++) {
         const line = lines[index];
         if (linkedLines.has(index + 1) || !names.some((name) => VaultIndex.containsWord(name, line))) continue;
-        result.push({ source, title: VaultIndex.title(source), context: trimWhitespace(line) });
+        result.push({ source, title: VaultIndex.title(source), context: trimWhitespace(line), line: index + 1 });
         break;
       }
       if (result.length >= limit) break;

@@ -297,6 +297,8 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
     clearHistory: withVault((vault) => vault.clearHistory()),
     allTasks: withVault((vault, includeDone, tag) => vault.index.allTasks({ includeDone: bool(includeDone), tag: optStr(tag) })),
     toggleTask: withVault((vault, path, line) => vault.toggleTask(str(path), num(line))),
+    /** Links a note's unlinked mentions in the given source notes (all of them when null), LNK-15. */
+    linkMentions: withVault((vault, path, sources) => vault.linkMentions(str(path), sources == null ? null : strings(sources))),
     notesTagged: withVault((vault, tag) => vault.index.notesTaggedWith(str(tag))),
     search: (query, matchCase, useRegex) => app.search.search(str(query), bool(matchCase), bool(useRegex)),
     replaceInVault: withVault((vault, query, replacement, matchCase, useRegex, onlyPath) =>
