@@ -3,6 +3,7 @@
 // (REQUIREMENTS §12, QO-05). Shortcuts use the Windows mapping in §17.2.
 
 import { app } from "./app.svelte";
+import { SEARCH_SORTS, searchState } from "../components/sidebar/searchState.svelte";
 import { accents, activeTheme, themes } from "./theme";
 import { call, editor, run } from "./host";
 import { defaultSettings, FONT_SIZE_RANGE, shortcutLabel, type Accent, type Appearance, type EditorMode, type FileSort } from "@shared/settings";
@@ -136,6 +137,17 @@ export const commands: Command[] = [
   { id: "findNext", title: "Find Next", shortcut: "F3", editorKey: true, enabled: hasNote, run: ed("findNext") },
   { id: "findPrevious", title: "Find Previous", shortcut: "Shift+F3", editorKey: true, enabled: hasNote, run: ed("findPrevious") },
   { id: "searchVault", title: "Search Vault…", shortcut: "Ctrl+Shift+F", enabled: hasVault, run: () => app.showSearch() },
+  // Search results (SRCH-12, SRCH-13)
+  { id: "copySearchResults", title: "Copy Search Results", enabled: () => hasVault() && searchState.outcome.hits.length > 0, run: () => searchState.copyResults() },
+  ...SEARCH_SORTS.map(
+    ({ value, label }): Command => ({
+      id: `sortSearch:${value}`,
+      title: `Sort Search Results by ${label}`,
+      enabled: hasVault,
+      checked: () => searchState.sort === value,
+      run: () => (searchState.sort = value),
+    }),
+  ),
   { id: "showTasks", title: "Show Tasks", shortcut: "Ctrl+Shift+T", enabled: hasVault, run: () => app.showTasks() },
 
   // View
@@ -274,10 +286,10 @@ export const menus: { title: string; items: (string | { title: string; items: st
     title: "File",
     items: ["newNote", "newNoteFromTemplate", "newFolder", "newTab", "pinTab", "bookmark", "-", "quickCapture", "quickOpen", "commandPalette", "-", "openVault", "createVault", "-", "save", "closeTab", "closeVault", "-", "versionHistory", "showNoteInExplorer", "showVaultInExplorer", "-", "exportPdf", "exportHtml", "print", "-", { title: "Attachments", items: ["organiseAttachments", "organiseNoteAttachments", "-", "cleanUpAttachments", "emptyUnusedAttachments", "-", "undoAttachmentChange"] }, "-", "settings", "-", "quitApp"],
   },
-  { title: "Edit", items: ["undo", "redo", "-", "copyMarkdown", "pastePlainText", "-", "find", "findNext", "findPrevious", "searchVault"] },
+  { title: "Edit", items: ["undo", "redo", "-", "copyMarkdown", "pastePlainText", "-", "find", "findNext", "findPrevious", "searchVault", "copySearchResults"] },
   {
     title: "View",
-    items: ["toggleSidebar", "toggleInspector", "splitRight", "closeSplit", "graphView", "localGraph", "toggleFormattingBar", "readableLineLength", "showTasks", { title: "Sort Files", items: FILE_SORTS.map(({ value }) => `sortFiles:${value}`) }, "-", "zoomIn", "zoomOut", "zoomReset", "-", "mode:livePreview", "mode:source", "mode:reading", "-", "toggleReading", "toggleSource", "focusMode", "-", "foldHeading", "unfoldHeading", "foldAllHeadings", "unfoldAll"],
+    items: ["toggleSidebar", "toggleInspector", "splitRight", "closeSplit", "graphView", "localGraph", "toggleFormattingBar", "readableLineLength", "showTasks", { title: "Sort Files", items: FILE_SORTS.map(({ value }) => `sortFiles:${value}`) }, { title: "Sort Search Results", items: SEARCH_SORTS.map(({ value }) => `sortSearch:${value}`) }, "-", "zoomIn", "zoomOut", "zoomReset", "-", "mode:livePreview", "mode:source", "mode:reading", "-", "toggleReading", "toggleSource", "focusMode", "-", "foldHeading", "unfoldHeading", "foldAllHeadings", "unfoldAll"],
   },
   { title: "Go", items: ["today", "calendar", "previousDaily", "nextDaily", "-", "back", "forward", "-", "nextTab", "previousTab"] },
   {

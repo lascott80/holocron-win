@@ -1,17 +1,23 @@
 <!-- The sidebar's Search mode (§9.2, UI-20…UI-23): full-text search across the
      vault, results grouped per note with highlighted snippets. -->
 <script lang="ts">
-  import { ChevronRight, CircleX, Replace, ReplaceAll, Search } from "@lucide/svelte";
+  import { ArrowUpDown, ChevronRight, CircleX, Replace, ReplaceAll, Search } from "@lucide/svelte";
   import { untrack } from "svelte";
   import { MAX_LINES_PER_NOTE, plainSnippet, type LineMatch, type SearchHit, type SearchOutcome } from "@core/vaultSearch";
   import { app } from "../../lib/app.svelte";
   import { call, run } from "../../lib/host";
-  import { searchState as s } from "./searchState.svelte";
+  import { menu } from "../../lib/menu.svelte";
+  import { SEARCH_SORTS, searchState as s, type NoteTimes } from "./searchState.svelte";
 
   const help: [string, string][] = [
     ["kyber crystal", "notes with both words"],
     ['"red shift"', "an exact phrase"],
     ["-ilum", "leave out a word"],
+    ["kyber OR saber", "either word"],
+    ["line:(red shift)", "both words on one line"],
+    ["section:(ilum caves)", "both under one heading"],
+    ["task-todo:attune", "open tasks with a word"],
+    ["[status:active]", "a property value"],
     ["tag:lore", "notes with a tag"],
     ["path:Daily", "notes in a folder"],
     ["file:log", "notes by name"],
@@ -101,10 +107,37 @@
     run("reveal", hit.path, line.line, from, from + (range?.length ?? 0));
   }
 
+  // ---- Sort (SRCH-12) ----
+  // The time sorts need file times, which main gathers for the listed notes.
+  let timesRequest = 0;
+  $effect(() => {
+    const paths = outcome.hits.map((hit) => hit.path);
+    const wantsTimes = s.sort === "modified" || s.sort === "created";
+    untrack(() => {
+      if (!wantsTimes || paths.length === 0) return;
+      const id = ++timesRequest;
+      call<Record<string, NoteTimes> | undefined>("noteTimes", paths)
+        .then((times) => {
+          if (id === timesRequest && times) s.times = times;
+        })
+        .catch((error: unknown) => console.error("[noteTimes]", error));
+    });
+  });
+
+  function openSortMenu(event: MouseEvent) {
+    event.stopPropagation();
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    menu.open(
+      SEARCH_SORTS.map(({ value, label }) => ({ label, checked: s.sort === value, run: () => (s.sort = value) })),
+      rect.left,
+      rect.bottom + 2,
+    );
+  }
+
   function onKeydown(event: KeyboardEvent) {
     if (event.key === "Enter") {
       event.preventDefault();
-      const hit = outcome.hits[0];
+      const hit = s.sortedHits[0];
       if (hit) reveal(hit, hit.lines[0]);
     } else if (event.key === "Escape" && app.searchText) {
       event.preventDefault();
@@ -221,6 +254,9 @@
     <button class="option icon" class:on={s.replaceOpen} title="Replace" aria-label="Replace" aria-pressed={s.replaceOpen} onclick={toggleReplace}>
       <Replace size={14} strokeWidth={2} />
     </button>
+    <button class="option icon" class:on={s.sort !== "relevance"} title="Sort results" aria-label="Sort results" aria-haspopup="menu" onclick={openSortMenu}>
+      <ArrowUpDown size={14} strokeWidth={2} />
+    </button>
   </div>
 
   {#if s.replaceOpen}
@@ -258,6 +294,7 @@
     <div class="summary">
       <span class:error={Boolean(outcome.error)}>{summary}</span>
       {#if outcome.hits.length && !isEmpty}
+        <button class="link" title="Copy the results as markdown" onclick={() => s.copyResults()}>Copy results</button>
         <button class="link" onclick={toggleAll}>{s.collapsed.size === 0 ? "Collapse All" : "Expand All"}</button>
       {/if}
     </div>
@@ -272,7 +309,7 @@
     </dl>
   {:else}
     <div class="results" class:stale={s.isSearching}>
-      {#each outcome.hits as hit (hit.path)}
+      {#each s.sortedHits as hit (hit.path)}
         {@const open = !s.collapsed.has(hit.path)}
         <div class="hit">
           <div class="hit-header">
@@ -466,7 +503,7 @@
   }
   .help {
     display: grid;
-    grid-template-columns: 104px 1fr;
+    grid-template-columns: minmax(104px, auto) 1fr;
     gap: 6px 8px;
     margin: 0;
     padding: 8px 16px 0;
@@ -475,7 +512,7 @@
   .help dt {
     color: var(--ui-accent-text);
     font-family: "Cascadia Mono", Consolas, ui-monospace, monospace;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
   }
   .help dd {
     margin: 0;

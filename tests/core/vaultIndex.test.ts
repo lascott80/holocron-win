@@ -74,9 +74,9 @@ describe("VaultIndex", () => {
     expect(index.revision).toBe(revision);
   });
 
-  test("search snapshot has text and tags", () => {
+  test("search snapshot has text, tags and properties", () => {
     const note = index.searchSnapshot().find((n) => n.path === "Lore/Crystals/Ilum.md");
-    expect(note).toEqual({ path: "Lore/Crystals/Ilum.md", text: files["Lore/Crystals/Ilum.md"], tags: ["lore/planets"] });
+    expect(note).toEqual({ path: "Lore/Crystals/Ilum.md", text: files["Lore/Crystals/Ilum.md"], tags: ["lore/planets"], properties: [] });
   });
 
   test("outgoing links skip attachments and same-note headings", () => {

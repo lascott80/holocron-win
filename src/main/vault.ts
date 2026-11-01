@@ -896,6 +896,20 @@ export class Vault {
     return this.history?.list(path) ?? [];
   }
 
+  /** Modification and creation times of notes, for sorting search results (SRCH-12); notes missing on disk are left out. */
+  noteTimes(paths: string[]): Record<string, { modified: number; created: number }> {
+    const times: Record<string, { modified: number; created: number }> = {};
+    for (const path of paths) {
+      try {
+        const stat = fs.statSync(this.abs(path));
+        times[path] = { modified: stat.mtimeMs, created: stat.birthtimeMs || stat.ctimeMs };
+      } catch {
+        // Vanished since the search ran.
+      }
+    }
+    return times;
+  }
+
   historyText(path: string, id: string): string | null {
     return this.history?.read(path, id) ?? null;
   }

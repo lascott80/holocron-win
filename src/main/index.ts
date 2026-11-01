@@ -238,7 +238,7 @@ export class HolocronApp {
       onChange: () => this.pushState(),
       onTreeChange: () => this.pushTree(),
       onIndexChange: (updated, removed) => {
-        this.search.update(updated.map(({ path: notePath, text }) => ({ path: notePath, text, tags: vault.index.info(notePath)?.tags ?? [] })));
+        this.search.update(updated.map(({ path: notePath, text }) => vault.index.searchNote(notePath, text)));
         this.search.remove(removed);
       },
     });

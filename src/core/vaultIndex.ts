@@ -3,7 +3,7 @@
 // feeds it the vault's note paths (`setPaths`) and each note's text (`update`).
 
 import { isAttachmentTarget } from "./attachments";
-import { LinkResolver, parse, trimWhitespace, type NoteInfo, type Task } from "./noteParser";
+import { LinkResolver, parse, trimWhitespace, type NoteInfo, type Property, type Task } from "./noteParser";
 import { naturalCompare, title as pathTitle } from "./paths";
 
 export interface Backlink {
@@ -57,11 +57,12 @@ export interface NoteTasks {
   total: number;
 }
 
-/** A note's text and tags, for full-text search. */
+/** A note's text, tags and properties, for full-text search. */
 export interface SearchNote {
   path: string;
   text: string;
   tags: string[];
+  properties: Property[];
 }
 
 /** Lines split at "\n" with a trailing "\r" removed, matching `parse`'s line numbers. */
@@ -136,9 +137,15 @@ export class VaultIndex {
     return this.texts.get(path);
   }
 
-  /** Every indexed note's text and tags, for searching. */
+  /** Every indexed note's text, tags and properties, for searching. */
   searchSnapshot(): SearchNote[] {
-    return [...this.texts].map(([path, text]) => ({ path, text, tags: this.notes.get(path)?.tags ?? [] }));
+    return [...this.texts].map(([path, text]) => this.searchNote(path, text));
+  }
+
+  /** One note as the search worker holds it. */
+  searchNote(path: string, text: string): SearchNote {
+    const info = this.notes.get(path);
+    return { path, text, tags: info?.tags ?? [], properties: info?.properties ?? [] };
   }
 
   /** Notes that link to `path`, by title. */
