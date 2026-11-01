@@ -133,6 +133,49 @@ describe("VaultIndex.allTasks", () => {
   });
 });
 
+describe("VaultIndex.allProperties", () => {
+  const index = build({
+    "A.md": "---\nstatus: draft\nrating: 4\ntags: [lore, crystals]\ndue: 2026-11-01\nwhen: 2026-11-01T14:30\ndone: true\n---\n",
+    "B.md": "---\nStatus: draft\nrating: 9.5\ntags:\n  - lore\n  - lore\ndue: 2026-11-02\nwhen: 2026-11-02 09:00\ndone: false\n---\n",
+    "C.md": "---\nstatus: final\nrating: high\nmentors: [Ilia]\nnotes:\n---\n",
+    "D.md": "No frontmatter.\n",
+  });
+
+  test("counts keys, infers types and gathers values", () => {
+    const properties = index.allProperties();
+    expect(properties.map((p) => [p.key, p.count, p.type])).toEqual([
+      ["rating", 3, "text"],
+      ["status", 3, "text"],
+      ["done", 2, "checkbox"],
+      ["due", 2, "date"],
+      ["tags", 2, "list"],
+      ["when", 2, "datetime"],
+      ["mentors", 1, "list"],
+      ["notes", 1, "text"],
+    ]);
+    const status = properties.find((p) => p.key === "status")!;
+    expect(status.values).toEqual([
+      { value: "draft", count: 2 },
+      { value: "final", count: 1 },
+    ]);
+    // A note's repeated list item counts once; a single-item inline list is still a list.
+    expect(properties.find((p) => p.key === "tags")!.values).toEqual([
+      { value: "lore", count: 2 },
+      { value: "crystals", count: 1 },
+    ]);
+    expect(properties.find((p) => p.key === "notes")!.values).toEqual([]);
+  });
+
+  test("agreeing numbers type a key as number; the value list is capped", () => {
+    const many: Record<string, string> = {};
+    for (let i = 0; i < 60; i++) many[`N${i}.md`] = `---\nrating: ${i}\n---\n`;
+    const numbers = build(many).allProperties();
+    expect(numbers[0].type).toBe("number");
+    expect(numbers[0].values).toHaveLength(50);
+    expect(build(many).allProperties(5)[0].values).toHaveLength(5);
+  });
+});
+
 describe("VaultIndex.graph", () => {
   test("has every note, one edge per link, and missing notes as their own nodes", () => {
     const index = build({

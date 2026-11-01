@@ -115,6 +115,18 @@ export interface VaultView {
   /** Template note paths, sorted by name. */
   templates: string[];
   isIndexing: boolean;
+  /** Every frontmatter key in the vault with its counts and values (IDX-07), by count then name. */
+  properties: PropertySummary[];
+}
+
+/** A frontmatter key across the vault, compact for the state snapshot (IDX-07). */
+export interface PropertySummary {
+  key: string;
+  /** Notes using the key. */
+  count: number;
+  type: "text" | "list" | "number" | "checkbox" | "date" | "datetime";
+  /** [value, notes] for up to 50 distinct values, commonest first. */
+  values: [string, number][];
 }
 
 export interface AttachmentCleanupItem {

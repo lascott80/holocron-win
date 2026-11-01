@@ -8,6 +8,7 @@
   import BookmarksSection from "./BookmarksSection.svelte";
   import FileTree from "./FileTree.svelte";
   import TagsSection from "./TagsSection.svelte";
+  import PropertiesSection from "./PropertiesSection.svelte";
   import SearchPanel from "./SearchPanel.svelte";
   import TasksPanel from "./TasksPanel.svelte";
 
@@ -57,6 +58,7 @@
       <BookmarksSection />
       <FileTree />
       <TagsSection />
+      <PropertiesSection />
     </div>
   {:else if app.sidebarMode === "search"}
     <SearchPanel />

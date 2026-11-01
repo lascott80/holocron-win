@@ -29,6 +29,8 @@ export interface Link {
 export interface Property {
   key: string;
   values: string[];
+  /** Written as a list (`[a, b]` or `- item` lines), even with one item. */
+  list?: boolean;
 }
 
 /** A checklist item: `- [ ] text`, `1. [x] text`, `* [!] text`… (TSK-01). */
@@ -286,6 +288,7 @@ export function frontmatterProperties(yaml: readonly string[]): Property[] {
     const raw = trimWhitespace(line.slice(colon + 1));
     if (key === "") continue;
     let values: string[] = [];
+    let list = false;
     if (raw === "") {
       const nested: string[] = [];
       while (index < yaml.length && (isWhitespaceChar(yaml[index][0]) || trimWhitespace(yaml[index]) === "")) {
@@ -294,13 +297,15 @@ export function frontmatterProperties(yaml: readonly string[]): Property[] {
         if (next.startsWith("- ")) values.push(cleanItem(next.slice(2)));
         else if (next !== "") nested.push(next);
       }
+      list = values.length > 0;
       if (values.length === 0 && nested.length > 0) values = [nested.join(", ")];
     } else if (raw.startsWith("[") && raw.endsWith("]")) {
       values = splitNonEmpty(raw.slice(1, -1), ",").map(cleanItem).filter((value) => value !== "");
+      list = true;
     } else {
       values = [cleanItem(raw)];
     }
-    properties.push({ key, values });
+    properties.push(list ? { key, values, list } : { key, values });
   }
   return properties;
 }
