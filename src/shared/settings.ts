@@ -62,6 +62,8 @@ export interface Settings {
   fetchLinkTitles: boolean;
   /** Cap the text column at `editorLineWidth`; off = notes fill the window. */
   readableLineLength: boolean;
+  /** Linked and unlinked mentions under each note's text (UI-44). */
+  backlinksInNote: boolean;
   attachmentFolder: string;
   attachmentLayout: AttachmentLayout;
   templatesFolder: string;
@@ -132,6 +134,7 @@ export const defaultSettings: Settings = {
   revealMarkup: "line",
   fetchLinkTitles: true,
   readableLineLength: true,
+  backlinksInNote: false,
   attachmentFolder: "Attachments",
   attachmentLayout: "perNote",
   templatesFolder: "Templates",

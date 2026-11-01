@@ -8,6 +8,7 @@
   import { call, editor } from "../lib/host";
   import { editorVariables } from "../lib/theme";
   import { zoomText } from "../lib/commands";
+  import BacklinksPanel from "./detail/BacklinksPanel.svelte";
 
   let { visible }: { visible: boolean } = $props();
   let dragging = $state(false);
@@ -91,6 +92,7 @@
   bind:this={host}
 >
   <div id="editor"></div>
+  <BacklinksPanel />
 </div>
 
 <style>
@@ -114,5 +116,9 @@
   .editor-host :global(.cm-editor) {
     height: 100%;
     user-select: text;
+  }
+  /* The backlinks panel (UI-44) sits under the text as a second flex row of the scroller. */
+  .editor-host :global(.cm-scroller:has(> .hc-backlinks.shown)) {
+    flex-wrap: wrap;
   }
 </style>
