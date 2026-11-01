@@ -39,6 +39,8 @@ class AppStore {
   historyOpen = $state(false);
   /** The sync conflict copy being reviewed (UI-41), or null. */
   syncReview = $state<string | null>(null);
+  /** The tag Rename Tag… is renaming (FOP-13), or null. */
+  renamingTag = $state<string | null>(null);
   /** Graph view (UI-42): open, and what it showed last time. */
   graphOpen = $state(false);
   graphScope = $state<"vault" | "local">("vault");

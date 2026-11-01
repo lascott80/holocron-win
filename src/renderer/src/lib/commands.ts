@@ -211,6 +211,16 @@ export const commands: Command[] = [
   { id: "callout", title: "Callout", enabled: canFormat, run: ed("callout") },
   { id: "divider", title: "Divider", enabled: canFormat, run: ed("divider") },
   { id: "tidyNote", title: "Tidy Note", shortcut: "Ctrl+Alt+L", enabled: canFormat, run: ed("tidyNote") },
+  // Rename Tag… (FOP-13): the tag under the cursor, vault-wide.
+  {
+    id: "renameTag",
+    title: "Rename Tag…",
+    enabled: () => canFormat() && Boolean(editor()?.tagAtCursor()),
+    run: () => {
+      const tag = editor()?.tagAtCursor();
+      if (tag) app.renamingTag = tag;
+    },
+  },
   { id: "heading1", title: "Heading 1", shortcut: "Ctrl+Alt+1", editorKey: true, enabled: canFormat, run: ed("heading1") },
   { id: "heading2", title: "Heading 2", shortcut: "Ctrl+Alt+2", editorKey: true, enabled: canFormat, run: ed("heading2") },
   { id: "heading3", title: "Heading 3", shortcut: "Ctrl+Alt+3", editorKey: true, enabled: canFormat, run: ed("heading3") },
@@ -284,7 +294,7 @@ export const menus: { title: string; items: (string | { title: string; items: st
     title: "Format",
     items: [
       "insertTemplate", "-", "bold", "italic", "strikethrough", "highlight", "code", "link", "-", "task", "moveDoneTasksDown", "bulletList", "numberedList", "quote", "-",
-      "codeBlock", "callout", "divider", "-", "tidyNote",
+      "codeBlock", "callout", "divider", "-", "tidyNote", "renameTag",
       { title: "Table", items: ["table", "convertToTable", "-", "tableInsertRowAbove", "tableInsertRowBelow", "tableInsertColumnLeft", "tableInsertColumnRight", "-", "tableMoveRowUp", "tableMoveRowDown", "tableMoveColumnLeft", "tableMoveColumnRight", "-", "tableDeleteRow", "tableDeleteColumn"] },
       "-", "heading1", "heading2", "heading3", "heading0",
     ],

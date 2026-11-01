@@ -3,7 +3,7 @@
 import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView, drawSelection, dropCursor, keymap, placeholder, rectangularSelection } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab, redo, undo } from "@codemirror/commands";
-import { indentOnInput, syntaxHighlighting } from "@codemirror/language";
+import { indentOnInput, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import {
   findNext,
@@ -567,6 +567,18 @@ function createEditor(parent, pane = "main") {
 
     getText() {
       return view.state.doc.toString();
+    },
+
+    /** The #tag the cursor is on or right after (without the "#"), or null: Format › Rename Tag… (FOP-13). */
+    tagAtCursor() {
+      const pos = view.state.selection.main.head;
+      const tree = syntaxTree(view.state);
+      for (const side of [-1, 1]) {
+        let node = tree.resolveInner(pos, side);
+        while (node && node.name !== "Tag") node = node.parent;
+        if (node) return view.state.doc.sliceString(node.from + 1, node.to);
+      }
+      return null;
     },
 
     /** The note as a standalone HTML page for Export as PDF / HTML and Print (exporter.js). */

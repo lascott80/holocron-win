@@ -289,6 +289,11 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
     // Index queries
     details: withVault((vault, path) => vault.details(str(path))),
     allTags: withVault((vault) => vault.index.allTags()),
+    // The sidebar's tag tree (UI-14) and tag renaming (FOP-13)
+    tagTree: withVault((vault, sort) => vault.tagTree(sort === "name" ? "name" : "count")),
+    expandedTags: withVault((vault) => vault.expandedTags),
+    setExpandedTags: withVault((vault, tags) => vault.setExpandedTags(strings(tags))),
+    renameTag: withVault((vault, from, to) => vault.renameTag(str(from), str(to))),
     // Version history (HIS-02…HIS-04)
     noteHistory: withVault((vault, path) => vault.noteHistory(str(path))),
     historyText: withVault((vault, path, id) => vault.historyText(str(path), str(id))),
