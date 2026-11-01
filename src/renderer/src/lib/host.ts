@@ -31,6 +31,8 @@ export interface EditorApi {
   scrollToLine(line: number): void;
   moveSection(fromLine: number, beforeLine: number | null): boolean;
   getText(): string;
+  /** The #tag at the cursor without the "#", or null (FOP-13). */
+  tagAtCursor(): string | null;
   exportHtml(title: string): Promise<string>;
   [method: string]: unknown;
 }

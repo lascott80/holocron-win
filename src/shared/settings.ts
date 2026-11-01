@@ -10,6 +10,8 @@ export type EditorMode = "livePreview" | "source" | "reading";
 export type InspectorTab = "outline" | "links" | "info";
 /** Order of the file tree (folders always first): by name, or newest first by modification or creation time. */
 export type FileSort = "name" | "nameDesc" | "modified" | "created";
+/** Order of the sidebar's tag tree (UI-14): most used first, or by name. */
+export type TagSort = "count" | "name";
 export type SettingsTab = "general" | "appearance" | "editor" | "templates";
 export type CaptureTarget = "daily" | "inbox";
 export type ParagraphSpacing = "compact" | "normal" | "relaxed";
@@ -89,6 +91,8 @@ export interface Settings {
   showSidebar: boolean;
   inspectorTab: InspectorTab;
   tagsExpanded: boolean;
+  /** Tag tree order (UI-14). */
+  tagSort: TagSort;
   bookmarksExpanded: boolean;
   settingsTab: SettingsTab;
 }
@@ -142,6 +146,7 @@ export const defaultSettings: Settings = {
   showSidebar: true,
   inspectorTab: "outline",
   tagsExpanded: true,
+  tagSort: "count",
   bookmarksExpanded: true,
   settingsTab: "general",
 };
@@ -179,6 +184,7 @@ export function sanitizeSettings(raw: Partial<Record<keyof Settings, unknown>>):
   result.lastEditingMode = oneOf(result.lastEditingMode, ["livePreview", "source"], "livePreview");
   result.inspectorTab = oneOf(result.inspectorTab, ["outline", "links", "info"], "outline");
   result.fileSort = oneOf<FileSort>(result.fileSort, ["name", "nameDesc", "modified", "created"], "name");
+  result.tagSort = oneOf<TagSort>(result.tagSort, ["count", "name"], "count");
   result.settingsTab = oneOf(result.settingsTab, ["general", "appearance", "editor", "templates"], "general");
   result.attachmentLayout = oneOf<AttachmentLayout>(result.attachmentLayout, ["perNote", "single"], "perNote");
   result.quickCaptureTarget = oneOf(result.quickCaptureTarget, ["daily", "inbox"], "daily");

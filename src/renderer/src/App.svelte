@@ -33,6 +33,7 @@
   import OrganiseAttachments from "./components/overlays/OrganiseAttachments.svelte";
   import AttachmentConfirm from "./components/overlays/AttachmentConfirm.svelte";
   import AlertDialog from "./components/overlays/AlertDialog.svelte";
+  import RenameTagDialog from "./components/overlays/RenameTagDialog.svelte";
   import Toast from "./components/overlays/Toast.svelte";
   import UpdatePrompt from "./components/overlays/UpdatePrompt.svelte";
 
@@ -153,6 +154,7 @@
 {#if app.syncReview}<SyncConflictSheet />{/if}
 {#if app.graphOpen && vault}<GraphView />{/if}
 {#if vault?.pendingDeletion}<DeleteConfirm />{/if}
+{#if app.renamingTag !== null && vault}<RenameTagDialog />{/if}
 {#if vault?.attachmentCleanup}<AttachmentCleanup />{/if}
 {#if vault?.attachmentOrganise}<OrganiseAttachments />{/if}
 {#if vault?.attachmentConfirm}<AttachmentConfirm />{/if}

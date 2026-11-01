@@ -29,6 +29,7 @@ import { VaultIndex } from "@core/vaultIndex";
 import { combineVersions, findSyncConflicts, type SyncConflict } from "@core/syncConflicts";
 import { dailyNoteDate, dailyNotePath, renderPlaceholders } from "@core/dailyNotes";
 import { INVALID_REGEX_MESSAGE, parseQuery, replaceMatches, runSearch, type Replacement } from "@core/vaultSearch";
+import { buildTagTree, isValidTagName, renameTagInText, type TagNode, type TagSort } from "@core/tagTree";
 import { noteText, renderTemplate } from "@core/templates";
 import { isPlaceholderName, titleFromContent } from "@core/autoTitle";
 import type { Settings } from "@shared/settings";
@@ -570,6 +571,78 @@ export class Vault {
     this.bookmarks = next;
     this.options.store.set(this.bookmarksKey, next);
     this.changed();
+  }
+
+  // MARK: Tags (UI-14, FOP-13)
+
+  /** The sidebar's tag tree, with each node's own count and its subtree's total. */
+  tagTree(sort: TagSort): TagNode[] {
+    return buildTagTree(
+      this.index.allTags(),
+      sort,
+      undefined,
+      [...this.index.allNotes.values()].map((info) => info.tags),
+    );
+  }
+
+  private get expandedTagsKey() {
+    return "tagTree:" + this.root;
+  }
+
+  /** Tags whose children the sidebar shows (lowercased), remembered per vault. */
+  get expandedTags(): string[] {
+    const stored = this.options.store.get<unknown>(this.expandedTagsKey);
+    return Array.isArray(stored) ? stored.filter((item): item is string => typeof item === "string") : [];
+  }
+
+  setExpandedTags(tags: string[]) {
+    this.options.store.set(this.expandedTagsKey, tags.length ? tags : undefined);
+  }
+
+  /**
+   * Renames a tag across the vault (FOP-13): `#from` and every `#from/x`
+   * become `#to` (and `#to/x`) in inline tags and frontmatter, in every
+   * note that carries them. Open notes change through their document;
+   * others are rewritten atomically. Toast with Undo (the reverse rewrite
+   * in notes that haven't changed since). Returns the number of notes
+   * written, or -1 when the names are invalid.
+   */
+  renameTag(from: string, to: string): number {
+    const source = from.replace(/^#+/, "");
+    const target = to.replace(/^#+/, "");
+    if (!isValidTagName(source) || !isValidTagName(target)) {
+      this.showError("Tags can use letters, digits, “-”, “_” and “/”, and can’t start with a digit.");
+      return -1;
+    }
+    if (source === target) return 0;
+    const before = new Map<string, string>();
+    const after = new Map<string, string>();
+    for (const path of this.index.notesTaggedWith(source)) {
+      const text = this.textFor(path);
+      if (text === null) continue;
+      const result = renameTagInText(text, source, target);
+      if (result.count === 0 || result.text === text) continue;
+      before.set(path, text);
+      after.set(path, result.text);
+    }
+    if (after.size === 0) {
+      this.showToast(`No notes are tagged #${source}`);
+      return 0;
+    }
+    for (const [path, text] of after) this.writeUpdatedLinks(path, text, "tags");
+    this.reload([...after.keys()]);
+    const notes = after.size;
+    this.showToast(`Renamed #${source} to #${target} in ${plural(notes, "note")}`, () => {
+      let restored = 0;
+      for (const [path, text] of before) {
+        if (this.index.hasPath(path) && this.textFor(path) === after.get(path)) {
+          if (this.writeUpdatedLinks(path, text, "tags")) restored++;
+        }
+      }
+      this.reload([...before.keys()]);
+      if (restored < notes) this.showToast(`Restored ${plural(restored, "note")}; ${notes - restored === 1 ? "1 note has" : `${notes - restored} notes have`} changed since`, null, "Undo", true);
+    });
+    return notes;
   }
 
   // MARK: Search and replace
@@ -1453,8 +1526,8 @@ export class Vault {
     return destination;
   }
 
-  /** Writes a note whose links were updated, to its open document or to disk. */
-  private writeUpdatedLinks(path: string, text: string): boolean {
+  /** Writes a note whose links (or `what`) were updated, to its open document or to disk. */
+  private writeUpdatedLinks(path: string, text: string, what = "links"): boolean {
     const document = this.documents.get(path);
     if (document) document.replaceContents(text);
     else {
@@ -1468,7 +1541,7 @@ export class Vault {
       try {
         fsx.writeAtomic(this.abs(path), text);
       } catch (error) {
-        this.showError(`Couldn’t update links in “${P.stem(path)}”: ${message(error)}`);
+        this.showError(`Couldn’t update ${what} in “${P.stem(path)}”: ${message(error)}`);
         return false;
       }
       if (previous !== text) this.recordVersion(path, previous, text);
