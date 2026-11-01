@@ -189,6 +189,8 @@ export const holocronTheme = EditorView.theme(
       cursor: "text",
     },
     ".cm-property": { display: "flex", alignItems: "center", gap: "14px", minHeight: "26px", position: "relative" },
+    ".cm-property-icon": { display: "inline-flex", width: "14px", height: "14px", marginRight: "-6px", color: c.faint, flexShrink: "0" },
+    ".cm-property-icon svg": { width: "14px", height: "14px" },
     ".cm-property-key": {
       width: "112px",
       flexShrink: "0",

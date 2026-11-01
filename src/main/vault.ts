@@ -39,6 +39,7 @@ import type {
   ConflictView,
   DocView,
   NoteDetails,
+  PropertySummary,
   SplitView,
   TabView,
   ToastView,
@@ -2426,7 +2427,24 @@ export class Vault {
         recent: recentRank.get(path) ?? 0,
       };
     });
-    return { notes, attachments: this.attachments, tags: this.index.allTags() };
+    return { notes, attachments: this.attachments, tags: this.index.allTags(), properties: this.propertySummary() };
+  }
+
+  private propertySummaryCache: { revision: number; summary: PropertySummary[] } | null = null;
+
+  /** Every frontmatter key with counts, type and top values (IDX-07), worked out once per index revision. */
+  propertySummary(): PropertySummary[] {
+    const revision = this.index.revision;
+    if (this.propertySummaryCache?.revision !== revision) {
+      const summary = this.index.allProperties().map(({ key, count, type, values }) => ({
+        key,
+        count,
+        type,
+        values: values.map((entry): [string, number] => [entry.value, entry.count]),
+      }));
+      this.propertySummaryCache = { revision, summary };
+    }
+    return this.propertySummaryCache.summary;
   }
 
   sendVaultData() {
@@ -2591,6 +2609,7 @@ export class Vault {
       conflict: document?.conflict && path ? this.conflictView(path, document) : null,
       templates: this.templates,
       isIndexing: this.isIndexing,
+      properties: this.propertySummary(),
     };
   }
 

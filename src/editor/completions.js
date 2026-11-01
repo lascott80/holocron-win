@@ -1,23 +1,27 @@
-// Autocomplete for [[links]], [[Note#headings]], ![[embeds]], #tags, <html> tags, :emoji: and the / menu.
-// Holocron sends the vault's notes, attachments and tags via setVaultData.
+// Autocomplete for [[links]], [[Note#headings]], ![[embeds]], #tags, <html> tags, :emoji:, the / menu
+// and frontmatter keys and values. Holocron sends the vault's notes, attachments, tags and properties via setVaultData.
 import { autocompletion } from "@codemirror/autocomplete";
 import { syntaxTree } from "@codemirror/language";
 import { EditorView } from "@codemirror/view";
 import { EMOJI } from "./emojiData.js";
+import { frontmatterRange, setPropertySuggestions } from "./properties.js";
 import { slashCompletions } from "./slashMenu.js";
 
-let vault = { notes: [], attachments: [], tags: [] };
+let vault = { notes: [], attachments: [], tags: [], properties: [] };
 
 /**
  * notes: [{ path, title, aliases, headings: [{ text, level }], recent }]
  * attachments: [paths]; tags: [{ tag, count }]
+ * properties: [{ key, count, type, values: [[value, count]] }] (IDX-07)
  */
 export function setVaultData(data) {
   vault = {
     notes: data.notes ?? [],
     attachments: data.attachments ?? [],
     tags: data.tags ?? [],
+    properties: data.properties ?? [],
   };
+  setPropertySuggestions(vault.properties);
   // Note names that appear more than once need their path to be unambiguous.
   const counts = new Map();
   for (const note of vault.notes) counts.set(note.title.toLowerCase(), (counts.get(note.title.toLowerCase()) ?? 0) + 1);
@@ -33,7 +37,7 @@ export function setCurrentNote(path) {
 
 /** Counts of what autocomplete knows about (for debugging). */
 export function vaultDataSummary() {
-  return { notes: vault.notes.length, attachments: vault.attachments.length, tags: vault.tags.length };
+  return { notes: vault.notes.length, attachments: vault.attachments.length, tags: vault.tags.length, properties: vault.properties.length };
 }
 
 function folderOf(path) {
@@ -146,6 +150,73 @@ function tagCompletions(context) {
   };
 }
 
+// Frontmatter (ED-78): known property keys at the start of a line, and a
+// key's known values after "key: " or in a "- item" line under it.
+const MAX_PROPERTY_OPTIONS = 50;
+
+/** The frontmatter line `pos` is on, when it's a property line (not the --- markers). */
+function frontmatterLine(state, pos) {
+  const range = frontmatterRange(state.doc);
+  if (!range || pos < range.yamlFrom || pos > range.yamlTo) return null;
+  return state.doc.lineAt(pos);
+}
+
+function propertyKeyCompletions(before, pos) {
+  const match = /^([^\s:#\-[][^:]*)?$/.exec(before);
+  if (!match) return null;
+  const typed = match[1] ?? "";
+  return {
+    from: pos - typed.length,
+    options: vault.properties.slice(0, MAX_PROPERTY_OPTIONS).map((property, index) => ({
+      label: property.key,
+      detail: property.count === 1 ? "1 note" : `${property.count} notes`,
+      boost: -index / 1000,
+      apply: `${property.key}: `,
+    })),
+    validFor: /^[^\s:#\-[][^:]*$/,
+  };
+}
+
+function propertyValueCompletions(key, typed, pos) {
+  const property = vault.properties.find((candidate) => candidate.key.toLowerCase() === key.toLowerCase());
+  if (!property?.values.length) return null;
+  return {
+    from: pos - typed.length,
+    options: property.values.slice(0, MAX_PROPERTY_OPTIONS).map(([value, count], index) => ({
+      label: value,
+      detail: count === 1 ? "1 note" : `${count} notes`,
+      boost: -index / 1000,
+    })),
+    validFor: /^[^,\]\n]*$/,
+  };
+}
+
+export function propertyCompletions(context) {
+  if (!vault.properties.length) return null;
+  const line = frontmatterLine(context.state, context.pos);
+  if (!line) return null;
+  const before = line.text.slice(0, context.pos - line.from);
+  // "key: value" — the value so far; inside "[a, b" the item after the last comma.
+  const scalar = /^([^\s:#\-[][^:]*):\s+(.*)$/.exec(before);
+  if (scalar) {
+    let typed = scalar[2];
+    if (typed.startsWith("[")) typed = typed.slice(typed.lastIndexOf(",") + 1).replace(/^\[?\s*/, "");
+    return propertyValueCompletions(scalar[1].trim(), typed, context.pos);
+  }
+  // "- item" under a list key: the nearest key line above.
+  const item = /^\s*-\s+(.*)$/.exec(before);
+  if (item) {
+    for (let number = line.number - 1; number > 1; number--) {
+      const text = context.state.doc.line(number).text;
+      if (/^\s*-/.test(text) || /^\s/.test(text)) continue;
+      const key = /^([^\s:#\-[][^:]*):\s*$/.exec(text);
+      return key ? propertyValueCompletions(key[1].trim(), item[1], context.pos) : null;
+    }
+    return null;
+  }
+  return propertyKeyCompletions(before, context.pos);
+}
+
 // The inline HTML live preview renders (ED-02). Our override replaces the
 // markdown language's own HTML completion, so offer these instead.
 const HTML_TAGS = [
@@ -227,7 +298,7 @@ const emojiOptionTheme = EditorView.baseTheme({
 
 export const linkAutocomplete = [
   autocompletion({
-    override: [linkCompletions, tagCompletions, htmlTagCompletions, emojiCompletions, slashCompletions],
+    override: [linkCompletions, tagCompletions, propertyCompletions, htmlTagCompletions, emojiCompletions, slashCompletions],
     icons: false,
     activateOnTyping: true,
     maxRenderedOptions: 60,

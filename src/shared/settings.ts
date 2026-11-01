@@ -90,6 +90,8 @@ export interface Settings {
   inspectorTab: InspectorTab;
   tagsExpanded: boolean;
   bookmarksExpanded: boolean;
+  /** The sidebar's Properties section (UI-14b). */
+  propertiesExpanded: boolean;
   settingsTab: SettingsTab;
 }
 
@@ -143,6 +145,7 @@ export const defaultSettings: Settings = {
   inspectorTab: "outline",
   tagsExpanded: true,
   bookmarksExpanded: true,
+  propertiesExpanded: false,
   settingsTab: "general",
 };
 
