@@ -36,6 +36,10 @@ export interface EditorApi {
   /** The #tag at the cursor without the "#", or null (FOP-13). */
   tagAtCursor(): string | null;
   exportHtml(title: string): Promise<string>;
+  /** The index changed: ```query blocks run again (debounced, §9.5). */
+  indexChanged(): void;
+  /** How ```base blocks are drawn: mounts the Base view into a widget's element, returning an unmount function. */
+  setBlockHost(host: { mountBase: (element: HTMLElement, source: string) => () => void }): void;
   [method: string]: unknown;
 }
 

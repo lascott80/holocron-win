@@ -399,8 +399,8 @@
     }
     return [
       { label: "Open in New Tab", run: () => run("open", path, true) },
-      // A canvas only has its read-only viewer, never an editor pane (UI-45).
-      ...(node.kind === "canvas" ? [] : [{ label: "Open to the Right", run: () => run("openInSplit", path) }]),
+      // A canvas or base only has its viewer, never an editor pane (UI-45, UI-46).
+      ...(node.kind ? [] : [{ label: "Open to the Right", run: () => run("openInSplit", path) }]),
       "-",
       { label: "Rename", shortcut: "F2", run: () => run("startRenaming", path) },
       { label: "Duplicate", run: () => run("duplicate", path) },
@@ -423,8 +423,8 @@
     dragged = all.filter((path) => !all.some((other) => other !== path && path.startsWith(other + "/")));
     event.dataTransfer.effectAllowed = "copyMove";
     event.dataTransfer.setData(PATHS_TYPE, JSON.stringify(dragged));
-    // A canvas link keeps its extension, like an attachment's (UI-45).
-    if (dragged.length === 1 && !node.isDir) event.dataTransfer.setData("text/plain", `[[${node.kind === "canvas" ? node.path : node.path.replace(/\.(md|markdown)$/i, "")}]]`);
+    // A canvas or base link keeps its extension, like an attachment's (UI-45, UI-46).
+    if (dragged.length === 1 && !node.isDir) event.dataTransfer.setData("text/plain", `[[${node.kind ? node.path : node.path.replace(/\.(md|markdown)$/i, "")}]]`);
   }
 
   /** The folder a drop on `target` moves into, or null if it isn't a drop target. */

@@ -360,7 +360,7 @@ function resized(image, width) {
 }
 
 function createMarked(options, state) {
-  const { images = {}, diagrams = {}, sanitize = null, highlight: highlightCode = null } = options;
+  const { images = {}, diagrams = {}, queries = {}, sanitize = null, highlight: highlightCode = null } = options;
   let listDepth = 0;
   const lookupImage = (kind, target) => images[imageKey(kind, target)] ?? null;
 
@@ -384,6 +384,18 @@ function createMarked(options, state) {
         if (diagram?.src) return `<p style="${STYLES.p}">${imgTag(diagram, "Diagram")}</p>\n`;
         return `<p style="${STYLES.p}">${placeholder("Diagram")}</p>\n`;
       }
+      // A ```query block exports as the static list it showed (§9.5); a ```base block as a note.
+      if (language === "query") {
+        const result = queries[text];
+        if (!result || result.error) return `<p style="${STYLES.p}">${placeholder(result?.error ? `Query: ${result.error}` : "Query results")}</p>\n`;
+        const items = result.hits.map((hit) => {
+          const lines = hit.lines.slice(0, 3).map((line) => `<br><span style="${STYLES.muted}">${escapeHtml(line.text.trim())}</span>`).join("");
+          return `<li>${escapeHtml(hit.title)}${hit.folder ? ` <span style="${STYLES.muted}">${escapeHtml(hit.folder)}</span>` : ""}${lines}</li>`;
+        });
+        const count = result.total === 1 ? "1 note" : `${result.total} notes`;
+        return `<p style="${STYLES.p}"><strong>${count}</strong> <span style="${STYLES.muted}">${escapeHtml(text.trim())}</span></p>\n<ul style="${STYLES.list(false)}">${items.join("")}</ul>\n`;
+      }
+      if (language === "base") return `<p style="${STYLES.p}">${placeholder("Base view — open the note in Holocron")}</p>\n`;
       const body = (language && highlightCode?.(text, language)) || escapeHtml(text);
       return `<pre style="${STYLES.pre}">${body}</pre>\n`;
     },
@@ -506,6 +518,7 @@ function createMarked(options, state) {
  * Options:
  * - images: { [imageKey(kind, target)]: { src, width?, height? } } — local images as data URIs.
  * - diagrams: { [mermaid code]: { src, width, height } } — rendered diagrams.
+ * - queries: { [query block text]: QueryBlockResult } — the notes each ```query block lists (export).
  * - sanitize(html) → html: cleans the result (raw HTML in notes); without it raw HTML is escaped.
  * - highlight(code, language) → HTML or null: syntax colours for code blocks.
  * - stripFrontmatter (default true): the text starts at the top of the note.
@@ -539,6 +552,7 @@ export function collectResources(markdown, options = {}) {
   const marked = createMarked({}, { footnoteNumbers: new Map(), usedFootnotes: new Set() });
   const images = new Map();
   const diagrams = new Set();
+  const queries = new Set();
   const languages = new Set();
   const addImage = (kind, target) => {
     const key = imageKey(kind, target);
@@ -553,12 +567,13 @@ export function collectResources(markdown, options = {}) {
     } else if (token.type === "code") {
       const language = (token.lang ?? "").trim().split(/\s+/)[0].toLowerCase();
       if (language === "mermaid") diagrams.add(token.text);
-      else if (language) languages.add(language);
+      else if (language === "query") queries.add(token.text);
+      else if (language && language !== "base") languages.add(language);
     } else if (token.type === "html") {
       for (const src of htmlImageSources(token.text)) {
         if (src && !isRemote(src) && !isDataImage(src) && !/^[a-z][a-z0-9+.-]*:/i.test(src) && !src.startsWith("//")) addImage("relative", src);
       }
     }
   });
-  return { images: [...images.values()], diagrams: [...diagrams], languages: [...languages] };
+  return { images: [...images.values()], diagrams: [...diagrams], queries: [...queries], languages: [...languages] };
 }

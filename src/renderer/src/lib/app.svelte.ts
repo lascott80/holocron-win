@@ -52,6 +52,8 @@ class AppStore {
   text = $state("");
   /** What the canvas viewer shows, for the status bar (UI-45); null when no canvas is open or it couldn't be read. */
   canvasStats = $state<{ cards: number; connections: number } | null>(null);
+  /** What the Base view shows, for the status bar's "N notes" (UI-46); null when no base is open. */
+  baseStats = $state<{ rows: number } | null>(null);
   /** The editor last focused: the main one or split view's right-hand pane (UI-40). */
   pane = $state<EditorPane>("main");
   editorReady = $state(false);

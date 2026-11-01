@@ -92,6 +92,8 @@ export const commands: Command[] = [
   { id: "newNote", title: "New Note", shortcut: "Ctrl+N", enabled: hasVault, run: () => run("createNote") },
   { id: "newNoteFromTemplate", title: "New Note from Template…", shortcut: "Ctrl+Shift+N", enabled: hasVault, run: () => (app.templatePicker = "newNote") },
   { id: "newFolder", title: "New Folder", shortcut: "Ctrl+Alt+N", enabled: hasVault, run: () => run("createFolder") },
+  // Bases (UI-46): a .base file with a default table view, in the selected folder.
+  { id: "newBase", title: "New Base…", enabled: hasVault, run: () => run("createBase") },
   { id: "newTab", title: "New Tab", shortcut: "Ctrl+T", enabled: hasVault, run: () => run("newTab") },
   {
     id: "quickCapture",
@@ -315,7 +317,7 @@ export function runCommand(id: string) {
 export const menus: { title: string; items: (string | { title: string; items: string[] })[] }[] = [
   {
     title: "File",
-    items: ["newNote", "newNoteFromTemplate", "newFolder", "newTab", "pinTab", "bookmark", "-", "quickCapture", "quickOpen", "commandPalette", "-", "openVault", "createVault", "-", "save", "closeTab", "closeVault", "-", "versionHistory", "showNoteInExplorer", "showVaultInExplorer", "-", "exportPdf", "exportHtml", "print", "-", { title: "Attachments", items: ["organiseAttachments", "organiseNoteAttachments", "-", "cleanUpAttachments", "emptyUnusedAttachments", "-", "undoAttachmentChange"] }, "-", "settings", "-", "quitApp"],
+    items: ["newNote", "newNoteFromTemplate", "newFolder", "newBase", "newTab", "pinTab", "bookmark", "-", "quickCapture", "quickOpen", "commandPalette", "-", "openVault", "createVault", "-", "save", "closeTab", "closeVault", "-", "versionHistory", "showNoteInExplorer", "showVaultInExplorer", "-", "exportPdf", "exportHtml", "print", "-", { title: "Attachments", items: ["organiseAttachments", "organiseNoteAttachments", "-", "cleanUpAttachments", "emptyUnusedAttachments", "-", "undoAttachmentChange"] }, "-", "settings", "-", "quitApp"],
   },
   { title: "Edit", items: ["undo", "redo", "-", "copyMarkdown", "pastePlainText", "-", "find", "findNext", "findPrevious", "selectNextOccurrence", "searchVault", "copySearchResults"] },
   {
