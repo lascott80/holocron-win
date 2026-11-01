@@ -57,7 +57,7 @@ const workspaceUi = (value: unknown): WorkspaceUi | null => {
     showSidebar: ui.showSidebar !== false,
     showInspector: ui.showInspector !== false,
     sidebarWidth: width(ui.sidebarWidth, 260),
-    inspectorWidth: width(ui.inspectorWidth, 290),
+    inspectorWidth: width(ui.inspectorWidth, 250),
     sidebarMode: ui.sidebarMode === "search" || ui.sidebarMode === "tasks" ? ui.sidebarMode : "files",
     inspectorTab: ui.inspectorTab === "links" || ui.inspectorTab === "info" ? ui.inspectorTab : "outline",
   };

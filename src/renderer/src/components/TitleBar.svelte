@@ -3,7 +3,7 @@
      The system's minimize/maximize/close buttons are drawn over the right edge
      (titleBarOverlay), so the bar leaves room for them. -->
 <script lang="ts">
-  import { ArrowLeft, ArrowRight, CalendarDays, FilePlus2, PanelRight, Search, Waypoints } from "@lucide/svelte";
+  import { ArrowLeft, ArrowRight, CalendarDays, FilePlus2, PanelRight, PanelRightClose, Search, Waypoints } from "@lucide/svelte";
   import Logo from "./Logo.svelte";
   import CalendarPopover from "./detail/CalendarPopover.svelte";
   import { app } from "../lib/app.svelte";
@@ -126,10 +126,11 @@
         class="icon-button"
         class:active={app.settings.showInspector}
         title="Show or hide the inspector (Ctrl+Alt+I)"
-        aria-label="Inspector"
+        aria-label={app.settings.showInspector ? "Hide inspector" : "Show inspector"}
+        aria-pressed={app.settings.showInspector}
         onclick={() => runCommand("toggleInspector")}
       >
-        <PanelRight size={16} />
+        {#if app.settings.showInspector}<PanelRightClose size={18} />{:else}<PanelRight size={18} />{/if}
       </button>
     </div>
   {/if}

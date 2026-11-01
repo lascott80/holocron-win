@@ -212,7 +212,7 @@
     border-bottom: 0;
     border-radius: 7px 7px 0 0;
     color: var(--ui-text-2);
-    font-size: 12px;
+    font-size: 13px;
     transition: background-color 0.1s;
   }
   .tab:hover:not(.active) {
@@ -222,7 +222,8 @@
     background: var(--ui-editor);
     border-color: var(--ui-border);
     color: var(--ui-text);
-    font-weight: 500;
+    font-weight: 600;
+    box-shadow: inset 0 2px 0 var(--ui-accent);
   }
   .tab:focus-visible {
     outline-offset: -2px;

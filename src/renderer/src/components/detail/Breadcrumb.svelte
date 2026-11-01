@@ -32,7 +32,7 @@
     flex: none;
     padding: 0 24px;
     overflow: hidden;
-    color: var(--ui-text-3);
+    color: var(--ui-text-2);
     font-size: 12px;
     white-space: nowrap;
   }
@@ -43,7 +43,7 @@
     text-overflow: ellipsis;
   }
   .vault {
-    color: var(--ui-text-3);
+    color: var(--ui-text-2);
   }
   .slash {
     flex: none;

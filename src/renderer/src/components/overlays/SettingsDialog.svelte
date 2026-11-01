@@ -409,7 +409,7 @@
 </script>
 
 {#snippet row(label: string, control: Snippet, help?: string, id?: string, stacked = false)}
-  <div class="row" class:stacked>
+  <div class="row" class:stacked={stacked || Boolean(help)}>
     <div class="row-text">
       {#if id}<label class="row-label" for={id}>{label}</label>{:else}<span class="row-label">{label}</span>{/if}
       {#if help}<span class="row-help">{help}</span>{/if}
@@ -420,7 +420,7 @@
 
 {#snippet switchRow(label: string, checked: boolean, onchange: (checked: boolean) => void, help?: string)}
   {#snippet control()}<Switch {label} {checked} {onchange} />{/snippet}
-  {@render row(label, control, help)}
+  <div class="switch-row">{@render row(label, control, help)}</div>
 {/snippet}
 
 {#snippet textField(key: TextKey, placeholder: string, label: string, list?: string)}
@@ -463,7 +463,7 @@
   </div>
 {/snippet}
 
-<Modal width={720} labelledby="settings-title" onclose={close} panelClass="settings" focusPanel>
+<Modal width={860} labelledby="settings-title" onclose={close} panelClass="settings" focusPanel>
   <header>
     <h2 id="settings-title">Settings</h2>
     <button class="icon-button" aria-label="Close" title="Close (Esc)" onclick={close}><X size={16} /></button>
@@ -842,7 +842,7 @@
 
 <style>
   :global(.panel.settings) {
-    height: min(600px, calc(100vh - 48px));
+    height: min(720px, calc(100vh - 48px));
   }
   header {
     flex: none;
@@ -911,7 +911,9 @@
     flex: 1;
     min-width: 0;
     overflow-y: auto;
-    padding: 18px 20px 24px;
+    padding: 22px 24px 28px;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -938,7 +940,7 @@
     align-items: center;
     gap: 16px;
     min-height: 52px;
-    padding: 10px 14px;
+    padding: 14px 16px;
   }
   .row + .row {
     border-top: 1px solid var(--ui-border);
@@ -948,6 +950,10 @@
     align-items: stretch;
     gap: 10px;
   }
+  .switch-row + .switch-row,
+  .row + .switch-row,
+  .switch-row + .row { border-top: 1px solid var(--ui-border); }
+  .switch-row .row.stacked { flex-direction: row; align-items: center; }
   .row.stacked .row-control {
     max-width: none;
   }
@@ -967,8 +973,8 @@
     color: var(--ui-text);
   }
   .row-help {
-    font-size: 12px;
-    line-height: 1.45;
+    font-size: 13px;
+    line-height: 1.55;
     color: var(--ui-text-2);
     user-select: text;
   }
@@ -1088,8 +1094,8 @@
   }
   .hotkeys-help {
     margin: 0 2px;
-    font-size: 12px;
-    line-height: 1.45;
+    font-size: 13px;
+    line-height: 1.55;
     color: var(--ui-text-2);
   }
   .hotkeys-help.error {

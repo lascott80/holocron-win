@@ -78,9 +78,9 @@ class AppStore {
   editorReady = $state(false);
   /** Save Layout As… / Delete… (UI-49), or null. */
   workspaceDialog = $state<"save" | "delete" | null>(null);
-  /** Panel widths (UI-02): sidebar 200–400 (260), inspector 240–420 (290); remembered in localStorage. */
+  /** Panel widths (UI-02): sidebar 200–400 (260), inspector 240–420 (250); remembered in localStorage. */
   sidebarWidth = $state(storedWidth("sidebarWidth", 260));
-  inspectorWidth = $state(storedWidth("inspectorWidth", 290));
+  inspectorWidth = $state(storedWidth("inspectorWidth", 250));
 
   get vault() {
     return this.state.vault;

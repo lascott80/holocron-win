@@ -279,6 +279,11 @@ textarea,
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+  /* CodeMirror blinks indefinitely. Shortening its duration makes the caret
+     flash rapidly; keep it steady when the user requests reduced motion. */
+  .cm-cursorLayer {
+    animation: none !important;
+  }
 }
 
 /* A sidebar or inspector pane coming into view when its tab is picked. */

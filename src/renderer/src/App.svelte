@@ -63,7 +63,7 @@
   // CSS snippets (§16.11) go in after every stylesheet, so they win on equal specificity.
   $effect(() => applySnippets(app.state.snippets));
 
-  // Panel widths (UI-02): sidebar 200–400 (260), inspector 240–420 (290); kept in the app store so workspaces can save them (UI-49).
+  // Panel widths (UI-02): sidebar 200–400 (260), inspector 240–420 (250); kept in the app store so workspaces can save them (UI-49).
   function startResize(event: PointerEvent, which: "sidebar" | "inspector") {
     event.preventDefault();
     const startX = event.clientX;

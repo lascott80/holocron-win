@@ -1,6 +1,6 @@
 <!-- The right-hand panel (UI-16..UI-19): the open note's outline, its links and file info. -->
 <script lang="ts">
-  import { FolderOpen, Link2, CornerDownRight } from "@lucide/svelte";
+  import { FolderOpen, Link2, CornerDownRight, PanelRightClose } from "@lucide/svelte";
   import type { InspectorTab } from "@shared/settings";
   import { dirname } from "@core/paths";
   import { plainText } from "@core/noteParser";
@@ -113,6 +113,7 @@
 <div class="inspector">
   <div class="tabs">
     <Segmented label="Inspector" options={tabs} value={tab} onchange={(value) => app.setSetting("inspectorTab", value)} />
+    <button class="icon-button collapse-inspector" title="Hide inspector (Ctrl+Alt+I)" aria-label="Hide inspector" onclick={() => app.setSetting("showInspector", false)}><PanelRightClose size={16} /></button>
   </div>
 
   {#if !path}
@@ -228,6 +229,9 @@
 </div>
 
 <style>
+  .tabs { display: flex; align-items: center; gap: 6px; }
+  .tabs :global(.segmented) { flex: 1; min-width: 0; }
+  .collapse-inspector { flex: none; width: 28px; height: 28px; }
   .inspector {
     display: flex;
     flex-direction: column;

@@ -1189,7 +1189,7 @@ Found while documenting the Mac app (0.1). The last column says how the Windows 
 | Window default / welcome minimum | 1280×820 / 820×560 |
 | *Windows:* list indent per nesting level | 1.5 em |
 | *Windows:* update checks | 15 s after launch, then every 6 h |
-| *Windows:* sidebar / inspector width | 200–400 (260) / 240–420 (290) px, user-resizable |
+| *Windows:* sidebar / inspector width | 200–400 (260) / 240–420 (250) px, user-resizable |
 | *Windows:* title bar height | 40 px |
 | *Windows:* Undo copy of a trashed item kept | 60 s |
 | *Windows:* write retry on file locks | 10 attempts, ~0.8 s total |
@@ -1233,7 +1233,7 @@ How this repository's Electron app (0.2.0) realises the spec, and where it delib
 
 **Window and UI** (§11)
 - A custom 40 px title bar holds the logo, an in-window menu bar (tapping Alt opens it; ←/→ move between menus), Back/Forward, the note title with the vault as subtitle, and the toolbar buttons; the system's minimise/maximise/close buttons are drawn over its right edge.
-- Sidebar (200–400 px, default 260) and inspector (240–420 px, default 290) are resized by dragging their borders; widths are remembered. Toggle Sidebar is Ctrl+\.
+- Sidebar (200–400 px, default 260) and inspector (240–420 px, default 250) are resized by dragging their borders; widths are remembered. Toggle Sidebar is Ctrl+\.
 - Fonts: UI Segoe UI Variable; editor System = Segoe UI Variable, Serif = Cambria/Georgia, Monospaced = Cascadia Mono/Consolas.
 - Wording: "Show in File Explorer", "Recycle Bin", Ctrl-based shortcuts everywhere (tooltips, cheat sheet, the Start Here guide).
 - The file tree also supports middle-click to open in a new tab (Ctrl-click selects several rows, UI-10b), F2 to rename, Home/End and ←/→ to collapse/expand, and expanding a collapsed folder by hovering over it while dragging. Middle-click closes a tab.

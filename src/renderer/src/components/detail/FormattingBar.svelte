@@ -14,6 +14,7 @@
     ListChecks,
     ListOrdered,
     MessageSquareWarning,
+    Ellipsis,
     Minus,
     Strikethrough,
     Table,
@@ -62,6 +63,20 @@
   // Follows Settings › Hotkeys (HK-01), like the tooltips.
   const headingShortcut = $derived((commandById.get("heading1")?.shortcut ?? "Ctrl+Alt+1").replace(/1$/, "1–3"));
 
+  let moreButton = $state<HTMLButtonElement>();
+  let moreOpen = $state(false);
+  function openMoreMenu() {
+    if (moreOpen) { menu.close(); return; }
+    if (!moreButton) return;
+    moreOpen = true;
+    const extras = [...inline.slice(2, 5), lists[3], codeBlock, ...blocks];
+    menu.openBelow(moreButton, extras.map(button => ({
+      label: button.title,
+      shortcut: commandById.get(button.id)?.shortcut,
+      run: () => runCommand(button.id),
+    })), { onClose: () => (moreOpen = false) });
+  }
+
   let headingButton = $state<HTMLButtonElement>();
   let headingOpen = $state(false);
   let tableButton = $state<HTMLButtonElement>();
@@ -100,7 +115,7 @@
 
 <div class="formatting-bar" role="toolbar" aria-label="Formatting">
   <div class="group">
-    {#each inline as button (button.id)}{@render format(button)}{/each}
+    {#each inline.filter(button => ["bold", "italic", "link"].includes(button.id)) as button (button.id)}{@render format(button)}{/each}
   </div>
   <div class="separator"></div>
   <div class="group">
@@ -118,11 +133,10 @@
     >
       <Heading size={15} strokeWidth={1.9} />
     </button>
-    {#each lists as button (button.id)}{@render format(button)}{/each}
+    {#each lists.slice(0, 3) as button (button.id)}{@render format(button)}{/each}
   </div>
   <div class="separator"></div>
   <div class="group">
-    {@render format(codeBlock)}
     <button
       class="format-button"
       class:open={tableOpen}
@@ -135,7 +149,9 @@
     >
       <Table size={15} strokeWidth={1.9} />
     </button>
-    {#each blocks as button (button.id)}{@render format(button)}{/each}
+    <button class="format-button" class:open={moreOpen} title="More formatting" aria-label="More formatting"
+      aria-haspopup="menu" aria-expanded={moreOpen} data-menu-trigger bind:this={moreButton}
+      onmousedown={keepFocus} onclick={openMoreMenu}><Ellipsis size={18} /></button>
   </div>
   <div class="spacer"></div>
   <button
@@ -168,7 +184,7 @@
     display: flex;
     align-items: center;
     gap: 2px;
-    height: 34px;
+    height: 38px;
     flex: none;
     padding: 0 12px;
     border-bottom: 1px solid var(--ui-border);
@@ -178,12 +194,13 @@
   .group {
     display: flex;
     flex: none;
+    gap: 2px;
   }
   .separator {
     flex: none;
     width: 1px;
     height: 16px;
-    margin: 0 6px;
+    margin: 0 8px;
     background: var(--ui-border);
   }
   .spacer {
@@ -195,8 +212,8 @@
     align-items: center;
     justify-content: center;
     flex: none;
-    width: 28px;
-    height: 26px;
+    width: 30px;
+    height: 30px;
     padding: 0;
     border: 0;
     border-radius: 5px;

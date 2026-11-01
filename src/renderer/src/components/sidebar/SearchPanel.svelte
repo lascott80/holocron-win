@@ -249,6 +249,9 @@
         <CircleX size={14} />
       </button>
     {/if}
+  </div>
+  <div class="search-options" role="group" aria-label="Search options">
+    <span>Options</span>
     <button class="option" class:on={s.matchCase} title="Match case" aria-label="Match case" aria-pressed={s.matchCase} onclick={() => (s.matchCase = !s.matchCase)}>Aa</button>
     <button class="option" class:on={s.useRegex} title="Regular expression" aria-label="Regular expression" aria-pressed={s.useRegex} onclick={() => (s.useRegex = !s.useRegex)}>.*</button>
     <button class="option icon" class:on={s.replaceOpen} title="Replace" aria-label="Replace" aria-pressed={s.replaceOpen} onclick={toggleReplace}>
@@ -302,11 +305,19 @@
 
   {#if isEmpty}
     <dl class="help">
-      {#each help as [example, meaning] (example)}
+      {#each help.slice(0, 3) as [example, meaning] (example)}
         <dt>{example}</dt>
         <dd>{meaning}</dd>
       {/each}
     </dl>
+    <details class="syntax-help">
+      <summary>Search syntax</summary>
+      <dl class="help">
+        {#each help.slice(3) as [example, meaning] (example)}
+          <dt>{example}</dt><dd>{meaning}</dd>
+        {/each}
+      </dl>
+    </details>
   {:else}
     <div class="results" class:stale={s.isSearching}>
       {#each s.sortedHits as hit (hit.path)}
@@ -353,7 +364,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    height: 32px;
+    height: 36px;
     margin: 0 10px 6px;
     padding: 0 4px 0 9px;
     border: 1px solid transparent;
@@ -503,11 +514,12 @@
   }
   .help {
     display: grid;
-    grid-template-columns: minmax(104px, auto) 1fr;
+    grid-template-columns: 1fr;
     gap: 6px 8px;
     margin: 0;
     padding: 8px 16px 0;
-    font-size: 11px;
+    font-size: 12px;
+    line-height: 1.5;
   }
   .help dt {
     color: var(--ui-accent-text);
@@ -515,9 +527,14 @@
     overflow-wrap: anywhere;
   }
   .help dd {
-    margin: 0;
+    margin: -5px 0 8px;
     color: var(--ui-text-3);
   }
+  .search-options { display: flex; align-items: center; gap: 6px; margin: 0 12px 12px; }
+  .search-options > span { flex: 1; color: var(--ui-text-2); font-size: 12px; }
+  .search-options .option { width: 28px; height: 28px; }
+  .syntax-help { margin: 12px 0; overflow-y: auto; }
+  .syntax-help summary { margin: 0 16px; color: var(--ui-text-2); font-size: 12px; cursor: pointer; }
   .results {
     flex: 1;
     min-height: 0;

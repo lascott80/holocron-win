@@ -189,7 +189,7 @@
     border-top: 1px solid var(--ui-border);
     background: var(--ui-editor);
     color: var(--ui-text-3);
-    font-size: 11.5px;
+    font-size: 12px;
     white-space: nowrap;
   }
   .save-status {
