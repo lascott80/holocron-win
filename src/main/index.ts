@@ -14,6 +14,7 @@ import { FileStore } from "./store";
 import { createTrash, isInside, writeAtomic } from "./fsx";
 import { Vault } from "./vault";
 import { VaultWatcher } from "./watcher";
+import { SnippetManager } from "./snippets";
 import { EditorBridge, openExternalSafely } from "./editorBridge";
 import { SearchService } from "./searchService";
 import { createCommands } from "./commands";
@@ -103,6 +104,8 @@ export class HolocronApp {
   private jumpListTimer: NodeJS.Timeout | null = null;
   private jumpListKey = "";
   private watcher: VaultWatcher | null = null;
+  /** The open vault's CSS snippets (§16.11). */
+  snippets: SnippetManager | null = null;
   private stateQueued = false;
 
   constructor() {
@@ -138,6 +141,7 @@ export class HolocronApp {
       update: this.updater.view(),
       quickCapture: this.quickCapture,
       spelling: this.spelling,
+      snippets: this.snippets?.view() ?? [],
     };
   }
 
@@ -248,6 +252,7 @@ export class HolocronApp {
     this.rememberVault(vault.root);
     this.watcher = new VaultWatcher(vault.root, (paths) => vault.handleDiskChanges(paths));
     this.watcher.start().catch((error) => console.error("Watcher failed:", error));
+    this.snippets = new SnippetManager(vault.root, this.store, () => this.pushState());
     this.window?.setTitle(`${vault.name} — Holocron`);
     this.pushTree();
     this.pushState();
@@ -259,6 +264,8 @@ export class HolocronApp {
     this.vault.close();
     await this.watcher?.stop();
     this.watcher = null;
+    this.snippets?.close();
+    this.snippets = null;
     this.vault = null;
     this.editor.vault = null;
     this.editor.show(null, null);

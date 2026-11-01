@@ -1,11 +1,13 @@
 // User preferences (REQUIREMENTS §13), shared by the main process and the renderer.
 
+import { sanitizeFontFamily } from "./snippets";
 import { crystalIds, darkThemeIds, DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, lightThemeIds, type Crystal } from "./themes";
 
 export type Appearance = "system" | "dark" | "light";
 /** A crystal, or "theme": the active colour theme's own accent. */
 export type Accent = Crystal | "theme";
-export type EditorFont = "system" | "serif" | "mono";
+/** The bundled choices, or "custom": any installed font named in `editorFontFamily` (§16.11). */
+export type EditorFont = "system" | "serif" | "mono" | "custom";
 export type EditorMode = "livePreview" | "source" | "reading";
 export type InspectorTab = "outline" | "links" | "info";
 /** Order of the file tree (folders always first): by name, or newest first by modification or creation time. */
@@ -37,6 +39,8 @@ export interface Settings {
   lightTheme: string;
   showFormattingBar: boolean;
   editorFont: EditorFont;
+  /** The installed font (a family name, or a comma-separated list) used when `editorFont` is "custom". */
+  editorFontFamily: string;
   editorFontSize: number;
   editorLineWidth: number;
   /** Line height as a multiple of the text size. */
@@ -44,6 +48,10 @@ export interface Settings {
   /** How tall blank lines between paragraphs are. */
   paragraphSpacing: ParagraphSpacing;
   readingFont: ReadingFont;
+  /** The installed font used when `readingFont` is "custom". */
+  readingFontFamily: string;
+  /** The window chrome's font; "" = Segoe UI Variable (§16.3). */
+  uiFontFamily: string;
   darkImages: DarkImages;
   /** Number the lines of every code block (a block can also ask with `linenos`). */
   codeLineNumbers: boolean;
@@ -110,11 +118,14 @@ export const defaultSettings: Settings = {
   lightTheme: DEFAULT_LIGHT_THEME,
   showFormattingBar: true,
   editorFont: "mono",
+  editorFontFamily: "",
   editorFontSize: 16,
   editorLineWidth: 720,
   editorLineHeight: 1.65,
   paragraphSpacing: "normal",
   readingFont: "same",
+  readingFontFamily: "",
+  uiFontFamily: "",
   darkImages: "normal",
   codeLineNumbers: false,
   showHeadingTrail: true,
@@ -178,9 +189,12 @@ export function sanitizeSettings(raw: Partial<Record<keyof Settings, unknown>>):
   result.accent = oneOf<Accent>(result.accent, ["theme", ...crystalIds], "kyber");
   result.darkTheme = oneOf(result.darkTheme, darkThemeIds, DEFAULT_DARK_THEME);
   result.lightTheme = oneOf(result.lightTheme, lightThemeIds, DEFAULT_LIGHT_THEME);
-  result.editorFont = oneOf(result.editorFont, ["system", "serif", "mono"], "mono");
+  result.editorFont = oneOf(result.editorFont, ["system", "serif", "mono", "custom"], "mono");
+  result.editorFontFamily = sanitizeFontFamily(result.editorFontFamily);
+  result.readingFontFamily = sanitizeFontFamily(result.readingFontFamily);
+  result.uiFontFamily = sanitizeFontFamily(result.uiFontFamily);
   result.paragraphSpacing = oneOf<ParagraphSpacing>(result.paragraphSpacing, ["compact", "normal", "relaxed"], "normal");
-  result.readingFont = oneOf<ReadingFont>(result.readingFont, ["same", "system", "serif", "mono"], "same");
+  result.readingFont = oneOf<ReadingFont>(result.readingFont, ["same", "system", "serif", "mono", "custom"], "same");
   result.darkImages = oneOf<DarkImages>(result.darkImages, ["normal", "dim", "invertLight"], "normal");
   result.revealMarkup = oneOf<RevealMarkup>(result.revealMarkup, ["line", "span"], "line");
   result.editorMode = oneOf(result.editorMode, ["livePreview", "source", "reading"], "livePreview");

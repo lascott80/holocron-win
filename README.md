@@ -128,6 +128,25 @@ command palette has `Theme: <name>` for each one. Themes are data in
 `src/shared/themes.ts` (REQUIREMENTS §16.10); to screenshot them all, build
 and run `node scripts/smoke.mjs <dir> --script scripts/smoke-themes.mjs`.
 
+**Fonts.** Settings › Editor › Font has **Custom…** beside the bundled
+choices: type or pick any installed font (the list comes from the Windows
+registry), and the same for the reading view. Settings › Appearance has an
+**Interface font** for the sidebar, tabs and dialogs. Missing fonts fall
+back to the defaults (REQUIREMENTS §16.11).
+
+**Snippets.** Drop `.css` files in the vault's `.holocron/snippets` folder
+(Settings › Appearance › CSS snippets › Open snippets folder) and switch each
+one on there; they apply after the theme, to the editor and the window alike.
+The `--hc-*` and `--ui-*` variables and the element classes a snippet can
+rely on are listed in REQUIREMENTS §16.11. `@import` and remote `url()`s are
+stripped. A two-line `wide-serif.css` (the variables are set inline on
+`<html>`, so overriding one takes `!important`):
+
+```css
+:root { --hc-line-width: 960px !important; --hc-font: Georgia, serif !important; }
+.cm-h1 { letter-spacing: 0; }
+```
+
 ## Windows keyboard shortcuts
 
 Mostly ⌘ → Ctrl, with these deliberate changes (REQUIREMENTS §17.2):

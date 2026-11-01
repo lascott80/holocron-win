@@ -10,6 +10,7 @@ import { EDIT_ACTIONS, type EditAction } from "@shared/ipc";
 import { openExternalSafely } from "./editorBridge";
 import { exportNote, showExported, type ExportFormat } from "./exporter";
 import { fetchPageTitle } from "./pageTitle";
+import { listInstalledFonts } from "./fonts";
 import { log, logsFolder } from "./log";
 import type { HolocronApp } from "./index";
 import type { Vault } from "./vault";
@@ -107,6 +108,17 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
       else if (app.recentVaults.includes(value)) void shell.openPath(value);
     },
     showVaultInFolder: () => app.vault && void shell.openPath(app.vault.root),
+
+    // Appearance: CSS snippets (src/main/snippets.ts) and installed fonts (src/main/fonts.ts), §16.11
+    reloadSnippets: () => app.snippets?.reload(),
+    setSnippetEnabled: (name, enabled) => app.snippets?.setEnabled(str(name), bool(enabled)),
+    /** Creates `.holocron/snippets` if needed and opens it in File Explorer. */
+    openSnippetsFolder: () => {
+      const folder = app.snippets?.ensureFolder();
+      if (folder) void shell.openPath(folder);
+    },
+    /** Installed font families from the registry, cached per session; empty where it can't be read. */
+    listFonts: () => listInstalledFonts(),
     /** File › Export as PDF / HTML and Print: `html` is the page the editor built (src/editor/exporter.js). */
     exportNote: withVault(async (vault, format, html) => {
       const kind = str(format);

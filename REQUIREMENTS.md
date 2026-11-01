@@ -737,12 +737,16 @@ Stored per user (Mac: UserDefaults). Window with four tabs; the last tab is reme
 | Appearance | Light theme (*Windows*): Holocron Light / Light+ / GitHub Light / Solarized Light | `lightTheme` | "holocron-light" | As above, for light |
 | Appearance | Crystal: Theme default (*Windows*) / Kyber Blue / Sith Red / Jedi Green / Temple Gold | `accent` | kyber | swatches; "theme" = the active colour theme's own accent (Holocron's is Kyber Blue) |
 | Editor | Show the formatting bar above notes | `showFormattingBar` | on | |
-| Editor | Font: System / Serif / JetBrains Mono (bundled), each name drawn in its font | `editorFont` | mono | §16.3 |
+| Appearance | Interface font (*Windows*): a font-name field with a dropdown of installed fonts | `uiFontFamily` | "" | "" = Segoe UI Variable (§16.3); §16.11 |
+| Appearance › CSS snippets (*Windows*) | Snippets: a switch per `.css` file in the vault's `.holocron/snippets`, plus "Open snippets folder" and "Reload" | per vault: `snippets:<root>` in the state store | none on | §16.11. Help text explains the folder when it's empty; "Open a vault to use snippets." without one |
+| Editor | Font: System / Serif / JetBrains Mono (bundled), each name drawn in its font, or Custom… (*Windows*) | `editorFont` | mono | §16.3 |
+| Editor | Font name (*Windows*; shown when Font is Custom…): a text field with a dropdown of installed fonts | `editorFontFamily` | "" | A family name or a comma-separated list; §16.11 |
 | Editor | Text size (12–32, step 1, "N pt"; also View › Zoom and Ctrl+scroll, ED-62) | `editorFontSize` | 16 | |
 | Editor | Line width (560–1100, step 20, "N pt") | `editorLineWidth` | 720 | |
 | Editor | Line spacing (1.3–2.2×, step 0.05) (*Windows*) | `editorLineHeight` | 1.65 | ED-63 |
 | Editor | Paragraph spacing: Compact / Normal / Relaxed (*Windows*) | `paragraphSpacing` | normal | "How tall the blank lines between paragraphs are. Your notes don’t change." ED-63 |
-| Editor | Reading view font: Same / System / Serif / Monospaced (*Windows*) | `readingFont` | same | ED-63 |
+| Editor | Reading view font: Same / System / Serif / Monospaced / Custom… (*Windows*) | `readingFont` | same | ED-63 |
+| Editor | Reading view font name (*Windows*; shown when Reading view font is Custom…) | `readingFontFamily` | "" | As `editorFontFamily`; §16.11 |
 | Editor | Images in dark themes: As they are / Dimmed / Invert light ones (*Windows*) | `darkImages` | normal | ED-66 |
 | Editor | Show line numbers in code blocks (*Windows*) | `codeLineNumbers` | off | ED-67 |
 | Editor | Show the headings you’re in above the note while scrolling (*Windows*) | `showHeadingTrail` | on | ED-64 |
@@ -981,6 +985,19 @@ Accent: "Theme default" (`accent: "theme"`) uses the theme's accent — Dark+ gl
 
 Command palette: "Theme: <name>" for every theme sets darkTheme or lightTheme and, if the window is currently showing the other kind, also sets Appearance to Dark or Light so the choice is visible. "Crystal: Theme default" joins the crystal commands.
 
+### 16.11 CSS snippets and any installed font (*Windows*)
+
+**CSS snippets** (Obsidian's Appearance › CSS snippets). A vault's `.holocron/snippets/*.css` files are listed in Settings › Appearance › CSS snippets, each with a switch; the enabled set is per vault, stored in the state store as `snippets:<root>` (an array of names without `.css`). The folder is hidden, so the tree, index, search and vault watcher never see it (VLT-03, SAV-07); `src/main/snippets.ts` keeps its own `fs.watch` on the folder (coalesced 300 ms) once it exists, re-reads it on Settings' Reload and when the vault opens, and "Open snippets folder" creates it and opens it in File Explorer. Enabled snippets reach the renderer in the app state and are injected as `<style data-snippet="<name>">` at the end of `<head>` — after the app's own stylesheets, in file-name order (natural, case-insensitive) — so one copy styles both the chrome and the editor, which share the document; they're replaced whenever a file, its text or the enabled set changes. Files over 512 KB are skipped.
+
+Snippets are plain CSS and can't reach the network (NFR-04): every `@import` rule is removed and any `url()` naming a scheme other than `data:` (http, https, protocol-relative `//`, file…) becomes an empty `url()`. `local()` fonts, `data:` URLs and relative references are kept (the page's CSP blocks remote fonts anyway). Sanitising is in `src/shared/snippets.ts` (tests/shared/snippets.test.ts).
+
+Stable hooks a snippet can rely on:
+- The colour and typography variables on `<html>`: `--hc-*` for the editor (§16.7: `--hc-bg`, `--hc-text`, `--hc-heading`, `--hc-accent`, `--hc-font`, `--hc-font-size`, `--hc-line-height`, `--hc-line-width`, `--hc-reading-font`, `--hc-syn-*`, `--hc-callout-*`…) and `--ui-*` for the chrome (`--ui-sidebar`, `--ui-editor`, `--ui-titlebar`, `--ui-panel`, `--ui-overlay`, `--ui-raised`, `--ui-chip`, `--ui-border`, `--ui-text`, `--ui-text-2`, `--ui-text-3`, `--ui-accent`, `--ui-accent-rgb`, `--ui-fill`, `--ui-selection`, `--ui-font`). They're set as inline styles on `<html>`, so a snippet that overrides one needs `!important` (`:root { --hc-line-width: 960px !important; }`), which then restyles everything that uses it; rules on elements (`.cm-content { … }`) need no such thing. `html.hc-dark` / `html.hc-light` say which kind of theme is showing.
+- Editor elements: `.cm-editor` (with `.cm-mode-reading` or `.cm-mode-source` in those views), `.cm-scroller`, `.cm-content` (the text column), `.cm-line`, headings `.cm-h1` … `.cm-h6` and the heading trail `.cm-heading-trail`, callouts `.cm-callout` with `.cm-callout-<family>` (blue, green, purple, yellow, red, gray) and `.cm-callout-title`, code blocks `.cm-codeblock`, tables `.cm-table-widget`, `.cm-blockquote`, `.cm-list-line`, `.cm-task-checkbox`, `.cm-tag`, `.cm-wikilink`, and the properties panel `.cm-properties`.
+- Chrome: `.titlebar`, `.sidebar` (file tree `.file-tree` › `.tree` › `.row`), `.tab-bar` (`.tab`, `.tab.active`), `.formatting-bar`, `.breadcrumb`, `.inspector`, `.status-bar`, overlays (`.backdrop` with a `.dialog` or `.sheet`) and `.toast`. Svelte adds a hashed class beside each of these; the names themselves are stable.
+
+**Any installed font.** Settings › Editor › Font adds **Custom…** beside System / Serif / JetBrains Mono: a "Font name" field (`editorFontFamily`) takes one installed family, or several separated by commas, tried in order. Reading view font gets the same (`readingFontFamily`), and Settings › Appearance gets an **Interface font** field (`uiFontFamily`; empty = Segoe UI Variable). Each field offers a dropdown of the installed families: the main process reads `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts` and the HKCU equivalent with `reg query` (command `listFonts`, cached for the session; `src/main/fonts.ts`), strips the "(TrueType)" / "(OpenType)" suffixes and the face words Regular / Bold / Italic / Oblique (weights and widths such as "Segoe UI Light" or "Arial Black" are families of their own and stay), splits "A & B" entries, drops "@" vertical variants, de-duplicates and sorts. When the list is empty (another platform, or the registry can't be read) the fields are plain text. The names are sanitised (quotes, braces, semicolons and parentheses removed; 200 characters at most) and applied through the existing variables (§16.7) as a quoted stack with the built-in fallback after it: `--hc-font: 'Inter', 'Segoe UI Variable Text', …` for the editor, `--hc-reading-font` for reading view and `--ui-font` for the chrome, so a missing font degrades to the default.
+
 ---
 
 ## 17. Porting guide
@@ -1141,6 +1158,7 @@ See `Holocron Roadmap.md` for the full roadmap. Not part of the current product 
 
 - Typed properties (Number and Date & time, ED-75), a vault-wide Properties section in the sidebar (UI-14b, IDX-07) and property key and value autocomplete (ED-78).
 - A nested tag tree in the sidebar (UI-14, IDX-04) and vault-wide tag renaming (FOP-13).
+- CSS snippets and any installed font for the editor, reading view and the interface (§16.11).
 
 *Not built in the Windows port yet:* everything above that's still listed, plus §15 cloud handling (iCloud doesn't apply; OneDrive/Dropbox placeholders from §17.4 aren't built — conflict copies are, UI-41), dragging notes out of the sidebar to File Explorer, math inside callouts/blockquotes, inline HTML inside rendered table cells, remote (https) media, and code signing.
 
