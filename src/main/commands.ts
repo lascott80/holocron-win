@@ -242,6 +242,12 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
     commitRename: withVault((vault, path, name) => vault.commitRename(str(path), str(name))),
     move: withVault((vault, items, folder) => vault.move(strings(items), str(folder))),
     duplicate: withVault((vault, path) => vault.duplicate(str(path))),
+    // Note composer (FOP-13…FOP-15): `from`/`to` are the editor's selection offsets, `selected` its text.
+    extractSelection: withVault((vault, path, from, to, selected, name, embed) =>
+      vault.extractSelection(str(path), num(from), num(to), str(selected), str(name), bool(embed)),
+    ),
+    mergeNote: withVault((vault, source, target, withHeading) => vault.mergeNote(str(source), str(target), bool(withHeading))),
+    splitAtHeading: withVault((vault, path, line) => vault.splitAtHeading(str(path), num(line))),
     requestDeletion: withVault((vault, paths) => vault.requestDeletion(strings(paths))),
     confirmDeletion: withVault((vault, withAttachments) => vault.confirmDeletion(withAttachments === undefined ? false : bool(withAttachments))),
     cancelDeletion: withVault((vault) => vault.cancelDeletion()),

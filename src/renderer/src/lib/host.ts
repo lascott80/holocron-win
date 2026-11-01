@@ -31,6 +31,8 @@ export interface EditorApi {
   scrollToLine(line: number): void;
   moveSection(fromLine: number, beforeLine: number | null): boolean;
   getText(): string;
+  /** The main selection's offsets into getText() and its text ("" when nothing is selected). */
+  getSelection(): { from: number; to: number; text: string };
   exportHtml(title: string): Promise<string>;
   [method: string]: unknown;
 }

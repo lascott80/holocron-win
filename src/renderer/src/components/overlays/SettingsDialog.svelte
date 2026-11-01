@@ -218,6 +218,7 @@
       (
         | "reopenLastVault"
         | "updateLinksOnMove"
+        | "updateHeadingLinks"
         | "nameNotesFromFirstLine"
         | "autoMergeExternalChanges"
         | "showFormattingBar"
@@ -468,6 +469,12 @@
         <h3 class="section-label">Files</h3>
         <div class="group">
           {@render switchRow("Update links when renaming or moving notes", s.updateLinksOnMove, toggle("updateLinksOnMove"))}
+          {@render switchRow(
+            "Offer to update links when a heading is renamed",
+            s.updateHeadingLinks,
+            toggle("updateHeadingLinks"),
+            "After you change a heading’s text, a message offers to point [[Note#Heading]] links in your other notes at the new name.",
+          )}
           {@render switchRow("Name new notes from their first line", s.nameNotesFromFirstLine, toggle("nameNotesFromFirstLine"))}
           {@render switchRow(
             "Keep a history of note versions",

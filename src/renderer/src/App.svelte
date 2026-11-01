@@ -22,6 +22,7 @@
   import StatusBar from "./components/detail/StatusBar.svelte";
   import EmptyEditor from "./components/detail/EmptyEditor.svelte";
   import QuickOpen from "./components/overlays/QuickOpen.svelte";
+  import NoteComposer from "./components/overlays/NoteComposer.svelte";
   import TemplatePicker from "./components/overlays/TemplatePicker.svelte";
   import Welcome from "./components/overlays/Welcome.svelte";
   import SettingsDialog from "./components/overlays/SettingsDialog.svelte";
@@ -145,6 +146,7 @@
 </div>
 
 {#if app.quickOpen}<QuickOpen />{/if}
+{#if app.composer}<NoteComposer />{/if}
 {#if app.templatePicker}<TemplatePicker />{/if}
 {#if app.settingsOpen}<SettingsDialog />{/if}
 {#if app.aboutOpen}<AboutDialog />{/if}
