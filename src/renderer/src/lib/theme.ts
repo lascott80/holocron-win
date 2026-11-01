@@ -4,6 +4,7 @@
 // themes themselves are data in @shared/themes (the main process uses them too).
 
 import type { EditorFont, Settings } from "@shared/settings";
+import { fontStack, type SnippetView } from "@shared/snippets";
 import { accentColors, crystals, resolveTheme, rgbTriple, type CalloutFamily, type Theme } from "@shared/themes";
 
 export { themes, darkThemes, lightThemes, themeById, type Theme } from "@shared/themes";
@@ -18,7 +19,19 @@ export const editorFonts: Record<EditorFont, { title: string; css: string; headi
   system: { title: "System", css: "'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif", headingScale: 1, headingWeight: 650 },
   serif: { title: "Serif", css: "Cambria, 'Iowan Old Style', Georgia, ui-serif, serif", headingScale: 1, headingWeight: 650 },
   mono: { title: "JetBrains Mono", css: "'JetBrains Mono Variable', 'JetBrains Mono', 'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, monospace", headingScale: 0.86, headingWeight: 600 },
+  // Any installed font (§16.11): the stack is built from the setting by `fontFamilyCss`; this `css` is only its fallback.
+  custom: { title: "Custom…", css: "'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif", headingScale: 1, headingWeight: 650 },
 };
+
+/** The `font-family` for an editor font choice; a custom one names the installed font first, then the system stack. */
+export function fontFamilyCss(font: EditorFont, family: string): string {
+  return font === "custom" ? fontStack(family, editorFonts.custom.css) : editorFonts[font].css;
+}
+
+/** The window chrome's font: the Interface font setting in front of Segoe UI Variable. */
+export function uiFontCss(settings: Pick<Settings, "uiFontFamily">): string {
+  return fontStack(settings.uiFontFamily, UI_FONT);
+}
 
 type ThemeSettings = Pick<Settings, "darkTheme" | "lightTheme">;
 
@@ -35,6 +48,7 @@ export function editorVariables(isDark: boolean, settings: Settings): Record<str
   const p = theme.palette;
   const a = accentColors(theme, settings.accent);
   const readingFont = settings.readingFont === "same" ? settings.editorFont : settings.readingFont;
+  const readingFamily = settings.readingFont === "same" ? settings.editorFontFamily : settings.readingFontFamily;
   const vars: Record<string, string> = {
     // Not a colour: lets the editor tell themes apart (Mermaid redraws on change).
     "--hc-theme": theme.id,
@@ -61,14 +75,14 @@ export function editorVariables(isDark: boolean, settings: Settings): Record<str
     "--hc-synced": p.synced,
     "--hc-warning": p.warning,
     "--hc-danger": p.danger,
-    "--hc-font": editorFonts[settings.editorFont].css,
+    "--hc-font": fontFamilyCss(settings.editorFont, settings.editorFontFamily),
     "--hc-heading-scale": String(editorFonts[settings.editorFont].headingScale),
     "--hc-heading-weight": String(editorFonts[settings.editorFont].headingWeight),
     "--hc-font-size": `${settings.editorFontSize}px`,
     "--hc-line-height": String(settings.editorLineHeight),
     // Blank lines between paragraphs, as a share of a full line.
     "--hc-blank-scale": { compact: "0.45", normal: "1", relaxed: "1.6" }[settings.paragraphSpacing],
-    "--hc-reading-font": editorFonts[readingFont].css,
+    "--hc-reading-font": fontFamilyCss(readingFont, readingFamily),
     "--hc-reading-heading-scale": String(editorFonts[readingFont].headingScale),
     "--hc-reading-heading-weight": String(editorFonts[readingFont].headingWeight),
     // Off: the column grows with the window (the editor adds its 32 px side padding).
@@ -116,10 +130,30 @@ export function chromeVariables(isDark: boolean, settings: Settings): Record<str
     "--ui-accent-text": a.text,
     "--ui-fill": a.fill,
     "--ui-selection": theme.selection ?? `rgba(${rgbTriple(a.glyph)}, 0.28)`,
-    "--ui-font": UI_FONT,
+    "--ui-font": uiFontCss(settings),
     "--ui-shadow": dark ? "0 12px 40px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.4)" : "0 12px 40px rgba(17,19,24,.16), 0 2px 8px rgba(17,19,24,.08)",
     "--ui-backdrop": dark ? "rgba(5,6,8,.55)" : "rgba(17,19,24,.22)",
   };
+}
+
+/**
+ * Injects the enabled CSS snippets (§16.11) as `<style data-snippet="name">`
+ * at the end of <head>, in file-name order, after the app's own stylesheets.
+ * The chrome and the editor share this document, so one copy styles both.
+ */
+export function applySnippets(snippets: SnippetView[]) {
+  const head = document.head;
+  const wanted = snippets.filter((snippet) => snippet.enabled);
+  const existing = [...head.querySelectorAll<HTMLStyleElement>("style[data-snippet]")];
+  // Unchanged? Leave the elements alone (re-inserting styles makes the page re-layout).
+  if (existing.length === wanted.length && existing.every((style, index) => style.dataset.snippet === wanted[index]!.name && style.textContent === wanted[index]!.css)) return;
+  for (const style of existing) style.remove();
+  for (const snippet of wanted) {
+    const style = document.createElement("style");
+    style.dataset.snippet = snippet.name;
+    style.textContent = snippet.css;
+    head.append(style);
+  }
 }
 
 /** Applies every variable to <html> and switches the light/dark classes. */

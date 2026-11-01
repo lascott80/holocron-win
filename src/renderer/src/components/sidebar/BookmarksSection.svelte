@@ -33,7 +33,7 @@
 
   function onContextMenu(event: MouseEvent, path: string) {
     const entries: MenuEntry[] = [];
-    if (isNote(path)) entries.push({ label: "Open in New Tab", run: () => run("open", path, true) }, { label: "Open to the Right", run: () => run("openInSplit", path) }, "-");
+    if (isNote(path)) entries.push({ label: "Open in New Tab", run: () => run("open", path, true) }, { label: "Open to the Right", run: () => run("openInSplit", path, "row") }, { label: "Open Below", run: () => run("openInSplit", path, "column") }, "-");
     entries.push({ label: "Remove Bookmark", run: () => run("toggleBookmark", path) }, "-", { label: "Show in File Explorer", run: () => run("showInFolder", path) });
     menu.openAt(event, entries);
   }

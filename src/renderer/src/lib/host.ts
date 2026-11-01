@@ -10,10 +10,8 @@ declare global {
     holocronEditorPost?: (message: import("@shared/ipc").EditorMessage) => void;
     /** The editor's API (src/editor/main.js). */
     holocron?: EditorApi;
-    /** Creates another editor (split view's right-hand pane, UI-40). */
-    holocronCreateEditor?: (parent: HTMLElement, pane?: EditorPane) => EditorApi;
-    /** Split view's right-hand editor, once created. */
-    holocronSplit?: EditorApi;
+    /** Creates another editor, for a pane of the layout (UI-40) or a stacked tab (UI-48), named by its id. */
+    holocronCreateEditor?: (parent: HTMLElement, pane: EditorPane) => EditorApi;
   }
 }
 
@@ -24,6 +22,8 @@ export interface EditorApi {
   setMode(mode: "live" | "source" | "reading"): void;
   setFocusMode(on: boolean): void;
   setRevealMode(mode: "line" | "span"): void;
+  /** The editor's shortcuts in CodeMirror spelling, from the effective hotkey map (HK-01). */
+  setHotkeys(entries: { key: string; command: string }[]): void;
   setAppearance(vars: Record<string, string>, mode: "dark" | "light"): void;
   insertTable(rows: number, columns: number): void;
   insertAtPoint(x: number, y: number, text: string): void;
@@ -31,7 +31,21 @@ export interface EditorApi {
   scrollToLine(line: number): void;
   moveSection(fromLine: number, beforeLine: number | null): boolean;
   getText(): string;
+  /** The #tag at the cursor without the "#", or null (FOP-13). */
+  tagAtCursor(): string | null;
+  /** The main selection's offsets into getText() and its text ("" when nothing is selected). */
+  getSelection(): { from: number; to: number; text: string };
   exportHtml(title: string): Promise<string>;
+  /** Linked scrolling (UI-47): the fractional 1-based line at the top of the view, and the note's line count. */
+  getScrollLine(): { line: number; lines: number };
+  setScrollLine(line: number): void;
+  onScroll(listener: () => void): () => void;
+  /** Tears the editor down (a pane closed). */
+  destroy(): void;
+  /** The index changed: ```query blocks run again (debounced, §9.5). */
+  indexChanged(): void;
+  /** How ```base blocks are drawn: mounts the Base view into a widget's element, returning an unmount function. */
+  setBlockHost(host: { mountBase: (element: HTMLElement, source: string) => () => void }): void;
   [method: string]: unknown;
 }
 
@@ -47,12 +61,14 @@ export function run(name: string, ...args: unknown[]): void {
   host.call(name, ...args).catch((error: unknown) => console.error(`[${name}]`, error));
 }
 
-/** Runs an editor command if the editor is loaded. */
-export function editor(): EditorApi | null {
-  return (activeEditorPane === "split" ? window.holocronSplit : window.holocron) ?? null;
-}
+/** The editors of the other panes (UI-40) and stacked tabs (UI-48), by id; "main" is `window.holocron`. */
+const paneEditors = new Map<string, EditorApi>();
 
 /** The editor that formatting commands, Find and the status bar follow: the one last focused (UI-40). */
+export function editor(): EditorApi | null {
+  return editorFor(activeEditorPane);
+}
+
 let activeEditorPane: EditorPane = "main";
 
 export function activePane(): EditorPane {
@@ -63,7 +79,22 @@ export function setActivePane(pane: EditorPane) {
   activeEditorPane = pane;
 }
 
-/** The editor for `pane`. */
+/** The editor for `pane` (the main one when unnamed), or null while it doesn't exist. */
 export function editorFor(pane: EditorPane | undefined): EditorApi | null {
-  return (pane === "split" ? window.holocronSplit : window.holocron) ?? null;
+  return (pane && pane !== "main" ? paneEditors.get(pane) : window.holocron) ?? null;
+}
+
+/** Makes the editor for a pane in `parent` (the pane's component owns it) and registers it under its id. */
+export function createPaneEditor(parent: HTMLElement, pane: EditorPane): EditorApi | null {
+  const api = window.holocronCreateEditor?.(parent, pane) ?? null;
+  if (api) paneEditors.set(pane, api);
+  return api;
+}
+
+/** Forgets a pane's editor and tears it down (the pane closed). */
+export function destroyPaneEditor(pane: EditorPane) {
+  const api = paneEditors.get(pane);
+  paneEditors.delete(pane);
+  api?.destroy();
+  if (activeEditorPane === pane) activeEditorPane = "main";
 }

@@ -3,7 +3,7 @@
 import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView, drawSelection, dropCursor, keymap, placeholder, rectangularSelection } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab, redo, undo } from "@codemirror/commands";
-import { indentOnInput, syntaxHighlighting } from "@codemirror/language";
+import { indentOnInput, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import {
   findNext,
@@ -26,9 +26,10 @@ import { hoverPreview } from "./hoverPreview.js";
 import { focusMode } from "./focusMode.js";
 import { insertSizedTable, tableCommands, tableEditing } from "./tableEditing.js";
 import { folding } from "./folds.js";
-import { foldAllHeadings, foldHeading, headingFoldKeymap, headingFolding, unfoldAll, unfoldHeading } from "./headingFolds.js";
+import { foldAllHeadings, foldHeading, headingFolding, unfoldAll, unfoldHeading } from "./headingFolds.js";
 import { comments } from "./comments.js";
 import { mermaidDiagrams, setMermaidTheme } from "./mermaid.js";
+import { configureQueryBlocks, queryBlocks, queryIndexChanged } from "./queryBlocks.js";
 import { math } from "./math.js";
 import { emoji } from "./emoji.js";
 import { livePreview, setRevealMode } from "./livePreview.js";
@@ -82,20 +83,43 @@ function post(message) {
 
 // ---------- Editor setup ----------
 
-const formatKeymap = [
-  { key: "Mod-b", run: toggleBold },
-  { key: "Mod-i", run: toggleItalic },
-  { key: "Mod-Shift-x", run: toggleStrikethrough },
-  { key: "Mod-e", run: toggleCode },
-  { key: "Mod-k", run: insertLink },
-  { key: "Mod-l", run: toggleTask },
-  { key: "Mod-Shift-h", run: toggleHighlight },
-  { key: "Mod-Alt-0", run: setHeading(0) },
-  { key: "Mod-Alt-1", run: setHeading(1) },
-  { key: "Mod-Alt-2", run: setHeading(2) },
-  { key: "Mod-Alt-3", run: setHeading(3) },
-  { key: "Mod-Shift-v", run: pastePlainText }, // Paste as Plain Text (Windows convention)
+// The editor's own shortcuts, as command names (the `commands` table below).
+// These are the defaults; the app replaces them through `setHotkeys` when the
+// user customises shortcuts (Settings › Hotkeys, HK-01), so the editor's
+// keymap and the app's menus never disagree.
+const defaultEditorHotkeys = [
+  { key: "Mod-b", command: "bold" },
+  { key: "Mod-i", command: "italic" },
+  { key: "Mod-Shift-x", command: "strikethrough" },
+  { key: "Mod-e", command: "code" },
+  { key: "Mod-k", command: "link" },
+  { key: "Mod-l", command: "task" },
+  { key: "Mod-Shift-h", command: "highlight" },
+  { key: "Mod-Alt-0", command: "heading0" },
+  { key: "Mod-Alt-1", command: "heading1" },
+  { key: "Mod-Alt-2", command: "heading2" },
+  { key: "Mod-Alt-3", command: "heading3" },
+  { key: "Mod-Shift-v", command: "pastePlainText" }, // Paste as Plain Text (Windows convention)
+  { key: "Mod-f", command: "find" },
+  { key: "F3", command: "findNext" },
+  { key: "Shift-F3", command: "findPrevious" },
+  { key: "Mod-Shift-[", command: "foldHeading" },
+  { key: "Mod-Shift-]", command: "unfoldHeading" },
+  { key: "Alt-Shift-ArrowUp", command: "tableMoveRowUp" },
+  { key: "Alt-Shift-ArrowDown", command: "tableMoveRowDown" },
+  { key: "Alt-Shift-ArrowLeft", command: "tableMoveColumnLeft" },
+  { key: "Alt-Shift-ArrowRight", command: "tableMoveColumnRight" },
+  { key: "Ctrl-Alt-Shift-ArrowUp", command: "tableInsertRowAbove" },
+  { key: "Ctrl-Alt-Shift-ArrowDown", command: "tableInsertRowBelow" },
+  { key: "Ctrl-Alt-Shift-ArrowLeft", command: "tableInsertColumnLeft" },
+  { key: "Ctrl-Alt-Shift-ArrowRight", command: "tableInsertColumnRight" },
+  { key: "Alt-Shift-Backspace", command: "tableDeleteRow" },
+  { key: "Ctrl-Alt-Shift-Backspace", command: "tableDeleteColumn" },
 ];
+
+// The keys above are the app's to assign, so CodeMirror's own bindings for them step aside.
+const REBINDABLE_SEARCH_KEYS = new Set(["Mod-f", "F3", "Mod-d"]);
+const fixedSearchKeymap = searchKeymap.filter((binding) => !REBINDABLE_SEARCH_KEYS.has(binding.key));
 
 const markdownSupport = markdown({
   base: markdownLanguage,
@@ -127,6 +151,7 @@ function embeddedEditorExtensions() {
     htmlRendering,
     tables,
     mermaidDiagrams,
+    queryBlocks,
     math,
     emoji,
     folding,
@@ -142,6 +167,12 @@ function embeddedEditorExtensions() {
     })),
   ];
 }
+
+// Query and base blocks (§9.5) ask the app for results; openLink goes by vault path.
+configureQueryBlocks({
+  runQuery: window.holocronHost ? (query) => window.holocronHost.call("runQuery", query) : null,
+  openLink: (path, newTab) => (window.holocronHost ? window.holocronHost.call("open", path, newTab) : post({ type: "openLink", target: path, newTab })),
+});
 
 configureEmbeds({
   request: ({ id, target, from }) => {
@@ -176,9 +207,9 @@ const noFocusMode = [];
 
 /**
  * Creates an editor in `parent` and returns its API (what Swift / the app
- * calls). "main" is `window.holocron`; "split" is split view's right-hand pane
- * (UI-40), whose messages carry `pane: "split"`. Each has its own note, undo
- * history, mode and saved states.
+ * calls). "main" is `window.holocron`; any other `pane` is another pane of the
+ * layout (UI-40) or a stacked tab's column (UI-48), whose messages carry that
+ * `pane` id. Each has its own note, undo history, mode and saved states.
  */
 function createEditor(parent, pane = "main") {
   const send = pane === "main" ? post : (message) => post({ ...message, pane });
@@ -222,11 +253,11 @@ function createEditor(parent, pane = "main") {
     noteEmbeds,
     tables,
     mermaidDiagrams,
+    queryBlocks,
     math,
     emoji,
     folding,
     headingFolding,
-    keymap.of(headingFoldKeymap),
     comments,
     codeBlockTools((code) => send({ type: "copy", text: code })),
     inlineImages,
@@ -257,69 +288,7 @@ function createEditor(parent, pane = "main") {
   const focusing = new Compartment();
   let focusModeOn = false;
 
-  /** Brings the view in line with the current mode and focus mode (saved states may be behind). */
-  function syncMode() {
-    const effects = [];
-    if (modes.get(view.state) !== modeExtensions[currentMode]) {
-      effects.push(modes.reconfigure(modeExtensions[currentMode]), setFocused.of(currentMode !== "reading" && view.hasFocus));
-    }
-    const wantFocus = focusModeOn ? focusMode : noFocusMode;
-    if (focusing.get(view.state) !== wantFocus) effects.push(focusing.reconfigure(wantFocus));
-    if (effects.length) view.dispatch({ effects });
-  }
-
-  const extensions = (mode) => [
-    history(),
-    drawSelection(),
-    dropCursor(),
-    rectangularSelection(),
-    EditorState.allowMultipleSelections.of(true),
-    indentOnInput(),
-    markdownSupport,
-    markdownKeys,
-    syntaxHighlighting(holocronHighlight),
-    syntaxHighlighting(codeHighlight),
-    firstLineHeading,
-    paragraphSpacing,
-    tableEditing,
-    closeBrackets(),
-    wrapSelectionOnInput,
-    linkAutocomplete,
-    search({ top: true }),
-    EditorView.lineWrapping,
-    modes.of(modeExtensions[mode]),
-    focusing.of(focusModeOn ? focusMode : noFocusMode),
-    keymap.of([
-      ...formatKeymap,
-      ...closeBracketsKeymap,
-      ...searchKeymap,
-      ...historyKeymap,
-      ...defaultKeymap,
-      indentWithTab,
-    ]),
-    imagePaste((image) => send({ type: "pasteImage", ...image })),
-    // Formatted pastes as markdown; local pictures in them are saved as attachments first.
-    pasteMarkdown({
-      saveImage: (mime, data) => window.holocronHost?.call("saveAttachmentData", "", mime, data) ?? Promise.resolve(null),
-      importFile: (path) => window.holocronHost?.call("importFiles", [path]).then((texts) => texts?.[0] ?? null) ?? Promise.resolve(null),
-      // A lone pasted link becomes [Page title](url) (ED-76; main returns null when the setting is off).
-      fetchTitle: window.holocronHost ? (url) => window.holocronHost.call("fetchPageTitle", url) : undefined,
-    }),
-    EditorView.contentAttributes.of({ spellcheck: "true", autocorrect: "off", autocapitalize: "off" }),
-    EditorView.domEventHandlers({ focus: () => void claimNoteContext() }),
-    placeholder("Start writing…"),
-    holocronTheme,
-    notifyNative,
-  ];
-
-  function createState(text) {
-    return EditorState.create({ doc: text, extensions: extensions(currentMode) });
-  }
-
-  const view = new EditorView({ state: createState(""), parent });
-  const savedStates = new Map();
-
-  // ---------- API called from Swift ----------
+  // ---------- Commands (what Swift / the app runs by name) ----------
 
   const commands = {
     undo,
@@ -358,7 +327,89 @@ function createEditor(parent, pane = "main") {
     tidyNote,
   };
 
+  // The editor's shortcuts live in a compartment so `setHotkeys` can swap
+  // them without rebuilding the editor (HK-01). High precedence: the table
+  // keys must beat CodeMirror's defaults (Alt+Shift+↑ copies a line otherwise).
+  const hotkeys = new Compartment();
+  const hotkeyKeymap = (entries) => Prec.high(keymap.of(entries.filter(({ command }) => commands[command]).map(({ key, command }) => ({ key, run: commands[command] }))));
+  let currentHotkeys = hotkeyKeymap(defaultEditorHotkeys);
+
+  /** Brings the view in line with the current mode, focus mode and hotkeys (saved states may be behind). */
+  function syncMode() {
+    const effects = [];
+    if (modes.get(view.state) !== modeExtensions[currentMode]) {
+      effects.push(modes.reconfigure(modeExtensions[currentMode]), setFocused.of(currentMode !== "reading" && view.hasFocus));
+    }
+    const wantFocus = focusModeOn ? focusMode : noFocusMode;
+    if (focusing.get(view.state) !== wantFocus) effects.push(focusing.reconfigure(wantFocus));
+    if (hotkeys.get(view.state) !== currentHotkeys) effects.push(hotkeys.reconfigure(currentHotkeys));
+    if (effects.length) view.dispatch({ effects });
+  }
+
+  const extensions = (mode) => [
+    history(),
+    drawSelection(),
+    dropCursor(),
+    rectangularSelection(),
+    EditorState.allowMultipleSelections.of(true),
+    indentOnInput(),
+    markdownSupport,
+    markdownKeys,
+    syntaxHighlighting(holocronHighlight),
+    syntaxHighlighting(codeHighlight),
+    firstLineHeading,
+    paragraphSpacing,
+    tableEditing,
+    closeBrackets(),
+    wrapSelectionOnInput,
+    linkAutocomplete,
+    search({ top: true }),
+    EditorView.lineWrapping,
+    modes.of(modeExtensions[mode]),
+    focusing.of(focusModeOn ? focusMode : noFocusMode),
+    hotkeys.of(currentHotkeys),
+    keymap.of([
+      ...closeBracketsKeymap,
+      ...fixedSearchKeymap,
+      ...historyKeymap,
+      ...defaultKeymap,
+      indentWithTab,
+    ]),
+    imagePaste((image) => send({ type: "pasteImage", ...image })),
+    // Formatted pastes as markdown; local pictures in them are saved as attachments first.
+    pasteMarkdown({
+      saveImage: (mime, data) => window.holocronHost?.call("saveAttachmentData", "", mime, data) ?? Promise.resolve(null),
+      importFile: (path) => window.holocronHost?.call("importFiles", [path]).then((texts) => texts?.[0] ?? null) ?? Promise.resolve(null),
+      // A lone pasted link becomes [Page title](url) (ED-76; main returns null when the setting is off).
+      fetchTitle: window.holocronHost ? (url) => window.holocronHost.call("fetchPageTitle", url) : undefined,
+    }),
+    EditorView.contentAttributes.of({ spellcheck: "true", autocorrect: "off", autocapitalize: "off" }),
+    EditorView.domEventHandlers({ focus: () => void claimNoteContext() }),
+    placeholder("Start writing…"),
+    holocronTheme,
+    notifyNative,
+  ];
+
+  function createState(text) {
+    return EditorState.create({ doc: text, extensions: extensions(currentMode) });
+  }
+
+  const view = new EditorView({ state: createState(""), parent });
+  const savedStates = new Map();
+
+  // ---------- API called from Swift ----------
+
   const api = {
+    /**
+     * Replaces the editor's shortcuts with the app's effective ones (HK-01):
+     * `[{ key: "Ctrl-b", command: "bold" }, …]` in CodeMirror's key spelling.
+     * Takes effect at once, in saved states too.
+     */
+    setHotkeys(entries) {
+      currentHotkeys = hotkeyKeymap(Array.isArray(entries) ? entries : defaultEditorHotkeys);
+      syncMode();
+    },
+
     /** Shows a note. `id` identifies it (Swift passes the file path). */
     setDocument(text, id) {
       if (currentId !== null && currentId !== id) {
@@ -411,6 +462,16 @@ function createEditor(parent, pane = "main") {
     /** Holocron's reply to an embed request. */
     resolveEmbed(id, result) {
       resolveEmbed(id, result);
+    },
+
+    /** The index changed: query blocks run again, 500 ms after the last change (§9.5). */
+    indexChanged() {
+      queryIndexChanged();
+    },
+
+    /** How ```base blocks are drawn: `mountBase(element, source)` mounts the app's Base view, returning an unmount function. */
+    setBlockHost(host) {
+      configureQueryBlocks(host ?? {});
     },
 
     vaultDataSummary,
@@ -569,9 +630,58 @@ function createEditor(parent, pane = "main") {
       return view.state.doc.toString();
     },
 
+    /** The #tag the cursor is on or right after (without the "#"), or null: Format › Rename Tag… (FOP-13). */
+    tagAtCursor() {
+      const pos = view.state.selection.main.head;
+      const tree = syntaxTree(view.state);
+      for (const side of [-1, 1]) {
+        let node = tree.resolveInner(pos, side);
+        while (node && node.name !== "Tag") node = node.parent;
+        if (node) return view.state.doc.sliceString(node.from + 1, node.to);
+      }
+      return null;
+    },
+    /** The main selection: offsets into getText() and the text between them (empty when nothing is selected). */
+    getSelection() {
+      const { from, to } = view.state.selection.main;
+      return { from, to, text: view.state.sliceDoc(from, to) };
+    },
+
     /** The note as a standalone HTML page for Export as PDF / HTML and Print (exporter.js). */
     exportHtml(title) {
       return exportHtml(view.state.doc.toString(), title);
+    },
+
+    // ---------- Linked scrolling (UI-47) ----------
+
+    /** The 1-based line at the top of the view (fractional: how far into it the view is scrolled) and the note's line count. */
+    getScrollLine() {
+      const doc = view.state.doc;
+      const height = Math.max(0, view.scrollDOM.scrollTop - view.documentPadding.top);
+      const block = view.lineBlockAtHeight(height);
+      const line = doc.lineAt(block.from).number;
+      const within = block.height > 0 ? Math.min(1, Math.max(0, (height - block.top) / block.height)) : 0;
+      return { line: line + within, lines: doc.lines };
+    },
+
+    /** Scrolls so that (fractional, 1-based) `line` is at the top, without moving the cursor. */
+    setScrollLine(line) {
+      const doc = view.state.doc;
+      const number = Math.max(1, Math.min(doc.lines, Math.floor(line)));
+      const block = view.lineBlockAt(doc.line(number).from);
+      const top = block.top + Math.min(1, Math.max(0, line - number)) * block.height + view.documentPadding.top;
+      view.scrollDOM.scrollTop = top;
+    },
+
+    /** Calls `listener` whenever the view scrolls; returns a function that stops that. */
+    onScroll(listener) {
+      view.scrollDOM.addEventListener("scroll", listener);
+      return () => view.scrollDOM.removeEventListener("scroll", listener);
+    },
+
+    /** Tears the editor down (a pane closed). */
+    destroy() {
+      view.destroy();
     },
   };
 
@@ -580,8 +690,8 @@ function createEditor(parent, pane = "main") {
 }
 
 window.holocron = createEditor(document.getElementById("editor"), "main");
-/** Split view's right-hand editor (UI-40): the app creates it when the pane first opens. */
-window.holocronCreateEditor = (parent, pane = "split") => createEditor(parent, pane);
+/** Another pane's editor (UI-40) or a stacked tab's (UI-48): the app creates one per pane, named by its id. */
+window.holocronCreateEditor = (parent, pane) => createEditor(parent, pane);
 
 // Dev mode (opened in a normal browser): load ?sample=<url> for visual checks.
 if (!nativeHandler) {

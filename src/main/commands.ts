@@ -4,12 +4,16 @@
 import os from "node:os";
 import { app as electronApp, clipboard, ClipboardItem, shell } from "electron";
 import { quickOpenSearch } from "@core/quickOpen";
-import { stem } from "@core/paths";
+import { prefilledProperties } from "@core/base";
+import { setProperty as setPropertyText } from "@core/properties";
+import { dirname, stem } from "@core/paths";
+import type { PaneMode, SplitDirection } from "@core/layout";
 import { defaultSettings, type Settings } from "@shared/settings";
-import { EDIT_ACTIONS, type EditAction } from "@shared/ipc";
+import { EDIT_ACTIONS, type EditAction, type WorkspaceUi } from "@shared/ipc";
 import { openExternalSafely } from "./editorBridge";
 import { exportNote, showExported, type ExportFormat } from "./exporter";
 import { fetchPageTitle } from "./pageTitle";
+import { listInstalledFonts } from "./fonts";
 import { log, logsFolder } from "./log";
 import type { HolocronApp } from "./index";
 import type { Vault } from "./vault";
@@ -36,6 +40,27 @@ const num = (value: unknown): number => {
 const strings = (value: unknown): string[] => {
   if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) throw new TypeError("Expected strings");
   return value;
+};
+const numbers = (value: unknown): number[] => {
+  if (!Array.isArray(value) || !value.every((item) => typeof item === "number" && Number.isFinite(item))) throw new TypeError("Expected numbers");
+  return value;
+};
+/** A pane split direction (UI-40): "column" stacks, anything else puts side by side. */
+const splitDirection = (value: unknown): SplitDirection => (value === "column" ? "column" : "row");
+const paneMode = (value: unknown): PaneMode | null => (value === "live" || value === "source" || value === "reading" ? value : null);
+/** The side panels' state saved with a workspace (UI-49), or null when the renderer sent nothing usable. */
+const workspaceUi = (value: unknown): WorkspaceUi | null => {
+  if (!value || typeof value !== "object") return null;
+  const ui = value as Record<string, unknown>;
+  const width = (raw: unknown, fallback: number) => (typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : fallback);
+  return {
+    showSidebar: ui.showSidebar !== false,
+    showInspector: ui.showInspector !== false,
+    sidebarWidth: width(ui.sidebarWidth, 260),
+    inspectorWidth: width(ui.inspectorWidth, 290),
+    sidebarMode: ui.sidebarMode === "search" || ui.sidebarMode === "tasks" ? ui.sidebarMode : "files",
+    inspectorTab: ui.inspectorTab === "links" || ui.inspectorTab === "info" ? ui.inspectorTab : "outline",
+  };
 };
 
 /** Most a rich copy may put on the clipboard (text + HTML, UTF-16 units). */
@@ -107,6 +132,17 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
       else if (app.recentVaults.includes(value)) void shell.openPath(value);
     },
     showVaultInFolder: () => app.vault && void shell.openPath(app.vault.root),
+
+    // Appearance: CSS snippets (src/main/snippets.ts) and installed fonts (src/main/fonts.ts), §16.11
+    reloadSnippets: () => app.snippets?.reload(),
+    setSnippetEnabled: (name, enabled) => app.snippets?.setEnabled(str(name), bool(enabled)),
+    /** Creates `.holocron/snippets` if needed and opens it in File Explorer. */
+    openSnippetsFolder: () => {
+      const folder = app.snippets?.ensureFolder();
+      if (folder) void shell.openPath(folder);
+    },
+    /** Installed font families from the registry, cached per session; empty where it can't be read. */
+    listFonts: () => listInstalledFonts(),
     /** File › Export as PDF / HTML and Print: `html` is the page the editor built (src/editor/exporter.js). */
     exportNote: withVault(async (vault, format, html) => {
       const kind = str(format);
@@ -207,12 +243,27 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
     moveTab: withVault((vault, id, target) => vault.moveTab(str(id), str(target))),
     togglePinTab: withVault((vault, id) => vault.togglePinTab(str(id))),
     toggleBookmark: withVault((vault, path) => vault.toggleBookmark(str(path))),
-    // Split view (UI-40)
-    openInSplit: withVault((vault, path) => vault.openInSplit(str(path))),
-    openLinkInSplit: withVault((vault, target) => vault.openLinkInSplit(str(target))),
-    splitActiveNote: withVault((vault) => vault.splitActiveNote()),
+    // Panes (UI-40, UI-47): `direction` is "row" (beside) or "column" (below)
+    openInSplit: withVault((vault, path, direction) => vault.openInSplit(str(path), splitDirection(direction))),
+    openLinkInSplit: withVault((vault, target, direction) => vault.openLinkInSplit(str(target), splitDirection(direction))),
+    splitActiveNote: withVault((vault, direction) => vault.splitActiveNote(splitDirection(direction))),
+    splitPane: withVault((vault, target, direction, path, before) => vault.splitPane(splitDirection(direction), { target: str(target), path: optStr(path), before: bool(before) })),
+    showInPane: withVault((vault, id, path) => vault.showInPane(str(id), str(path))),
+    closePane: withVault((vault, id) => vault.closePane(optStr(id) ?? undefined)),
     closeSplit: withVault((vault) => vault.closeSplit()),
-    splitToTab: withVault((vault) => vault.splitToTab()),
+    splitToTab: withVault((vault, id) => vault.splitToTab(optStr(id) ?? undefined)),
+    focusPane: withVault((vault, id) => vault.focusPane(str(id))),
+    focusNextPane: withVault((vault, delta) => vault.focusNextPane(num(delta) < 0 ? -1 : 1)),
+    setPaneRatios: withVault((vault, id, ratios) => vault.setPaneRatios(str(id), numbers(ratios))),
+    setPaneLinked: withVault((vault, id, linked) => vault.setPaneLinked(str(id), bool(linked))),
+    setPaneMode: withVault((vault, id, mode) => vault.setPaneMode(str(id), paneMode(mode))),
+    openReadingViewBeside: withVault((vault) => vault.openReadingViewBeside()),
+    // Stacked tabs (UI-48) and workspaces (UI-49)
+    setStackTabs: withVault((vault, on) => vault.setStackTabs(bool(on))),
+    saveWorkspace: withVault((vault, name, ui) => vault.saveWorkspace(str(name), workspaceUi(ui))),
+    loadWorkspace: withVault((vault, name) => vault.loadWorkspace(str(name))),
+    loadLastWorkspace: withVault((vault) => vault.loadLastWorkspace()),
+    deleteWorkspace: withVault((vault, name) => vault.deleteWorkspace(str(name))),
     graphData: withVault((vault) => vault.index.graph()),
     // Pasted links get their page's title (ED-76); off in Settings returns null.
     fetchPageTitle: (url) => (app.settings.fetchLinkTitles ? fetchPageTitle(str(url)) : Promise.resolve(null)),
@@ -242,6 +293,12 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
     commitRename: withVault((vault, path, name) => vault.commitRename(str(path), str(name))),
     move: withVault((vault, items, folder) => vault.move(strings(items), str(folder))),
     duplicate: withVault((vault, path) => vault.duplicate(str(path))),
+    // Note composer (FOP-14…FOP-16): `from`/`to` are the editor's selection offsets, `selected` its text.
+    extractSelection: withVault((vault, path, from, to, selected, name, embed) =>
+      vault.extractSelection(str(path), num(from), num(to), str(selected), str(name), bool(embed)),
+    ),
+    mergeNote: withVault((vault, source, target, withHeading) => vault.mergeNote(str(source), str(target), bool(withHeading))),
+    splitAtHeading: withVault((vault, path, line) => vault.splitAtHeading(str(path), num(line))),
     requestDeletion: withVault((vault, paths) => vault.requestDeletion(strings(paths))),
     confirmDeletion: withVault((vault, withAttachments) => vault.confirmDeletion(withAttachments === undefined ? false : bool(withAttachments))),
     cancelDeletion: withVault((vault) => vault.cancelDeletion()),
@@ -286,9 +343,48 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
     insertTemplate: withVault((vault, path) => vault.insertTemplate(str(path))),
     createNoteFromTemplate: withVault((vault, template, name) => vault.createNoteFromTemplate(str(template), str(name))),
 
+    // Canvas viewer (UI-45)
+    readCanvas: withVault((vault, path) => vault.canvasText(str(path))),
+    notePreview: withVault((vault, file, lines) => vault.notePreview(str(file), Math.max(1, Math.min(200, Math.trunc(num(lines)))))),
+
+    // Bases and query blocks (UI-46, §9.5)
+    readBase: withVault((vault, path) => vault.baseText(str(path))),
+    writeBase: withVault((vault, path, text) => vault.writeBase(str(path), str(text))),
+    createBase: withVault((vault, folder) => vault.createBase(optStr(folder))),
+    /** The rows a base's filter matches; `needs` names the costly fields to gather ("times", "backlinks", "preview"). */
+    baseRows: withVault((vault, filters, needs) => vault.baseRows(str(filters), needs === undefined ? [] : strings(needs))),
+    /** A base's New note: an "Untitled" note beside the base whose frontmatter satisfies the filter's simple parts. */
+    createNoteForBase: withVault((vault, base, filters) => {
+      let text = "";
+      for (const { key, value } of prefilledProperties(str(filters))) text = setPropertyText(text, key, value);
+      return vault.createNote(dirname(str(base)), text);
+    }),
+    /** One cell of a base: sets a note's property through its document or an atomic rewrite (ED-75 rules). */
+    setProperty: withVault((vault, path, key, value) => {
+      if (!(typeof value === "string" || typeof value === "boolean" || value === null || (Array.isArray(value) && value.every((item) => typeof item === "string")))) {
+        throw new TypeError("Expected a string, a list of strings, a boolean or null");
+      }
+      return vault.setProperty(str(path), str(key), value as string | string[] | boolean | null);
+    }),
+    /** A ```query block's results: the search service's hits trimmed to what the block shows (at most 200 notes, 3 lines each). */
+    runQuery: async (query) => {
+      const outcome = await app.search.search(str(query).slice(0, 2000), false, false);
+      return {
+        hits: outcome.hits.slice(0, 200).map((hit) => ({ path: hit.path, title: hit.title, folder: dirname(hit.path), lines: hit.lines.slice(0, 3) })),
+        total: outcome.hits.length,
+        truncated: outcome.truncated,
+        error: outcome.error ?? null,
+      };
+    },
+
     // Index queries
     details: withVault((vault, path) => vault.details(str(path))),
     allTags: withVault((vault) => vault.index.allTags()),
+    // The sidebar's tag tree (UI-14) and tag renaming (FOP-13)
+    tagTree: withVault((vault, sort) => vault.tagTree(sort === "name" ? "name" : "count")),
+    expandedTags: withVault((vault) => vault.expandedTags),
+    setExpandedTags: withVault((vault, tags) => vault.setExpandedTags(strings(tags))),
+    renameTag: withVault((vault, from, to) => vault.renameTag(str(from), str(to))),
     // Version history (HIS-02…HIS-04)
     noteHistory: withVault((vault, path) => vault.noteHistory(str(path))),
     historyText: withVault((vault, path, id) => vault.historyText(str(path), str(id))),
@@ -297,8 +393,18 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
     clearHistory: withVault((vault) => vault.clearHistory()),
     allTasks: withVault((vault, includeDone, tag) => vault.index.allTasks({ includeDone: bool(includeDone), tag: optStr(tag) })),
     toggleTask: withVault((vault, path, line) => vault.toggleTask(str(path), num(line))),
+    /** Links a note's unlinked mentions in the given source notes (all of them when null), LNK-15. */
+    linkMentions: withVault((vault, path, sources) => vault.linkMentions(str(path), sources == null ? null : strings(sources))),
     notesTagged: withVault((vault, tag) => vault.index.notesTaggedWith(str(tag))),
     search: (query, matchCase, useRegex) => app.search.search(str(query), bool(matchCase), bool(useRegex)),
+    noteTimes: withVault((vault, paths) => vault.noteTimes(strings(paths).slice(0, 1000))),
+    /** Plain-text copy with a toast, e.g. "Copy results" in the search panel (SRCH-13). */
+    copyToClipboard: withVault((vault, text, message) => {
+      const plain = str(text);
+      if (plain.length > MAX_CLIPBOARD_LENGTH) throw new RangeError("Clipboard content too large");
+      clipboard.writeText(plain);
+      vault.showToast(str(message));
+    }),
     replaceInVault: withVault((vault, query, replacement, matchCase, useRegex, onlyPath) =>
       vault.replaceInNotes(str(query), str(replacement), bool(matchCase), bool(useRegex), optStr(onlyPath)),
     ),

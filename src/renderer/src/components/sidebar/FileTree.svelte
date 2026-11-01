@@ -399,7 +399,9 @@
     }
     return [
       { label: "Open in New Tab", run: () => run("open", path, true) },
-      { label: "Open to the Right", run: () => run("openInSplit", path) },
+      // A note, a canvas or a base: each has a pane of its own (UI-40, UI-45, UI-46).
+      { label: "Open to the Right", run: () => run("openInSplit", path, "row") },
+      { label: "Open Below", run: () => run("openInSplit", path, "column") },
       "-",
       { label: "Rename", shortcut: "F2", run: () => run("startRenaming", path) },
       { label: "Duplicate", run: () => run("duplicate", path) },
@@ -422,7 +424,8 @@
     dragged = all.filter((path) => !all.some((other) => other !== path && path.startsWith(other + "/")));
     event.dataTransfer.effectAllowed = "copyMove";
     event.dataTransfer.setData(PATHS_TYPE, JSON.stringify(dragged));
-    if (dragged.length === 1 && !node.isDir) event.dataTransfer.setData("text/plain", `[[${node.path.replace(/\.(md|markdown)$/i, "")}]]`);
+    // A canvas or base link keeps its extension, like an attachment's (UI-45, UI-46).
+    if (dragged.length === 1 && !node.isDir) event.dataTransfer.setData("text/plain", `[[${node.kind ? node.path : node.path.replace(/\.(md|markdown)$/i, "")}]]`);
   }
 
   /** The folder a drop on `target` moves into, or null if it isn't a drop target. */

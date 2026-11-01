@@ -205,3 +205,62 @@ describe("Tasks view", () => {
     expect(vault.documents.get("Open.md")?.text).toBe("- [x] three\n");
   });
 });
+
+describe("Linking unlinked mentions (LNK-15)", () => {
+  beforeEach(() => {
+    temp.write("Lore/Kyber.md", "---\naliases: [kyber crystal]\n---\n# Kyber\n");
+    temp.write("Ilum Survey.md", "Mined kyber here.\r\nMore below.\r\n");
+    temp.write("Daily/Log.md", "A kyber crystal, attuned.\n");
+    temp.write("Open.md", "Open note about Kyber.\n");
+    temp.write("Linked.md", "Already [[Kyber]] here.\n");
+  });
+
+  it("links one mention through its document or on disk, keeping line endings, and the index follows", async () => {
+    const editor = recordingEditor();
+    const vault = temp.open({ editor });
+    await vault.indexingFinished();
+    vault.open("Open.md");
+    expect(vault.index.unlinkedMentions("Lore/Kyber.md").map((m) => m.source)).toEqual(["Ilum Survey.md", "Daily/Log.md", "Open.md"]);
+
+    expect(vault.linkMentions("Lore/Kyber.md", ["Ilum Survey.md"])).toBe(1);
+    expect(temp.read("Ilum Survey.md")).toBe("Mined [[Kyber|kyber]] here.\r\nMore below.\r\n");
+    expect(vault.toast?.message).toBe("Linked “Kyber” in “Ilum Survey”");
+    expect(vault.index.unlinkedMentions("Lore/Kyber.md").map((m) => m.source)).toEqual(["Daily/Log.md", "Open.md"]);
+    expect(vault.index.backlinks("Lore/Kyber.md").map((b) => b.source)).toEqual(["Ilum Survey.md", "Linked.md"]);
+
+    expect(vault.linkMentions("Lore/Kyber.md", ["Open.md"])).toBe(1);
+    expect(vault.documents.get("Open.md")?.text).toBe("Open note about [[Kyber]].\n");
+    expect(editor.calls.some((call) => call.method === "externalChange" && call.args[2] === "Open note about [[Kyber]].\n")).toBe(true);
+  });
+
+  it("links every mention at once, including aliases, and Undo puts the texts back", async () => {
+    const vault = temp.open();
+    await vault.indexingFinished();
+
+    expect(vault.linkMentions("Lore/Kyber.md")).toBe(3);
+    expect(vault.toast?.message).toBe("Linked 3 mentions in 3 notes");
+    expect(temp.read("Daily/Log.md")).toBe("A [[Kyber|kyber crystal]], attuned.\n");
+    expect(temp.read("Ilum Survey.md")).toBe("Mined [[Kyber|kyber]] here.\r\nMore below.\r\n");
+    expect(temp.read("Open.md")).toBe("Open note about [[Kyber]].\n");
+    expect(vault.index.unlinkedMentions("Lore/Kyber.md")).toEqual([]);
+    expect(vault.index.backlinks("Lore/Kyber.md").length).toBe(4);
+
+    vault.runToastAction();
+    expect(temp.read("Daily/Log.md")).toBe("A kyber crystal, attuned.\n");
+    expect(temp.read("Ilum Survey.md")).toBe("Mined kyber here.\r\nMore below.\r\n");
+    expect(temp.read("Open.md")).toBe("Open note about Kyber.\n");
+    expect(vault.index.unlinkedMentions("Lore/Kyber.md").length).toBe(3);
+
+    vault.linkMentions("Lore/Kyber.md", ["Linked.md"]);
+    expect(vault.toast?.message).toBe("Nothing to link");
+  });
+
+  it("writes the path when a bare title would reach another note", async () => {
+    temp.write("Kyber.md", "# A twin nearer the root\n");
+    const vault = temp.open();
+    await vault.indexingFinished();
+    vault.linkMentions("Lore/Kyber.md", ["Ilum Survey.md"]);
+    expect(temp.read("Ilum Survey.md")).toBe("Mined [[Lore/Kyber|kyber]] here.\r\nMore below.\r\n");
+    expect(vault.index.backlinks("Lore/Kyber.md").map((b) => b.source)).toEqual(["Ilum Survey.md"]);
+  });
+});

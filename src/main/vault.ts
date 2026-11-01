@@ -7,9 +7,13 @@
 import fs from "node:fs";
 import nodePath from "node:path";
 import os from "node:os";
+import { randomUUID } from "node:crypto";
 import * as P from "@core/paths";
-import { LinkResolver, parse as parseNote, toggleTaskLine } from "@core/noteParser";
+import { LinkResolver, parse as parseNote, plainLine, toggleTaskLine } from "@core/noteParser";
+import { setProperty as setPropertyText } from "@core/properties";
+import { defaultBase, serializeBase, type BaseRow } from "@core/base";
 import { rewrite as rewriteLinks, relativePath as relativeLinkPath } from "@core/linkRewriter";
+import { linkMentionOnLine } from "@core/mentions";
 import * as Attachments from "@core/attachments";
 import {
   attachmentUsage,
@@ -28,9 +32,14 @@ import {
 import { VaultIndex } from "@core/vaultIndex";
 import { combineVersions, findSyncConflicts, type SyncConflict } from "@core/syncConflicts";
 import { dailyNoteDate, dailyNotePath, renderPlaceholders } from "@core/dailyNotes";
-import { INVALID_REGEX_MESSAGE, parseQuery, replaceMatches, runSearch, type Replacement } from "@core/vaultSearch";
+import { compileQuery, INVALID_REGEX_MESSAGE, parseQuery, replaceMatches, runSearch, type Replacement } from "@core/vaultSearch";
+import { buildTagTree, isValidTagName, renameTagInText, type TagNode, type TagSort } from "@core/tagTree";
 import { noteText, renderTemplate } from "@core/templates";
 import { isPlaceholderName, titleFromContent } from "@core/autoTitle";
+import * as L from "@core/layout";
+import { appendToNote, bodyWithoutFrontmatter, headingRename, lineEnding, locateSelection, sectionAt } from "@core/noteComposer";
+import { fragmentMatchesHeading, renamedFragment, rewriteFragmentLinks, type FragmentLink, type FragmentRewrite } from "@core/headingLinks";
+import type { Heading } from "@core/noteParser";
 import type { Settings } from "@shared/settings";
 import type {
   AttachmentCleanupItem,
@@ -39,11 +48,13 @@ import type {
   ConflictView,
   DocView,
   NoteDetails,
-  SplitView,
+  PaneInfo,
+  PropertySummary,
   TabView,
   ToastView,
   TreeNode,
   VaultView,
+  WorkspaceUi,
 } from "@shared/ipc";
 import * as fsx from "./fsx";
 import { isServableAsset } from "./assets";
@@ -90,8 +101,8 @@ export interface VaultOptions {
   store: StateStore;
   settings: () => Settings;
   editor?: EditorPort;
-  /** The right-hand pane of split view (UI-40). */
-  splitEditor?: EditorPort;
+  /** The editor for a pane other than the primary one (UI-40) or a stacked tab's column (UI-48), by id. */
+  paneEditor?: (id: string) => EditorPort;
   trash?: TrashItem;
   /** Opens a file in its default app. */
   openPath?: (file: string) => void;
@@ -113,6 +124,8 @@ export interface VaultOptions {
   hostname?: string;
   saveDelay?: number;
   autoTitleDelay?: number;
+  /** How long after typing pauses a renamed heading is looked for (LNK-16). */
+  headingLinksDelay?: number;
   liveIndexDelay?: number;
   missingFileGracePeriod?: number;
 }
@@ -123,6 +136,16 @@ const INVALID_NAME = "Names can’t be empty, start with a dot, or contain “/�
 
 interface Toast extends ToastView {
   action: (() => void) | null;
+}
+
+/** A saved workspace (UI-49), as stored under `workspaces:<root>`. */
+interface Workspace {
+  layout: L.Layout;
+  /** Vault paths of the tabs showing a file; the first `pinned` are pinned. */
+  tabs: string[];
+  pinned: number;
+  active: number;
+  ui: WorkspaceUi | null;
 }
 
 /** One change in `.holocron/attachment-log.json` (REQUIREMENTS VLT-23). */
@@ -145,6 +168,14 @@ export class Vault {
   allNotes: string[] = [];
   /** Vault paths of every other file (images, PDFs…). */
   attachments: string[] = [];
+  /** Vault paths of every JSON Canvas file (UI-45): neither notes nor attachments. */
+  canvases: string[] = [];
+  /** Bumped when a canvas changes on disk, so the viewer reloads it. */
+  private canvasRevision = 0;
+  /** Vault paths of every `.base` file (UI-46): like canvases, neither notes nor attachments. */
+  bases: string[] = [];
+  /** Bumped when a base on show changes on disk, so the view reloads it. */
+  private baseRevision = 0;
   readonly index = new VaultIndex();
   private resolver = new LinkResolver([]);
 
@@ -178,15 +209,21 @@ export class Vault {
 
   private readonly options: VaultOptions;
   private readonly editor: EditorPort;
-  private readonly splitEditor: EditorPort;
-  /** The note in split view's right-hand pane (UI-40), or null when split view is closed. */
-  private splitPath: string | null = null;
+  /** The detail column's pane tree (UI-40, UI-47); the primary pane shows the active tab. */
+  layout: L.Layout = L.singlePane();
+  /** Editors of the other panes and of stacked tabs' columns, by id (created on demand). */
+  private readonly paneEditors = new Map<string, EditorPort>();
+  /** View › Stack Tabs (UI-48): the primary pane shows every tab as a column of its own. */
+  stackTabs = false;
   private toastTimer: NodeJS.Timeout | null = null;
   private nextToastId = 1;
   private liveIndexTimer: NodeJS.Timeout | null = null;
   /** Documents still being named from their first line. */
   private readonly autoTitled = new Set<NoteDocument>();
   private readonly autoTitleTimers = new Map<NoteDocument, NodeJS.Timeout>();
+  /** Each open note's headings as last checked, to spot a renamed one (LNK-16). */
+  private readonly headingBaselines = new Map<NoteDocument, Heading[]>();
+  private readonly headingTimers = new Map<NoteDocument, NodeJS.Timeout>();
   private readonly missingTimers = new Set<NodeJS.Timeout>();
   private indexQueue: Promise<void> = Promise.resolve();
   private closed = false;
@@ -199,14 +236,15 @@ export class Vault {
     this.root = nodePath.resolve(root);
     this.options = options;
     this.editor = options.editor ?? nullEditor;
-    this.splitEditor = options.splitEditor ?? nullEditor;
+    this.stackTabs = options.store.get<boolean>("stackTabs:" + this.root) === true;
     this.recentNotes = options.store.get<string[]>(this.recentNotesKey) ?? [];
     this.bookmarks = (options.store.get<string[]>(this.bookmarksKey) ?? []).filter((path) => typeof path === "string" && path !== "");
     this.indexCache = options.indexCacheFolder ? new IndexCache(options.indexCacheFolder, this.root) : null;
     this.history = options.historyFolder ? new NoteHistory(historyFolder(options.historyFolder, this.root), options.now) : null;
     this.reload();
+    // The layout first: showing the restored tabs would otherwise save (and so wipe) a single-pane one.
+    this.restoreLayout();
     this.restoreTabs();
-    this.restoreSplit();
   }
 
   get name() {
@@ -283,6 +321,8 @@ export class Vault {
     const sort = this.settings.fileSort;
     const scan = scanVault(this.root, sort === "modified" || sort === "created");
     this.attachments = scan.attachments;
+    this.canvases = scan.canvases;
+    this.bases = scan.bases;
     const changed = new Set(changedPaths);
     const treeChanged = !sameTree(scan.tree, this.tree);
     if (treeChanged) {
@@ -376,6 +416,18 @@ export class Vault {
     if (this.closed) return;
     const changedNotes = paths.filter((path) => P.isNote(path));
     this.reload(changedNotes);
+    // A canvas or base on show (in a tab or a pane) changed, or went away: the viewer reloads it, or its tabs and panes close (UI-45, UI-46).
+    const shownCanvases = new Set([...this.tabs, ...L.leaves(this.layout.root)].map((shown) => shown.path).filter((path): path is string => path !== null && P.isViewerFile(path)));
+    for (const path of shownCanvases) {
+      if (!paths.some((changed) => changed === "" || P.isUnder(path, changed))) continue;
+      if (!fsx.exists(this.abs(path))) {
+        this.closeTabsShowing(path);
+        for (const leaf of L.leaves(this.layout.root)) if (leaf.path === path && leaf.id !== L.MAIN_PANE) this.layout = L.removePane(this.layout, leaf.id);
+        this.syncPanes();
+      } else if (P.isBase(path)) this.baseRevision++;
+      else this.canvasRevision++;
+    }
+    if (shownCanvases.size) this.changed();
     for (const [path, document] of [...this.documents]) {
       const affected = paths.some((changed) => changed === "" || changed === path || path.startsWith(changed + "/"));
       if (!affected) continue;
@@ -423,6 +475,13 @@ export class Vault {
 
   /** Opens the note a link points to, creating it (at the written path) when it doesn't exist yet. */
   openLink(rawTarget: string, inNewTab = false) {
+    if (P.isViewerFile(LinkResolver.linkPath(rawTarget))) {
+      // [[Board.canvas]] opens the canvas viewer (UI-45) and [[Tasks.base]] the Base view (UI-46), found like an attachment would be.
+      const path = Attachments.resolve(rawTarget, this.activeTab?.path ?? "", P.isBase(LinkResolver.linkPath(rawTarget)) ? this.bases : this.canvases);
+      if (path !== null) this.open(path, inNewTab);
+      else this.showError(`“${LinkResolver.linkPath(rawTarget)}” isn’t in this vault.`);
+      return;
+    }
     if (Attachments.isAttachmentTarget(rawTarget)) {
       // [[report.pdf]] opens the file, never creates "report.pdf.md".
       const from = this.activeTab?.path ?? "";
@@ -483,6 +542,57 @@ export class Vault {
     this.writeUpdatedLinks(path, toggled);
     this.indexRevision++;
     this.changed();
+  }
+
+  // MARK: Linking unlinked mentions (LNK-15)
+
+  /**
+   * Turns the unlinked mentions of `path` (IDX-02) in `sources` — or in
+   * every note when null — into wikilinks: on each source's mention line the
+   * first occurrence becomes `[[Title]]` or `[[Title|as written]]`. Open notes
+   * change through their document, others are rewritten atomically. Shows a
+   * toast with Undo. Returns how many notes changed.
+   */
+  linkMentions(path: string, sources: string[] | null = null): number {
+    if (!this.index.hasPath(path)) return 0;
+    const title = P.stem(path);
+    const names = [title, ...(this.index.info(path)?.aliases ?? [])].filter((name) => [...name].length >= 3);
+    const wanted = sources ? new Set(sources) : null;
+    const before = new Map<string, string>();
+    const after = new Map<string, string>();
+    for (const mention of this.index.unlinkedMentions(path)) {
+      if (wanted && !wanted.has(mention.source)) continue;
+      const text = this.textFor(mention.source);
+      if (text === null) continue;
+      // A bare [[Title]] must reach this note from there; a twin nearer the root means writing the path.
+      const target = this.resolver.resolveWiki(title) === path ? title : P.withoutExtension(path);
+      const linked = linkMentionOnLine(text, mention.line, names, target);
+      if (!linked || linked.text === text) continue;
+      before.set(mention.source, text);
+      after.set(mention.source, linked.text);
+    }
+    if (after.size === 0) {
+      this.showToast("Nothing to link");
+      return 0;
+    }
+    for (const [source, text] of after) this.writeUpdatedLinks(source, text);
+    this.indexRevision++;
+    this.changed();
+    const notes = after.size;
+    const summary = notes === 1 ? `Linked “${title}” in “${P.stem([...after.keys()][0])}”` : `Linked ${plural(notes, "mention")} in ${plural(notes, "note")}`;
+    this.showToast(summary, () => {
+      let restored = 0;
+      for (const [source, text] of before) {
+        // Only undo notes still showing the link; later edits win.
+        if (this.index.hasPath(source) && this.textFor(source) === after.get(source)) {
+          if (this.writeUpdatedLinks(source, text)) restored++;
+        }
+      }
+      this.indexRevision++;
+      this.changed();
+      if (restored < notes) this.showToast(`Restored ${plural(restored, "note")}; ${notes - restored === 1 ? "1 note has" : `${notes - restored} notes have`} changed since`, null, "Undo", true);
+    });
+    return notes;
   }
 
   // MARK: Sync conflict copies (UI-41)
@@ -570,6 +680,78 @@ export class Vault {
     this.bookmarks = next;
     this.options.store.set(this.bookmarksKey, next);
     this.changed();
+  }
+
+  // MARK: Tags (UI-14, FOP-13)
+
+  /** The sidebar's tag tree, with each node's own count and its subtree's total. */
+  tagTree(sort: TagSort): TagNode[] {
+    return buildTagTree(
+      this.index.allTags(),
+      sort,
+      undefined,
+      [...this.index.allNotes.values()].map((info) => info.tags),
+    );
+  }
+
+  private get expandedTagsKey() {
+    return "tagTree:" + this.root;
+  }
+
+  /** Tags whose children the sidebar shows (lowercased), remembered per vault. */
+  get expandedTags(): string[] {
+    const stored = this.options.store.get<unknown>(this.expandedTagsKey);
+    return Array.isArray(stored) ? stored.filter((item): item is string => typeof item === "string") : [];
+  }
+
+  setExpandedTags(tags: string[]) {
+    this.options.store.set(this.expandedTagsKey, tags.length ? tags : undefined);
+  }
+
+  /**
+   * Renames a tag across the vault (FOP-13): `#from` and every `#from/x`
+   * become `#to` (and `#to/x`) in inline tags and frontmatter, in every
+   * note that carries them. Open notes change through their document;
+   * others are rewritten atomically. Toast with Undo (the reverse rewrite
+   * in notes that haven't changed since). Returns the number of notes
+   * written, or -1 when the names are invalid.
+   */
+  renameTag(from: string, to: string): number {
+    const source = from.replace(/^#+/, "");
+    const target = to.replace(/^#+/, "");
+    if (!isValidTagName(source) || !isValidTagName(target)) {
+      this.showError("Tags can use letters, digits, “-”, “_” and “/”, and can’t start with a digit.");
+      return -1;
+    }
+    if (source === target) return 0;
+    const before = new Map<string, string>();
+    const after = new Map<string, string>();
+    for (const path of this.index.notesTaggedWith(source)) {
+      const text = this.textFor(path);
+      if (text === null) continue;
+      const result = renameTagInText(text, source, target);
+      if (result.count === 0 || result.text === text) continue;
+      before.set(path, text);
+      after.set(path, result.text);
+    }
+    if (after.size === 0) {
+      this.showToast(`No notes are tagged #${source}`);
+      return 0;
+    }
+    for (const [path, text] of after) this.writeUpdatedLinks(path, text, "tags");
+    this.reload([...after.keys()]);
+    const notes = after.size;
+    this.showToast(`Renamed #${source} to #${target} in ${plural(notes, "note")}`, () => {
+      let restored = 0;
+      for (const [path, text] of before) {
+        if (this.index.hasPath(path) && this.textFor(path) === after.get(path)) {
+          if (this.writeUpdatedLinks(path, text, "tags")) restored++;
+        }
+      }
+      this.reload([...before.keys()]);
+      if (restored < notes) this.showToast(`Restored ${plural(restored, "note")}; ${notes - restored === 1 ? "1 note has" : `${notes - restored} notes have`} changed since`, null, "Undo", true);
+    });
+    return notes;
   }
 
   // MARK: Search and replace
@@ -668,7 +850,8 @@ export class Vault {
       this.activateTab(existing.id);
       return;
     }
-    if (!this.loadDocument(path)) return;
+    // A canvas or base has no document: its tab just names the file (UI-45, UI-46).
+    if (P.isViewerFile(path) ? !fsx.exists(this.abs(path)) : !this.loadDocument(path)) return;
     const index = this.activeIndex;
     // A pinned tab keeps its note: anything else opens beside it (TAB-12).
     const reuse = index !== null && (!inNewTab || this.tabs[index].path === null) && !this.tabs[index].pinned;
@@ -850,6 +1033,7 @@ export class Vault {
   private loadDocument(path: string): NoteDocument | null {
     const existing = this.documents.get(path);
     if (existing) return existing;
+    if (P.isViewerFile(path)) return null; // shown by the canvas viewer or the Base view, never edited here (UI-45, UI-46)
     try {
       const document = new NoteDocument(this.abs(path), {
         saveDelay: this.options.saveDelay,
@@ -857,6 +1041,7 @@ export class Vault {
       });
       this.attach(document, path);
       if (isPlaceholderName(path)) this.autoTitled.add(document);
+      this.headingBaselines.set(document, parseNote(document.text).headings);
       this.documents.set(path, document);
       return document;
     } catch (error) {
@@ -870,10 +1055,12 @@ export class Vault {
     document.onTextChange = (text) => {
       this.scheduleLiveIndexUpdate(path, text);
       this.scheduleAutoTitle(document);
+      this.scheduleHeadingCheck(document);
     };
     document.onExternalTextChange = (oldText, newText) => {
-      this.editor.externalChange(path, oldText, newText);
-      this.splitEditor.externalChange(path, oldText, newText);
+      for (const view of this.editorViews()) if (view.path === path) view.port.externalChange(path, oldText, newText);
+      // Text from disk (or a rewrite) isn't the user renaming a heading.
+      this.resetHeadingBaseline(document);
     };
     document.onStateChange = () => this.changed();
     // The document's own path can change (rename); look it up at write time.
@@ -894,6 +1081,20 @@ export class Vault {
   /** A note's saved versions, newest first. */
   noteHistory(path: string): VersionInfo[] {
     return this.history?.list(path) ?? [];
+  }
+
+  /** Modification and creation times of notes, for sorting search results (SRCH-12); notes missing on disk are left out. */
+  noteTimes(paths: string[]): Record<string, { modified: number; created: number }> {
+    const times: Record<string, { modified: number; created: number }> = {};
+    for (const path of paths) {
+      try {
+        const stat = fs.statSync(this.abs(path));
+        times[path] = { modified: stat.mtimeMs, created: stat.birthtimeMs || stat.ctimeMs };
+      } catch {
+        // Vanished since the search ran.
+      }
+    }
+    return times;
   }
 
   historyText(path: string, id: string): string | null {
@@ -945,14 +1146,18 @@ export class Vault {
     const timer = this.autoTitleTimers.get(document);
     if (timer) clearTimeout(timer);
     this.autoTitleTimers.delete(document);
+    this.headingBaselines.delete(document);
+    this.resetHeadingBaseline(document); // clears its timer
     this.documents.delete(path);
     this.editor.forget(path);
-    this.splitEditor.forget(path);
-    if (this.splitPath === path) {
-      this.splitPath = null;
-      this.splitEditor.show(null, null);
-      this.saveSplit();
+    for (const port of this.paneEditors.values()) port.forget(path);
+    // A pane whose note is gone closes (UI-40); a linked one just empties.
+    for (const leaf of L.leaves(this.layout.root)) {
+      if (leaf.id === L.MAIN_PANE || leaf.path !== path) continue;
+      if (leaf.linked) this.layout = L.updatePane(this.layout, leaf.id, { path: null });
+      else this.layout = L.removePane(this.layout, leaf.id);
     }
+    this.syncPanes();
   }
 
   /**
@@ -964,16 +1169,23 @@ export class Vault {
     this.finishAutoTitles(this.document);
     const path = this.activeTab?.path ?? null;
     this.selection = path;
-    if (path) this.rememberRecent(path);
+    if (path && !P.isViewerFile(path)) this.rememberRecent(path);
+    // Linked panes follow the active tab (UI-47) before unused notes are unloaded.
+    for (const leaf of L.leaves(this.layout.root)) {
+      if (leaf.id !== L.MAIN_PANE && leaf.linked && leaf.path !== path) this.layout = L.updatePane(this.layout, leaf.id, { path });
+    }
     this.unloadUnusedDocuments();
     this.saveTabs();
-    this.editor.show(path, this.document?.text ?? null);
+    // A canvas or base tab shows its viewer instead of the editor (UI-45, UI-46).
+    if (path && P.isViewerFile(path)) this.editor.show(null, null);
+    else this.editor.show(path, this.document?.text ?? null);
+    this.syncPanes();
     this.changed();
   }
 
   private unloadUnusedDocuments() {
     const inUse = new Set(this.tabs.map((tab) => tab.path).filter((path): path is string => path !== null));
-    if (this.splitPath) inUse.add(this.splitPath);
+    for (const leaf of L.leaves(this.layout.root)) if (leaf.id !== L.MAIN_PANE && leaf.path) inUse.add(leaf.path);
     for (const [path, document] of [...this.documents]) {
       if (inUse.has(path)) continue;
       if (document.conflict) {
@@ -999,59 +1211,349 @@ export class Vault {
     this.options.store.set(this.tabsKey + ":pinned", withPaths.filter((tab) => tab.pinned).length || undefined);
   }
 
-  // MARK: Split view (UI-40)
+  // MARK: Pane layout (UI-40, UI-47), stacked tabs (UI-48) and workspaces (UI-49)
 
-  /** Shows `path` in the right-hand pane, opening split view if it's closed. */
-  openInSplit(path: string) {
-    if (!P.isNote(path) || !this.loadDocument(path)) return;
-    this.splitPath = path;
-    this.splitEditor.show(path, this.documents.get(path)?.text ?? null);
-    this.saveSplit();
-    this.changed();
+  /** The id of the editor in a stacked tab's column (UI-48). */
+  static tabPane(tabId: string) {
+    return "tab:" + tabId;
   }
 
-  /** A [[link]] in the right-hand pane (only links to existing notes). */
-  openLinkInSplit(rawTarget: string) {
-    const resolved = this.resolveLink(rawTarget);
-    if (resolved !== null) this.openInSplit(resolved);
+  private get layoutKey() {
+    return "layout:" + this.root;
+  }
+
+  /** The pane commands act on: the one last clicked. */
+  get focusedPane() {
+    return this.layout.focused;
+  }
+
+  /** The file a pane shows: the active tab's for the primary pane. */
+  panePath(id: string): string | null {
+    return id === L.MAIN_PANE ? (this.activeTab?.path ?? null) : (L.findLeaf(this.layout, id)?.path ?? null);
+  }
+
+  /** The editor port for a pane id ("main" is the primary pane's). */
+  private portFor(id: string): EditorPort {
+    if (id === L.MAIN_PANE) return this.editor;
+    let port = this.paneEditors.get(id);
+    if (!port) {
+      port = this.options.paneEditor?.(id) ?? nullEditor;
+      this.paneEditors.set(id, port);
+    }
+    return port;
+  }
+
+  /** Whether a pane editor with this id is still in use (the app drops bridges of closed panes). */
+  usesPane(id: string): boolean {
+    return this.paneEditors.has(id);
+  }
+
+  /** Every editor and the file it shows: the primary pane, the other panes and, with stacked tabs, a column per tab. */
+  private editorViews(): { id: string; path: string | null; port: EditorPort }[] {
+    const views = [{ id: L.MAIN_PANE, path: this.activeTab?.path ?? null, port: this.editor }];
+    for (const leaf of L.leaves(this.layout.root)) {
+      if (leaf.id !== L.MAIN_PANE) views.push({ id: leaf.id, path: leaf.path, port: this.portFor(leaf.id) });
+    }
+    if (this.stackTabs) {
+      for (const tab of this.tabs) views.push({ id: Vault.tabPane(tab.id), path: tab.path, port: this.portFor(Vault.tabPane(tab.id)) });
+    }
+    return views;
+  }
+
+  /** A file a pane can show: an existing note (loaded), canvas or base. */
+  private canShowInPane(path: string): boolean {
+    if (P.isViewerFile(path)) return fsx.exists(this.abs(path));
+    return P.isNote(path) && this.loadDocument(path) !== null;
+  }
+
+  /** Shows each pane's file in its editor, lets go of editors whose pane is gone, and remembers the layout. */
+  private syncPanes() {
+    const wanted = new Set<string>();
+    for (const view of this.editorViews()) {
+      if (view.id === L.MAIN_PANE) continue;
+      wanted.add(view.id);
+      const path = view.path;
+      const document = path && P.isNote(path) ? this.loadDocument(path) : null;
+      view.port.show(document ? path : null, document?.text ?? null);
+    }
+    for (const [id, port] of [...this.paneEditors]) {
+      if (wanted.has(id)) continue;
+      port.show(null, null);
+      this.paneEditors.delete(id);
+    }
+    this.saveLayout();
+  }
+
+  /**
+   * Splits a pane (the focused one unless `target` says otherwise) in
+   * `direction`, showing `path` (the target's own file unless given) in the
+   * new pane, which takes the focus. Returns the new pane's id, or null when
+   * there are already MAX_PANES panes or the file can't be shown.
+   */
+  splitPane(direction: L.SplitDirection, options: { target?: string; path?: string | null; before?: boolean; linked?: boolean; mode?: L.PaneMode } = {}): string | null {
+    const target = L.findLeaf(this.layout, options.target ?? this.layout.focused) ?? L.findLeaf(this.layout, L.MAIN_PANE)!;
+    const path = options.path === undefined ? this.panePath(target.id) : options.path;
+    if (path !== null && !this.canShowInPane(path)) return null;
+    if (L.paneCount(this.layout) >= L.MAX_PANES) {
+      this.showToast(`Holocron shows at most ${L.MAX_PANES} panes.`, null, "", true);
+      return null;
+    }
+    const leaf: L.PaneLeaf = { kind: "pane", id: randomUUID(), path };
+    if (options.linked) leaf.linked = true;
+    if (options.mode) leaf.mode = options.mode;
+    const next = L.splitPane(this.layout, target.id, direction, leaf, options.before, randomUUID());
+    if (!next) return null;
+    this.layout = L.focusPane(next, leaf.id);
+    this.syncPanes();
+    this.changed();
+    return leaf.id;
+  }
+
+  /** "Open to the Right" / "Open Below": `path` in a new pane beside or under the focused one. */
+  openInSplit(path: string, direction: L.SplitDirection = "row") {
+    this.splitPane(direction, { path });
+  }
+
+  /** A [[link]] in a new pane (only links to existing notes, canvases and bases). */
+  openLinkInSplit(rawTarget: string, direction: L.SplitDirection = "row") {
+    const linkPath = LinkResolver.linkPath(rawTarget);
+    const resolved = P.isViewerFile(linkPath)
+      ? Attachments.resolve(rawTarget, this.activeTab?.path ?? "", P.isBase(linkPath) ? this.bases : this.canvases)
+      : this.resolveLink(rawTarget);
+    if (resolved !== null) this.openInSplit(resolved, direction);
     else this.showError(`“${LinkResolver.linkPath(rawTarget)}” doesn’t exist yet.`);
   }
 
-  /** Split Right: the active note, in the right-hand pane too. */
-  splitActiveNote() {
-    const path = this.activeTab?.path;
-    if (path) this.openInSplit(path);
+  /** Split Right / Split Down: the focused pane's file again, beside or under it. */
+  splitActiveNote(direction: L.SplitDirection = "row") {
+    this.splitPane(direction);
   }
 
-  closeSplit() {
-    if (this.splitPath === null) return;
-    this.splitPath = null;
-    this.splitEditor.show(null, null);
+  /** Open Reading View Beside (UI-47): the active note in a linked pane to the right, in reading view. */
+  openReadingViewBeside() {
+    this.splitPane("row", { path: this.activeTab?.path ?? null, linked: true, mode: "reading" });
+  }
+
+  /** Close Pane: the focused pane (the primary one can't close, so it beeps). Its parent split collapses. */
+  closePane(id = this.layout.focused) {
+    if (id === L.MAIN_PANE || !L.findLeaf(this.layout, id)) {
+      this.options.ui?.({ type: "beep" });
+      return;
+    }
+    this.layout = L.removePane(this.layout, id);
     this.unloadUnusedDocuments();
-    this.saveSplit();
+    this.syncPanes();
     this.changed();
   }
 
-  /** Moves the right-hand pane's note into a tab of its own and closes split view. */
-  splitToTab() {
-    const path = this.splitPath;
-    if (!path) return;
-    this.closeSplit();
+  /** Close Other Panes: back to the primary pane alone. */
+  closeSplit() {
+    if (L.paneCount(this.layout) <= 1) return;
+    this.layout = { root: L.findLeaf(this.layout, L.MAIN_PANE)!, focused: L.MAIN_PANE };
+    this.unloadUnusedDocuments();
+    this.syncPanes();
+    this.changed();
+  }
+
+  /** Moves a pane's file into a tab of its own and closes the pane. */
+  splitToTab(id = this.layout.focused) {
+    const path = this.panePath(id);
+    if (id === L.MAIN_PANE || !path) return;
+    this.closePane(id);
     this.open(path, true);
   }
 
-  private saveSplit() {
-    this.options.store.set(this.tabsKey + ":split", this.splitPath ?? undefined);
+  focusPane(id: string) {
+    if (id === this.layout.focused || !L.findLeaf(this.layout, id)) return;
+    this.layout = L.focusPane(this.layout, id);
+    this.saveLayout();
+    this.changed();
   }
 
-  private restoreSplit() {
-    const path = this.options.store.get<string>(this.tabsKey + ":split");
-    if (typeof path === "string" && P.isNote(path) && fsx.exists(this.abs(path))) this.openInSplit(path);
+  /** Focus Next / Previous Pane, in reading order, wrapping around. */
+  focusNextPane(delta: 1 | -1) {
+    this.focusPane(L.neighbourPane(this.layout, this.layout.focused, delta));
+  }
+
+  /** The divider between a split's children was dragged. */
+  setPaneRatios(splitId: string, ratios: number[]) {
+    if (!L.findSplit(this.layout, splitId)) return;
+    this.layout = L.setRatios(this.layout, splitId, ratios);
+    this.saveLayout();
+    this.changed();
+  }
+
+  /** The pane header's link toggle (UI-47): a linked pane shows what the primary pane shows. */
+  setPaneLinked(id: string, linked: boolean) {
+    const leaf = L.findLeaf(this.layout, id);
+    if (!leaf || id === L.MAIN_PANE) return;
+    this.layout = L.updatePane(this.layout, id, { linked: linked || undefined, path: linked ? (this.activeTab?.path ?? null) : leaf.path });
+    this.unloadUnusedDocuments();
+    this.syncPanes();
+    this.changed();
+  }
+
+  /** A pane's own view mode (null: follow the editor mode setting). */
+  setPaneMode(id: string, mode: L.PaneMode | null) {
+    if (!L.findLeaf(this.layout, id) || id === L.MAIN_PANE) return;
+    this.layout = L.updatePane(this.layout, id, { mode: mode ?? undefined });
+    this.saveLayout();
+    this.changed();
+  }
+
+  /** Shows `path` in an existing pane (a file-tree row dropped on it, say). */
+  showInPane(id: string, path: string) {
+    const leaf = L.findLeaf(this.layout, id);
+    if (!leaf) return;
+    if (id === L.MAIN_PANE) {
+      this.open(path);
+      return;
+    }
+    if (!this.canShowInPane(path)) return;
+    this.layout = L.focusPane(L.updatePane(this.layout, id, { path, linked: undefined }), id);
+    this.unloadUnusedDocuments();
+    this.syncPanes();
+    this.changed();
+  }
+
+  private saveLayout() {
+    const bare = L.paneCount(this.layout) <= 1;
+    this.options.store.set(this.layoutKey, bare ? undefined : this.layout);
+  }
+
+  /** A file a restored pane may show: an existing note, canvas or base. */
+  private paneFileExists = (path: string) => (P.isNote(path) || P.isViewerFile(path)) && fsx.exists(this.abs(path));
+
+  /** Restores the layout saved for this vault, dropping panes whose files are gone (and 0.10's single split pane). */
+  private restoreLayout() {
+    const stored = this.options.store.get<unknown>(this.layoutKey);
+    let layout = L.sanitizeLayout(stored, this.paneFileExists, randomUUID);
+    const legacy = this.options.store.get<string>(this.tabsKey + ":split");
+    if (stored === undefined && typeof legacy === "string" && this.paneFileExists(legacy)) {
+      layout = L.splitPane(layout, L.MAIN_PANE, "row", { kind: "pane", id: randomUUID(), path: legacy }, false, randomUUID()) ?? layout;
+    }
+    this.options.store.set(this.tabsKey + ":split", undefined);
+    this.layout = layout;
+    this.followPrimary();
+    this.syncPanes();
+  }
+
+  /** Linked panes show the active tab's file (UI-47). */
+  private followPrimary() {
+    const path = this.activeTab?.path ?? null;
+    for (const leaf of L.leaves(this.layout.root)) {
+      if (leaf.id !== L.MAIN_PANE && leaf.linked && leaf.path !== path) this.layout = L.updatePane(this.layout, leaf.id, { path });
+    }
+  }
+
+  /** View › Stack Tabs (UI-48), remembered per vault. */
+  setStackTabs(on: boolean) {
+    if (on === this.stackTabs) return;
+    this.stackTabs = on;
+    this.options.store.set("stackTabs:" + this.root, on || undefined);
+    this.syncPanes();
+    this.changed();
+  }
+
+  private paneInfos(): Record<string, PaneInfo> {
+    const infos: Record<string, PaneInfo> = {};
+    for (const leaf of L.leaves(this.layout.root)) {
+      if (leaf.id === L.MAIN_PANE) continue;
+      const path = leaf.path;
+      const doc = path ? this.documents.get(path) : undefined;
+      infos[leaf.id] = {
+        path,
+        title: path ? (P.isViewerFile(path) ? P.basename(path) : P.stem(path)) : "Empty pane",
+        isDirty: doc?.isDirty ?? false,
+        hasWarning: Boolean(doc && (doc.conflict || doc.isMissingOnDisk)),
+        kind: path === null ? "empty" : P.isCanvas(path) ? "canvas" : P.isBase(path) ? "base" : "note",
+        revision: path && P.isBase(path) ? this.baseRevision : this.canvasRevision,
+      };
+    }
+    return infos;
+  }
+
+  // Workspaces (UI-49): named snapshots of the panes, tabs and side panels, per vault.
+
+  private get workspacesKey() {
+    return "workspaces:" + this.root;
+  }
+
+  private get workspaces(): Record<string, Workspace> {
+    const stored = this.options.store.get<unknown>(this.workspacesKey);
+    return stored && typeof stored === "object" && !Array.isArray(stored) ? (stored as Record<string, Workspace>) : {};
+  }
+
+  workspaceNames(): string[] {
+    return Object.keys(this.workspaces).sort((a, b) => a.localeCompare(b));
+  }
+
+  get lastWorkspace(): string | null {
+    const name = this.options.store.get<string>(this.workspacesKey + ":last");
+    return typeof name === "string" && name in this.workspaces ? name : null;
+  }
+
+  /** Save Layout As…: the panes, every tab and the side panels' state (`ui`, which the window chrome knows). */
+  saveWorkspace(name: string, ui: WorkspaceUi | null = null) {
+    const trimmed = name.trim();
+    if (trimmed === "") return;
+    const withPaths = this.tabs.filter((tab) => tab.path !== null);
+    const workspace: Workspace = {
+      layout: this.layout,
+      tabs: withPaths.map((tab) => tab.path!),
+      pinned: withPaths.filter((tab) => tab.pinned).length,
+      active: Math.max(0, withPaths.findIndex((tab) => tab.id === this.activeTabId)),
+      ui,
+    };
+    this.options.store.set(this.workspacesKey, { ...this.workspaces, [trimmed]: workspace });
+    this.options.store.set(this.workspacesKey + ":last", trimmed);
+    this.changed();
+  }
+
+  /**
+   * Loads a workspace: saves the open notes first, then replaces the tabs and
+   * panes (files that no longer exist are dropped). Returns the side panels'
+   * state for the window chrome to apply, or null when there's no such workspace.
+   */
+  loadWorkspace(name: string): WorkspaceUi | null {
+    const workspace = this.workspaces[name];
+    if (!workspace || typeof workspace !== "object") return null;
+    this.saveAll();
+    const stored = Array.isArray(workspace.tabs) ? workspace.tabs.filter((path): path is string => typeof path === "string") : [];
+    const pinnedCount = Math.max(0, Math.min(typeof workspace.pinned === "number" ? workspace.pinned : 0, stored.length));
+    const paths: { path: string; pinned: boolean }[] = [];
+    stored.forEach((path, index) => {
+      if (this.paneFileExists(path)) paths.push({ path, pinned: index < pinnedCount });
+    });
+    this.tabs = paths.map(({ path, pinned }) => new EditorTab(path, pinned));
+    const active = Math.min(typeof workspace.active === "number" ? workspace.active : 0, this.tabs.length - 1);
+    this.activeTabId = this.tabs.length ? this.tabs[Math.max(0, active)].id : null;
+    this.layout = L.sanitizeLayout(workspace.layout, this.paneFileExists, randomUUID);
+    if (this.activeTab?.path) this.loadDocument(this.activeTab.path);
+    this.didChangeTabs();
+    this.options.store.set(this.workspacesKey + ":last", name);
+    this.changed();
+    return workspace.ui && typeof workspace.ui === "object" ? workspace.ui : null;
+  }
+
+  /** Load Last Workspace: the one saved or loaded most recently. */
+  loadLastWorkspace(): WorkspaceUi | null {
+    const name = this.lastWorkspace;
+    return name ? this.loadWorkspace(name) : null;
+  }
+
+  deleteWorkspace(name: string) {
+    const all = { ...this.workspaces };
+    if (!(name in all)) return;
+    delete all[name];
+    this.options.store.set(this.workspacesKey, Object.keys(all).length ? all : undefined);
+    if (this.options.store.get<string>(this.workspacesKey + ":last") === name) this.options.store.set(this.workspacesKey + ":last", undefined);
+    this.changed();
   }
 
   /** Reopens the tabs that were open when this vault was last closed. */
   private restoreTabs() {
-    const stored = (this.options.store.get<string[]>(this.tabsKey) ?? []).filter((path) => typeof path === "string" && P.isNote(path));
+    const stored = (this.options.store.get<string[]>(this.tabsKey) ?? []).filter((path) => typeof path === "string" && (P.isNote(path) || P.isViewerFile(path)));
     let pinnedCount = Math.max(0, Math.min(this.options.store.get<number>(this.tabsKey + ":pinned") ?? 0, stored.length));
     const paths: { path: string; pinned: boolean }[] = [];
     stored.forEach((path, index) => {
@@ -1067,20 +1569,21 @@ export class Vault {
   select(path: string | null) {
     if (path === this.selection) return;
     this.selection = path;
-    if (path && P.isNote(path)) this.open(path);
+    if (path && (P.isNote(path) || P.isViewerFile(path))) this.open(path);
     else this.changed();
   }
 
   // MARK: Toasts
 
   /** Shows `message` for a few seconds, optionally with a button (Undo, Review…). */
-  showToast(text: string, action: (() => void) | null = null, actionTitle = "Undo", isWarning = false) {
+  /** Shows a toast (UI-31). `duration` overrides the 3 s / 6 s / 12 s rule, e.g. for a question that needs the warning's time. */
+  showToast(text: string, action: (() => void) | null = null, actionTitle = "Undo", isWarning = false, duration?: number) {
     if (this.toastTimer) clearTimeout(this.toastTimer);
     const toast: Toast = { id: this.nextToastId++, message: text, actionTitle: action ? actionTitle : null, isWarning, action };
     this.toast = toast;
     this.toastTimer = setTimeout(() => {
       if (this.toast === toast) this.dismissToast();
-    }, action === null ? 3000 : isWarning ? 12000 : 6000);
+    }, duration ?? (action === null ? 3000 : isWarning ? 12000 : 6000));
     this.changed();
   }
 
@@ -1133,7 +1636,7 @@ export class Vault {
     }
     const isDir = fsx.isDirectory(this.abs(path));
     let fileName = name;
-    if (!isDir && P.isNote(path) && !P.isNote(name)) fileName += "." + P.extname(path);
+    if (!isDir && ((P.isNote(path) && !P.isNote(name)) || (P.isCanvas(path) && !P.isCanvas(name)) || (P.isBase(path) && !P.isBase(name)))) fileName += "." + P.extname(path);
     const renamed = this.performMove(path, P.join(P.dirname(path), fileName));
     if (renamed !== path) {
       this.showToast(`Renamed ${this.describe([path])} to ${this.describe([renamed])}`, () =>
@@ -1248,6 +1751,258 @@ export class Vault {
       void this.delete([copy], false);
     });
     return copy;
+  }
+
+  // MARK: Note composer (FOP-14…FOP-16)
+
+  /** A file name for a new note from what the user typed or a heading, cleaned like a first-line title (FOP-05). */
+  private noteNameFrom(raw: string): string | null {
+    return titleFromContent(raw);
+  }
+
+  /**
+   * Puts earlier texts back into notes that still hold the later ones (a
+   * later edit wins), through open documents or on disk. Returns how many
+   * notes were restored.
+   */
+  private restoreTexts(before: Map<string, string>, after: Map<string, string>): number {
+    let restored = 0;
+    for (const [path, text] of before) {
+      if (this.textFor(path) === after.get(path) && this.writeUpdatedLinks(path, text)) restored++;
+    }
+    return restored;
+  }
+
+  /**
+   * Extract Selection to New Note (FOP-14): the selected text becomes a note
+   * beside the current one, and the selection a link (or embed) to it. The
+   * note's offsets come from the editor; `selected` checks they still hold.
+   * Returns the new note's path.
+   */
+  extractSelection(path: string, from: number, to: number, selected: string, rawName: string, embed: boolean): string | null {
+    const document = this.documents.get(path);
+    if (!document) return null;
+    const text = document.text;
+    const range = locateSelection(text, from, to, selected);
+    if (!range) {
+      this.showError("The selection has changed. Select the text again, then extract it.");
+      return null;
+    }
+    const name = this.noteNameFrom(rawName);
+    if (name === null) {
+      this.showError(INVALID_NAME);
+      return null;
+    }
+    const newPath = this.uniquePath(name, "md", P.dirname(path));
+    const eol = lineEnding(text);
+    const contents = selected.endsWith("\n") ? selected : selected + eol;
+    try {
+      fsx.writeAtomic(this.abs(newPath), contents, { withoutOverwriting: true });
+    } catch (error) {
+      this.showError(`Couldn’t create “${name}”: ${message(error)}`);
+      return null;
+    }
+    const newName = P.stem(newPath);
+    const link = `${embed ? "!" : ""}[[${newName}]]`;
+    const [start, end] = range;
+    const replaced = text.slice(0, start) + link + text.slice(end);
+    document.replaceContents(replaced);
+    this.reload([newPath]);
+    this.open(newPath, true);
+    this.showToast(`Extracted “${newName}”`, () => {
+      const current = this.textFor(path);
+      if (current !== null && current.slice(start, start + link.length) === link) {
+        this.writeUpdatedLinks(path, current.slice(0, start) + selected + current.slice(start + link.length));
+      }
+      void this.delete([newPath], false);
+    });
+    return newPath;
+  }
+
+  /**
+   * Merge Note Into (FOP-15): the current note's body goes to the end of
+   * `target` (under a "## Title" heading if asked), every link to it is
+   * pointed at the target, and it goes to the Recycle Bin. One Undo reverses
+   * all three.
+   */
+  async mergeNote(source: string, target: string, withHeading: boolean): Promise<boolean> {
+    if (source === target || !P.isNote(source) || !P.isNote(target)) return false;
+    this.documents.get(source)?.save();
+    const sourceText = this.textFor(source);
+    const targetText = this.textFor(target);
+    if (sourceText === null || targetText === null) {
+      this.showError(`Couldn’t read “${P.stem(sourceText === null ? source : target)}”.`);
+      return false;
+    }
+    // Links to the merged note now point at the target, as after a rename
+    // (LNK-12, LNK-13); the merged text's own relative links are recomputed
+    // for the target's folder, as if the note had moved there.
+    const mapping = new Map([[source, target]]);
+    const changes = this.planLinkRewrites(mapping, this.allNotes.filter((path) => path !== source));
+    const movedText = this.planLinkRewrites(mapping, [source]).get(target) ?? sourceText;
+    const merged = appendToNote(changes.get(target) ?? targetText, bodyWithoutFrontmatter(movedText), withHeading ? P.stem(source) : null);
+    changes.set(target, merged);
+    const before = new Map<string, string>();
+    for (const path of changes.keys()) before.set(path, this.textFor(path) ?? "");
+    for (const [path, text] of changes) this.writeUpdatedLinks(path, text);
+    const trashed = await this.delete([source], false);
+    this.reload([...changes.keys()]);
+    this.open(target);
+    const restorable = trashed.length === 1 && trashed[0].restore !== null;
+    this.showToast(`Merged ${this.describe([source])} into ${this.describe([target])}`, restorable ? () => {
+      this.restoreFromTrash(trashed);
+      this.restoreTexts(before, changes);
+      this.reload([...changes.keys()]);
+    } : null);
+    return true;
+  }
+
+  /**
+   * Split Note at Heading (FOP-16): the section around the cursor becomes a
+   * note named after its heading, the section a link to it, and links to
+   * that heading links to the new note. Returns the new note's path.
+   */
+  splitAtHeading(path: string, line: number): string | null {
+    const text = this.textFor(path);
+    if (text === null) return null;
+    const section = sectionAt(text, line);
+    if (!section) {
+      this.showError("Put the cursor on a heading, or in the text under one, then split the note there.");
+      return null;
+    }
+    const heading = section.heading.text;
+    const name = this.noteNameFrom(heading);
+    if (name === null) {
+      this.showError(INVALID_NAME);
+      return null;
+    }
+    const newPath = this.uniquePath(name, "md", P.dirname(path));
+    try {
+      fsx.writeAtomic(this.abs(newPath), section.body, { withoutOverwriting: true });
+    } catch (error) {
+      this.showError(`Couldn’t create “${name}”: ${message(error)}`);
+      return null;
+    }
+    const newName = P.stem(newPath);
+    const link = `[[${newName}]]`;
+    const eol = section.eol;
+    const replaced = text.slice(0, section.from) + link + eol + (section.to < text.length ? eol : "") + text.slice(section.to);
+    // [[Note#Heading]] everywhere (and [[#Heading]] in the note) → [[New Note]].
+    const newResolver = new LinkResolver([...this.allNotes, newPath]);
+    const { changes } = this.planHeadingLinkRewrites(path, heading, new Map([[path, replaced]]), (target, source) =>
+      target.kind === "wiki"
+        ? { path: wikiTarget(newPath, target.path, newResolver), fragment: "" }
+        : { path: target.path.startsWith("/") ? "/" + newPath : relativeLinkPath(P.dirname(source), newPath), fragment: "" },
+    );
+    if (!changes.has(path)) changes.set(path, replaced);
+    const before = new Map<string, string>();
+    for (const changed of changes.keys()) before.set(changed, this.textFor(changed) ?? "");
+    for (const [changed, updated] of changes) this.writeUpdatedLinks(changed, updated);
+    this.reload([newPath, ...changes.keys()]);
+    this.open(newPath, true);
+    this.showToast(`Split “${heading}” into ${this.describe([newPath])}`, () => {
+      this.restoreTexts(before, changes);
+      void this.delete([newPath], false);
+    });
+    return newPath;
+  }
+
+  /**
+   * Every note's text with its links to `heading` of `notePath` rewritten
+   * as `rewrite` says (LNK-16): only notes that have such a link, matched
+   * like LNK-09. `texts` overrides a note's current text.
+   */
+  private planHeadingLinkRewrites(
+    notePath: string,
+    heading: string,
+    texts: Map<string, string>,
+    rewrite: (link: FragmentLink, source: string) => FragmentRewrite,
+  ): { changes: Map<string, string>; links: number } {
+    const changes = new Map<string, string>();
+    let links = 0;
+    const resolver = this.resolver;
+    const targetOf = (link: { target: string; kind: "wiki" | "markdown" }, source: string) =>
+      LinkResolver.linkPath(link.target) === "" ? source : resolver.resolve(link, source);
+    for (const source of new Set([...this.allNotes, ...texts.keys()])) {
+      const text = texts.get(source) ?? this.textFor(source);
+      if (text === null) continue;
+      // Cheap filter: the index's links (a fresh parse for texts it hasn't seen).
+      const info = texts.has(source) ? parseNote(text) : (this.index.info(source) ?? parseNote(text));
+      if (!info.links.some((link) => /#/.test(link.target) && targetOf(link, source) === notePath)) continue;
+      const rewritten = rewriteFragmentLinks(text, (link) => {
+        const target = link.path === "" ? source : link.kind === "wiki" ? resolver.resolveWiki(link.path) : resolver.resolveMarkdown(link.path, source);
+        if (target !== notePath || !fragmentMatchesHeading(link.fragment, heading)) return null;
+        links++;
+        return rewrite(link, source);
+      });
+      if (rewritten !== text) changes.set(source, rewritten);
+    }
+    return { changes, links };
+  }
+
+  // MARK: Heading renames (LNK-16)
+
+  private scheduleHeadingCheck(document: NoteDocument) {
+    if (!this.headingBaselines.has(document)) return;
+    const existing = this.headingTimers.get(document);
+    if (existing) clearTimeout(existing);
+    this.headingTimers.set(
+      document,
+      setTimeout(() => {
+        this.headingTimers.delete(document);
+        this.checkHeadingRename(document);
+      }, this.options.headingLinksDelay ?? 1000),
+    );
+  }
+
+  /** Takes the note's headings as they are now as the baseline (text that arrived from outside isn't a rename). */
+  private resetHeadingBaseline(document: NoteDocument) {
+    const timer = this.headingTimers.get(document);
+    if (timer) clearTimeout(timer);
+    this.headingTimers.delete(document);
+    if (this.headingBaselines.has(document)) this.headingBaselines.set(document, parseNote(document.text).headings);
+  }
+
+  /**
+   * After typing pauses: if exactly one heading's text changed (and no
+   * heading was added or removed) and links point at the old heading,
+   * offers to update them.
+   */
+  checkHeadingRename(document: NoteDocument) {
+    const timer = this.headingTimers.get(document);
+    if (timer) clearTimeout(timer);
+    this.headingTimers.delete(document);
+    const after = parseNote(document.text).headings;
+    const before = this.headingBaselines.get(document);
+    this.headingBaselines.set(document, after);
+    const path = this.pathOf(document);
+    if (!before || path === null || !this.settings.updateHeadingLinks) return;
+    const rename = headingRename(before, after);
+    if (!rename) return;
+    const plan = this.planHeadingLinkRewrites(path, rename.from, new Map(), (link) => ({ fragment: renamedFragment(link.fragment, rename.from, rename.to, link.kind) }));
+    if (plan.links === 0) return;
+    this.showToast(
+      `Heading renamed — update ${plural(plan.links, "link")} in ${plural(plan.changes.size, "note")}?`,
+      () => this.updateHeadingLinks(path, rename.from, rename.to),
+      "Update Links",
+      false,
+      12000,
+    );
+  }
+
+  /** Points every `[[Note#from]]` / `[x](Note.md#from)` at the heading `to`, with Undo. */
+  updateHeadingLinks(path: string, from: string, to: string): number {
+    const { changes, links } = this.planHeadingLinkRewrites(path, from, new Map(), (link) => ({ fragment: renamedFragment(link.fragment, from, to, link.kind) }));
+    if (links === 0) return 0;
+    const before = new Map<string, string>();
+    for (const changed of changes.keys()) before.set(changed, this.textFor(changed) ?? "");
+    for (const [changed, text] of changes) this.writeUpdatedLinks(changed, text);
+    this.reload([...changes.keys()]);
+    this.showToast(`Updated ${plural(links, "link")}`, () => {
+      this.restoreTexts(before, changes);
+      this.reload([...changes.keys()]);
+    });
+    return links;
   }
 
   /** Asks before moving items to the Recycle Bin (see `pendingDeletion`). */
@@ -1427,13 +2182,11 @@ export class Vault {
       this.attach(document, newPath);
       this.documents.set(newPath, document);
       this.editor.documentDidMove(oldPath, newPath);
-      this.splitEditor.documentDidMove(oldPath, newPath);
+      for (const port of this.paneEditors.values()) port.documentDidMove(oldPath, newPath);
     }
     for (const tab of this.tabs) tab.remap(remap);
-    if (this.splitPath) {
-      this.splitPath = remap(this.splitPath);
-      this.saveSplit();
-    }
+    this.layout = L.mapPaths(this.layout, remap);
+    this.saveLayout();
     if (this.selection) this.selection = remap(this.selection);
     if (this.renaming) this.renaming = remap(this.renaming);
     this.recentNotes = this.recentNotes.map(remap);
@@ -1453,8 +2206,8 @@ export class Vault {
     return destination;
   }
 
-  /** Writes a note whose links were updated, to its open document or to disk. */
-  private writeUpdatedLinks(path: string, text: string): boolean {
+  /** Writes a note whose links (or `what`) were updated, to its open document or to disk. */
+  private writeUpdatedLinks(path: string, text: string, what = "links"): boolean {
     const document = this.documents.get(path);
     if (document) document.replaceContents(text);
     else {
@@ -1468,7 +2221,7 @@ export class Vault {
       try {
         fsx.writeAtomic(this.abs(path), text);
       } catch (error) {
-        this.showError(`Couldn’t update links in “${P.stem(path)}”: ${message(error)}`);
+        this.showError(`Couldn’t update ${what} in “${P.stem(path)}”: ${message(error)}`);
         return false;
       }
       if (previous !== text) this.recordVersion(path, previous, text);
@@ -1577,12 +2330,12 @@ export class Vault {
    * For each note whose links point at a moving note (or that moves and has
    * relative markdown links), its new text — keyed by its path after the move.
    */
-  private planLinkRewrites(mapping: Map<string, string>): Map<string, string> {
+  private planLinkRewrites(mapping: Map<string, string>, sources: Iterable<string> = this.allNotes): Map<string, string> {
     const oldResolver = this.resolver;
     const newResolver = new LinkResolver(this.allNotes.map((path) => mapping.get(path) ?? path));
     const result = new Map<string, string>();
 
-    for (const sourceOld of this.allNotes) {
+    for (const sourceOld of sources) {
       const sourceNew = mapping.get(sourceOld) ?? sourceOld;
       const sourceMoves = mapping.has(sourceOld);
       let text: string;
@@ -1710,6 +2463,157 @@ export class Vault {
     } catch {
       return null;
     }
+  }
+
+  // MARK: Canvases (UI-45)
+
+  /** A canvas file's text for the viewer, or null when it isn't one of the vault's canvases. */
+  canvasText(path: string): string | null {
+    if (!P.isCanvas(path) || !this.canvases.includes(path)) return null;
+    try {
+      return fsx.readText(this.abs(path));
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * What a canvas's file card shows for a note: its path as the vault has it
+   * (the file is matched ignoring case) and its first `lines` lines after any
+   * frontmatter. Null for files that aren't notes in this vault.
+   */
+  notePreview(file: string, lines: number): { path: string; text: string } | null {
+    const wanted = file.replace(/\\/g, "/").replace(/^\/+/, "").toLowerCase();
+    const path = this.allNotes.find((note) => note.toLowerCase() === wanted);
+    if (path === undefined) return null;
+    const text = this.textFor(path);
+    if (text === null) return null;
+    const body = text.replace(/^﻿?---\r?\n[\s\S]*?\r?\n---[ \t]*(\r?\n|$)/, "");
+    return { path, text: body.split(/\r?\n/).slice(0, lines).join("\n") };
+  }
+
+  // MARK: Bases (UI-46)
+
+  /** A base file's text for the view, or null when it isn't one of the vault's bases. */
+  baseText(path: string): string | null {
+    if (!P.isBase(path) || !this.bases.includes(path)) return null;
+    try {
+      return fsx.readText(this.abs(path));
+    } catch {
+      return null;
+    }
+  }
+
+  /** Writes a base file the view edited (columns, sort, views), atomically; the view keeps the file's line endings. */
+  writeBase(path: string, text: string): boolean {
+    if (!P.isBase(path) || !this.bases.includes(path)) return false;
+    try {
+      fsx.writeAtomic(this.abs(path), text);
+      return true;
+    } catch (error) {
+      this.showError(`Couldn’t save “${P.stem(path)}”: ${message(error)}`);
+      return false;
+    }
+  }
+
+  /** File › New Base…: an "Untitled.base" (numbered if taken) with the default table view, opened in a new tab. */
+  createBase(folder: string | null = null): string | null {
+    const path = this.uniquePath("Untitled", "base", folder ?? this.targetFolderForNewItems());
+    try {
+      fsx.writeAtomic(this.abs(path), serializeBase(defaultBase()), { withoutOverwriting: true });
+    } catch (error) {
+      this.showError(`Couldn’t create a base: ${message(error)}`);
+      return null;
+    }
+    this.reload();
+    this.open(path, true);
+    return path;
+  }
+
+  /**
+   * Sets one frontmatter property of a note from a base's cell (UI-46) with
+   * the panel's rewriting rules (ED-75): through the note's document when it's
+   * open (unsaved edits and undo survive), else an atomic rewrite keeping the
+   * file's line endings. The index follows at once so the view re-sorts.
+   */
+  setProperty(path: string, key: string, value: string | string[] | boolean | null): boolean {
+    if (!this.index.hasPath(path) || !key.trim()) return false;
+    const text = this.textFor(path);
+    if (text === null) return false;
+    const updated = setPropertyText(text, key.trim(), value);
+    if (updated === text) return true;
+    if (!this.writeUpdatedLinks(path, updated, "properties")) return false;
+    this.indexRevision++;
+    this.changed();
+    return true;
+  }
+
+  /**
+   * The notes a base's filter matches, as rows for its table or cards. The
+   * filter is a search query (SRCH-01/SRCH-11; empty = every note). Costly
+   * fields are only gathered when `needs` names them: "times" (a stat per
+   * note, for the first 2000 rows), "backlinks" (one pass over every link)
+   * and "preview" (the first lines of each body, for cards).
+   */
+  baseRows(filters: string, needs: readonly string[] = []): { rows: BaseRow[]; error: string | null } {
+    let matches: (note: { path: string; text: string; tags: string[] }) => boolean;
+    try {
+      matches = compileQuery(filters);
+    } catch (error) {
+      return { rows: [], error: message(error) };
+    }
+    const wantTimes = needs.includes("times");
+    const wantBacklinks = needs.includes("backlinks");
+    const wantPreview = needs.includes("preview");
+    const backlinkCounts = new Map<string, number>();
+    if (wantBacklinks) {
+      for (const [source, info] of this.index.allNotes) {
+        const seen = new Set<string>();
+        for (const link of info.links) {
+          const target = this.index.resolver.resolve(link, source);
+          if (target === null || target === source || seen.has(target)) continue;
+          seen.add(target);
+          backlinkCounts.set(target, (backlinkCounts.get(target) ?? 0) + 1);
+        }
+      }
+    }
+    const rows: BaseRow[] = [];
+    for (const note of this.index.searchSnapshot()) {
+      if (!matches(note)) continue;
+      const info = this.index.info(note.path);
+      const properties: BaseRow["properties"] = {};
+      for (const property of info?.properties ?? []) {
+        if (property.list) properties[property.key] = property.values;
+        else if (property.values.length === 0) properties[property.key] = null;
+        else if (property.values.length > 1) properties[property.key] = property.values;
+        else if (/^(true|false)$/i.test(property.values[0]!)) properties[property.key] = property.values[0]!.toLowerCase() === "true";
+        else properties[property.key] = property.values[0]!;
+      }
+      let mtime: number | null = null;
+      let ctime: number | null = null;
+      if (wantTimes && rows.length < 2000) {
+        try {
+          const stat = fs.statSync(this.abs(note.path));
+          mtime = stat.mtimeMs;
+          ctime = stat.birthtimeMs || stat.ctimeMs;
+        } catch {
+          // Vanished since the index saw it.
+        }
+      }
+      rows.push({
+        path: note.path,
+        title: P.stem(note.path),
+        folder: P.dirname(note.path),
+        mtime,
+        ctime,
+        tags: info?.tags ?? [],
+        links: info ? new Set(info.links.map((link) => link.target.toLowerCase())).size : null,
+        backlinks: wantBacklinks ? (backlinkCounts.get(note.path) ?? 0) : null,
+        properties,
+        preview: wantPreview ? bodyPreview(note.text, 6) : "",
+      });
+    }
+    return { rows, error: null };
   }
 
   /** Every note's current text, and the notes that couldn't be read. */
@@ -2426,7 +3330,24 @@ export class Vault {
         recent: recentRank.get(path) ?? 0,
       };
     });
-    return { notes, attachments: this.attachments, tags: this.index.allTags() };
+    return { notes, attachments: this.attachments, tags: this.index.allTags(), properties: this.propertySummary() };
+  }
+
+  private propertySummaryCache: { revision: number; summary: PropertySummary[] } | null = null;
+
+  /** Every frontmatter key with counts, type and top values (IDX-07), worked out once per index revision. */
+  propertySummary(): PropertySummary[] {
+    const revision = this.index.revision;
+    if (this.propertySummaryCache?.revision !== revision) {
+      const summary = this.index.allProperties().map(({ key, count, type, values }) => ({
+        key,
+        count,
+        type,
+        values: values.map((entry): [string, number] => [entry.value, entry.count]),
+      }));
+      this.propertySummaryCache = { revision, summary };
+    }
+    return this.propertySummaryCache.summary;
   }
 
   sendVaultData() {
@@ -2467,11 +3388,14 @@ export class Vault {
     this.openLink(cleaned.includes("/") || !folder ? cleaned : `${folder}/${cleaned}`, inNewTab);
   }
 
-  /** Creates an empty "Untitled" note (numbered if taken) in the selected folder, beside the selected note, or at the root. */
-  createNote(folder: string | null = null): string | null {
+  /**
+   * Creates an "Untitled" note (numbered if taken) in the selected folder, beside the selected note, or at the root.
+   * `contents` prefills it (a base's New note writes the frontmatter its filter asks for, UI-46).
+   */
+  createNote(folder: string | null = null, contents = ""): string | null {
     const path = this.uniquePath("Untitled", "md", folder ?? this.targetFolderForNewItems());
     try {
-      fsx.writeAtomic(this.abs(path), "", { withoutOverwriting: true });
+      fsx.writeAtomic(this.abs(path), contents, { withoutOverwriting: true });
     } catch (error) {
       this.showError(`Couldn’t create a note: ${message(error)}`);
       return null;
@@ -2491,20 +3415,19 @@ export class Vault {
   // MARK: Editor bridge
 
   /**
-   * An editor's text for its shown note changed. When both panes of split
-   * view show that note, the other pane gets the edit too.
+   * An editor's text for its shown note changed. Every other pane (or stacked
+   * tab) showing that note gets the edit too (UI-40).
    */
-  editorChanged(path: string, text: string, pane: "main" | "split" = "main") {
-    const isMain = path === this.activeTab?.path;
-    const isSplit = path === this.splitPath;
-    if (pane === "main" ? !isMain : !isSplit) return;
+  editorChanged(path: string, text: string, pane: string = L.MAIN_PANE) {
+    const views = this.editorViews();
+    const source = views.find((view) => view.id === pane);
+    if (!source || source.path !== path) return;
     const document = this.documents.get(path);
     if (!document) return;
     const previous = document.text;
     if (previous === text) return;
     document.setText(text);
-    if (pane === "main" && isSplit) this.splitEditor.externalChange(path, previous, text);
-    if (pane === "split" && isMain) this.editor.externalChange(path, previous, text);
+    for (const view of views) if (view !== source && view.path === path) view.port.externalChange(path, previous, text);
   }
 
   /** Pasted image → attachment; returns the text to insert, or null. */
@@ -2541,16 +3464,6 @@ export class Vault {
 
   // MARK: View state
 
-  private splitView(path: string): SplitView {
-    const doc = this.documents.get(path);
-    return {
-      path,
-      title: P.stem(path),
-      isDirty: doc?.isDirty ?? false,
-      hasWarning: Boolean(doc && (doc.conflict || doc.isMissingOnDisk)),
-    };
-  }
-
   view(): VaultView {
     const document = this.document;
     const path = this.activeTab?.path ?? null;
@@ -2573,7 +3486,11 @@ export class Vault {
         };
       }),
       bookmarks: this.bookmarks,
-      split: this.splitPath ? this.splitView(this.splitPath) : null,
+      layout: this.layout,
+      panes: this.paneInfos(),
+      stackTabs: this.stackTabs,
+      workspaces: this.workspaceNames(),
+      lastWorkspace: this.lastWorkspace,
       syncConflicts: this.syncConflicts(),
       activeTabId: this.activeTabId,
       canGoBack: this.canGoBack,
@@ -2588,9 +3505,12 @@ export class Vault {
       recentNotes: this.recentNotes,
       toast: this.toast ? { id: this.toast.id, message: this.toast.message, actionTitle: this.toast.actionTitle, isWarning: this.toast.isWarning } : null,
       doc: document && path ? this.docView(path, document) : null,
+      canvas: path && P.isCanvas(path) ? { path, title: P.stem(path), revision: this.canvasRevision } : null,
+      base: path && P.isBase(path) ? { path, title: P.stem(path), revision: this.baseRevision } : null,
       conflict: document?.conflict && path ? this.conflictView(path, document) : null,
       templates: this.templates,
       isIndexing: this.isIndexing,
+      properties: this.propertySummary(),
     };
   }
 
@@ -2768,6 +3688,31 @@ function wikiTarget(newTarget: string, original: string, resolver: LinkResolver)
  * rescan after every watcher batch doesn't serialise the whole tree twice
  * (noticeable with thousands of notes).
  */
+/** The first `lines` non-empty body lines of a note as plain text, for a base's cards (UI-46). */
+export function bodyPreview(text: string, lines: number): string {
+  const body = text.replace(/^\uFEFF?---\r?\n[\s\S]*?\r?\n(?:---|\.\.\.)[ \t]*(\r?\n|$)/, "");
+  const out: string[] = [];
+  let fence: string | null = null;
+  for (const raw of body.split(/\r?\n/)) {
+    const line = raw.trim();
+    const marker = /^(`{3,}|~{3,})/.exec(line);
+    if (fence) {
+      if (marker && marker[1]![0] === fence[0]) fence = null;
+      continue;
+    }
+    if (marker) {
+      fence = marker[1]!;
+      continue;
+    }
+    if (line === "" || /^(---|\*\*\*|___)\s*$/.test(line)) continue;
+    const plain = plainLine(line).trim();
+    if (plain === "") continue;
+    out.push(plain);
+    if (out.length >= lines) break;
+  }
+  return out.join("\n");
+}
+
 export function sameTree(a: TreeNode[], b: TreeNode[]): boolean {
   if (a === b) return true;
   if (a.length !== b.length) return false;
@@ -2788,9 +3733,11 @@ export function sameTree(a: TreeNode[], b: TreeNode[]): boolean {
  * tree sorted by time (UI-10a); that costs a stat per note, so it's only
  * asked for when the tree is sorted that way.
  */
-export function scanVault(root: string, withTimes = false): { tree: TreeNode[]; notes: string[]; attachments: string[] } {
+export function scanVault(root: string, withTimes = false): { tree: TreeNode[]; notes: string[]; attachments: string[]; canvases: string[]; bases: string[] } {
   const notes: string[] = [];
   const attachments: string[] = [];
+  const canvases: string[] = [];
+  const bases: string[] = [];
 
   function walk(folder: string, prefix: string): TreeNode[] {
     let entries: fs.Dirent[];
@@ -2825,8 +3772,11 @@ export function scanVault(root: string, withTimes = false): { tree: TreeNode[]; 
           }
         }
         nodes.push(node);
-      } else if (isFile && P.isNote(entry.name)) {
-        const node: TreeNode = { path, name: P.stem(entry.name), isDir: false, noteCount: 1 };
+      } else if (isFile && (P.isNote(entry.name) || P.isViewerFile(entry.name))) {
+        // Canvases and bases sit in the tree beside notes (with their own icons) but aren't counted or indexed (UI-45, UI-46).
+        const node: TreeNode = { path, name: P.stem(entry.name), isDir: false, noteCount: P.isNote(entry.name) ? 1 : 0 };
+        if (P.isCanvas(entry.name)) node.kind = "canvas";
+        else if (P.isBase(entry.name)) node.kind = "base";
         if (withTimes) {
           try {
             const stat = fs.statSync(full);
@@ -2850,10 +3800,12 @@ export function scanVault(root: string, withTimes = false): { tree: TreeNode[]; 
   const flatten = (nodes: TreeNode[]) => {
     for (const node of nodes) {
       if (node.isDir) flatten(node.children ?? []);
+      else if (node.kind === "canvas") canvases.push(node.path);
+      else if (node.kind === "base") bases.push(node.path);
       else notes.push(node.path);
     }
   };
   flatten(tree);
   attachments.sort(P.naturalCompare);
-  return { tree, notes, attachments };
+  return { tree, notes, attachments, canvases, bases };
 }

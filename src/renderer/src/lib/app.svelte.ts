@@ -1,12 +1,29 @@
 // The renderer's view of the app: the latest state snapshot pushed by the
 // main process, plus UI-only state (palettes, sidebar mode, focus mode…).
 
-import type { AppState, ContextMenuParams, EditAction, EditorMessage, EditorPane, TreeNode, UiRequest } from "@shared/ipc";
+import type { AppState, ContextMenuParams, EditAction, EditorMessage, EditorPane, TreeNode, UiRequest, WorkspaceUi } from "@shared/ipc";
+import { findLeaf, singlePane, type PaneMode } from "@core/layout";
 import { defaultSettings, type Settings } from "@shared/settings";
+import { titleFromContent } from "@core/autoTitle";
+import { isNote } from "@core/paths";
 import { activePane, call, editor, editorFor, host, run, setActivePane } from "./host";
 import { buildContextMenu, FORMAT_COMMANDS, mermaidCodeAt, type ContextActions, type ContextTarget } from "./contextMenu";
 import { commandById } from "./commands";
 import { menu } from "./menu.svelte";
+
+/** Quick Open used as a picker: notes only, `onPick` gets the chosen path (QO-08). */
+export interface NotePick {
+  /** The field's placeholder, e.g. "Merge into…". */
+  title: string;
+  /** Notes left out (the one being merged). */
+  exclude: string[];
+  onPick: (path: string) => void;
+}
+
+/** The note composer's dialogs (FOP-14, FOP-15). */
+export type ComposerRequest =
+  | { kind: "extract"; path: string; from: number; to: number; text: string; defaultName: string }
+  | { kind: "merge"; source: string; target: string };
 
 class AppStore {
   state = $state<AppState>({
@@ -19,14 +36,17 @@ class AppStore {
     update: { status: "idle", currentVersion: "", showPrompt: false },
     quickCapture: { registered: false, error: null },
     spelling: { available: [], active: [] },
+    snippets: [],
   });
   tree = $state<TreeNode[]>([]);
   /** The UI has received its first state (avoid flashing the welcome view). */
   loaded = $state(false);
 
   // UI-only state
-  quickOpen = $state<{ query: string; mode: "notes" | "commands" } | null>(null);
+  quickOpen = $state<{ query: string; mode: "notes" | "commands"; pick?: NotePick } | null>(null);
   templatePicker = $state<"insert" | "newNote" | null>(null);
+  /** The note composer's name prompt or merge confirmation, or null. */
+  composer = $state<ComposerRequest | null>(null);
   sidebarMode = $state<"files" | "search" | "tasks">("files");
   searchFocusRequest = $state(0);
   /** Bumped to open the daily-notes calendar from a command (DAY-07). */
@@ -39,6 +59,8 @@ class AppStore {
   historyOpen = $state(false);
   /** The sync conflict copy being reviewed (UI-41), or null. */
   syncReview = $state<string | null>(null);
+  /** The tag Rename Tag… is renaming (FOP-13), or null. */
+  renamingTag = $state<string | null>(null);
   /** Graph view (UI-42): open, and what it showed last time. */
   graphOpen = $state(false);
   graphScope = $state<"vault" | "local">("vault");
@@ -47,9 +69,18 @@ class AppStore {
   cursor = $state({ line: 1, column: 1, selectedWords: 0, selectedCharacters: 0 });
   /** The editor's current text for the shown note (word counts). */
   text = $state("");
-  /** The editor last focused: the main one or split view's right-hand pane (UI-40). */
+  /** What the canvas viewer shows, for the status bar (UI-45); null when no canvas is open or it couldn't be read. */
+  canvasStats = $state<{ cards: number; connections: number } | null>(null);
+  /** What the Base view shows, for the status bar's "N notes" (UI-46); null when no base is open. */
+  baseStats = $state<{ rows: number } | null>(null);
+  /** The editor last focused: the primary pane's ("main"), another pane's (its id, UI-40) or a stacked tab's ("tab:<id>", UI-48). */
   pane = $state<EditorPane>("main");
   editorReady = $state(false);
+  /** Save Layout As… / Delete… (UI-49), or null. */
+  workspaceDialog = $state<"save" | "delete" | null>(null);
+  /** Panel widths (UI-02): sidebar 200–400 (260), inspector 240–420 (290); remembered in localStorage. */
+  sidebarWidth = $state(storedWidth("sidebarWidth", 260));
+  inspectorWidth = $state(storedWidth("inspectorWidth", 290));
 
   get vault() {
     return this.state.vault;
@@ -63,8 +94,35 @@ class AppStore {
     return this.state.vault?.doc ?? null;
   }
 
+  /** A pane's view mode: its own (UI-47) or, for the primary pane and stacked tabs, the editor mode setting. */
+  paneMode(pane: EditorPane): PaneMode {
+    const own = pane !== "main" ? findLeaf(this.vault?.layout ?? singlePane(), pane)?.mode : undefined;
+    if (own) return own;
+    const mode = this.settings.editorMode;
+    return mode === "livePreview" ? "live" : mode;
+  }
+
+  /** The side panels' state a workspace remembers (UI-49). */
+  workspaceUi(): WorkspaceUi {
+    const s = this.settings;
+    return { showSidebar: s.showSidebar, showInspector: s.showInspector, sidebarWidth: this.sidebarWidth, inspectorWidth: this.inspectorWidth, sidebarMode: this.sidebarMode, inspectorTab: s.inspectorTab };
+  }
+
+  applyWorkspaceUi(ui: WorkspaceUi | null) {
+    if (!ui) return;
+    this.setSetting("showSidebar", ui.showSidebar);
+    this.setSetting("showInspector", ui.showInspector);
+    this.setSetting("inspectorTab", ui.inspectorTab);
+    this.sidebarMode = ui.sidebarMode;
+    this.sidebarWidth = Math.min(400, Math.max(200, ui.sidebarWidth));
+    this.inspectorWidth = Math.min(420, Math.max(240, ui.inspectorWidth));
+    rememberWidth("sidebarWidth", this.sidebarWidth);
+    rememberWidth("inspectorWidth", this.inspectorWidth);
+  }
+
+  /** The focused pane is in reading view: no formatting (UI-40, UI-47). */
   get readingView() {
-    return this.state.settings.editorMode === "reading";
+    return this.paneMode(this.pane) === "reading";
   }
 
   start() {
@@ -86,6 +144,11 @@ class AppStore {
     host.onState((state) => {
       this.state = state;
       this.loaded = true;
+      // The focused pane closed (or the vault changed): commands go back to the primary pane.
+      const layout = state.vault?.layout;
+      const tabs = state.vault?.tabs ?? [];
+      const exists = this.pane === "main" || (layout && findLeaf(layout, this.pane) !== null) || tabs.some((tab) => state.vault?.stackTabs && "tab:" + tab.id === this.pane);
+      if (!exists) this.focusPane("main");
     });
     host.onTree((tree) => (this.tree = tree));
     host.onUi((request: UiRequest) => this.handleUi(request));
@@ -126,12 +189,15 @@ class AppStore {
     void call<TreeNode[]>("getTree").then((tree) => (this.tree = tree));
   }
 
-  /** An editor got focus: commands and the status bar follow it from now on. */
+  /** An editor got focus: commands and the status bar follow it from now on; main remembers the layout's focused pane. */
   focusPane(pane: EditorPane) {
     if (pane === this.pane) return;
     setActivePane(pane);
     this.pane = pane;
     this.text = editor()?.getText() ?? "";
+    // A stacked tab's column belongs to the primary pane.
+    const layoutPane = pane.startsWith("tab:") ? "main" : pane;
+    if (this.vault && this.vault.layout.focused !== layoutPane) run("focusPane", layoutPane);
   }
 
   /** Watches editor messages for the status bar. */
@@ -195,7 +261,7 @@ class AppStore {
         });
       },
       openLink: (link, newTab) => run("openLink", link, newTab),
-      openLinkInSplit: (link) => run("openLinkInSplit", link),
+      openLinkInSplit: (link, direction) => run("openLinkInSplit", link, direction),
       openUrl: (url) => host.postEditor({ type: "openURL", url }),
       copyText: (text) => void navigator.clipboard.writeText(text),
       searchTag: (tag) => this.showQuickOpen(`#${tag}`),
@@ -218,7 +284,9 @@ class AppStore {
       const command = commandById.get(id);
       return command ? [{ label, shortcut: command.shortcut, run: command.run }] : [];
     });
-    const entries = buildContextMenu(params, target, actions, format);
+    const extractCommand = commandById.get("extractSelection");
+    const extract = extractCommand && (extractCommand.enabled?.() ?? true) ? { label: extractCommand.title, run: extractCommand.run } : undefined;
+    const entries = buildContextMenu(params, target, actions, format, extract);
     if (!entries.length) return;
     menu.open(entries, last?.clientX ?? params.x, last?.clientY ?? params.y, { onClose: restoreFocus });
   }
@@ -230,6 +298,46 @@ class AppStore {
 
   showCommandPalette() {
     this.quickOpen = { query: ">", mode: "commands" };
+  }
+
+  /** Quick Open as a note picker (QO-08). */
+  pickNote(pick: NotePick) {
+    if (!this.vault) return;
+    this.quickOpen = { query: "", mode: "notes", pick };
+  }
+
+  /** The note the focused editor shows: the active tab's, a stacked tab's (UI-48) or another pane's (UI-40). */
+  private get editedPath(): string | null {
+    const pane = this.pane;
+    if (pane === "main") return this.doc?.path ?? null;
+    if (pane.startsWith("tab:")) {
+      const tab = this.vault?.tabs.find((candidate) => "tab:" + candidate.id === pane);
+      return tab?.path && isNote(tab.path) ? tab.path : null;
+    }
+    const info = this.vault?.panes[pane];
+    return info?.kind === "note" ? info.path : null;
+  }
+
+  /** Extract Selection to New Note… (FOP-14): asks for a name, then main does the rest. */
+  extractSelection() {
+    const path = this.editedPath;
+    const selection = editor()?.getSelection();
+    if (!path || !selection || selection.from === selection.to || this.readingView) return;
+    this.composer = { kind: "extract", path, ...selection, defaultName: titleFromContent(selection.text) ?? "" };
+  }
+
+  /** Merge Note Into… (FOP-15): pick the target, then confirm. */
+  mergeNote() {
+    const source = this.editedPath;
+    if (!source) return;
+    this.pickNote({ title: "Merge into…", exclude: [source], onPick: (target) => (this.composer = { kind: "merge", source, target }) });
+  }
+
+  /** Split Note at Heading… (FOP-16): the section around the cursor. */
+  splitAtHeading() {
+    const path = this.editedPath;
+    if (!path || this.readingView) return;
+    run("splitAtHeading", path, this.cursor.line);
   }
 
   showSearch(query?: string) {
@@ -264,6 +372,23 @@ class AppStore {
 }
 
 export const app = new AppStore();
+
+function storedWidth(key: string, fallback: number) {
+  try {
+    const value = Number(localStorage.getItem(key));
+    return Number.isFinite(value) && value > 0 ? value : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export function rememberWidth(key: "sidebarWidth" | "inspectorWidth", value: number) {
+  try {
+    localStorage.setItem(key, String(value));
+  } catch {
+    // Not important.
+  }
+}
 
 /** What a right-click landed on, read from the DOM (see contextMenu.ts). */
 function describeTarget(element: Element | null): ContextTarget {

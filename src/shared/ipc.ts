@@ -3,7 +3,11 @@
 // snapshots; the renderer calls named commands. Editor bridge messages
 // (REQUIREMENTS §2.1) travel on their own channels.
 
+import type { Layout } from "@core/layout";
 import type { Settings } from "./settings";
+import type { SnippetView } from "./snippets";
+import type { BaseRow } from "../core/base";
+import type { LineMatch } from "../core/vaultSearch";
 
 export interface TreeNode {
   /** Vault path ("Lore/Kyber.md"; folders without a trailing slash). */
@@ -11,8 +15,10 @@ export interface TreeNode {
   /** Folders: their name. Notes: title without extension. */
   name: string;
   isDir: boolean;
+  /** A JSON Canvas file (UI-45) or a base (UI-46): shown with its own icon and opened in its viewer. */
+  kind?: "canvas" | "base";
   children?: TreeNode[];
-  /** Notes in this subtree (1 for a note). */
+  /** Notes in this subtree (1 for a note, 0 for a canvas or base). */
   noteCount: number;
   /** ms since epoch; only when the tree is sorted by time (folders: the newest note inside). */
   modified?: number;
@@ -39,12 +45,60 @@ export interface SyncConflictView {
   device: string | null;
 }
 
-/** The note in split view's right-hand pane (UI-40). */
-export interface SplitView {
+/** The JSON Canvas file in the active tab (UI-45); the renderer reads its text with `readCanvas`. */
+export interface CanvasTabView {
   path: string;
+  /** File name without extension. */
+  title: string;
+  /** Bumped when the file changes on disk, so the viewer reloads it. */
+  revision: number;
+}
+
+/** The `.base` file in the active tab (UI-46); the renderer reads its text with `readBase`. */
+export interface BaseTabView {
+  path: string;
+  /** File name without extension. */
+  title: string;
+  /** Bumped when the file changes on disk, so the view reloads it. */
+  revision: number;
+}
+
+/** One note as a base's table or cards show it (UI-46): see `BaseRow` in src/core/base.ts. */
+export interface BaseRowsResult {
+  rows: BaseRow[];
+  /** The filter couldn't be read (an invalid regular expression, say). */
+  error: string | null;
+}
+
+/** A ```query block's results (§9.5): a trimmed search outcome. */
+export interface QueryBlockResult {
+  hits: { path: string; title: string; folder: string; lines: LineMatch[] }[];
+  /** Notes that matched, listed or not. */
+  total: number;
+  truncated: boolean;
+  error: string | null;
+}
+
+/** What a pane other than the primary one shows (UI-40): the file, its state and how to draw it. */
+export interface PaneInfo {
+  path: string | null;
   title: string;
   isDirty: boolean;
   hasWarning: boolean;
+  /** "note": an editor; "canvas": the canvas viewer; "base": the Base view; "empty": nothing yet. */
+  kind: "note" | "canvas" | "base" | "empty";
+  /** Bumped when a canvas or base on show changes on disk (UI-45, UI-46). */
+  revision: number;
+}
+
+/** The sidebar and inspector state a workspace remembers (UI-49); the renderer owns it. */
+export interface WorkspaceUi {
+  showSidebar: boolean;
+  showInspector: boolean;
+  sidebarWidth: number;
+  inspectorWidth: number;
+  sidebarMode: "files" | "search" | "tasks";
+  inspectorTab: "outline" | "links" | "info";
 }
 
 export interface DocView {
@@ -106,15 +160,38 @@ export interface VaultView {
   recentNotes: string[];
   /** Bookmarked note and folder paths, in the user's order (UI-14a). */
   bookmarks: string[];
-  split: SplitView | null;
+  /** The pane tree (UI-40, UI-47) and, per pane except the primary one, what it shows. */
+  layout: Layout;
+  panes: Record<string, PaneInfo>;
+  /** View › Stack Tabs (UI-48), per vault. */
+  stackTabs: boolean;
+  /** Saved workspaces (UI-49), sorted by name, and the one saved or loaded last. */
+  workspaces: string[];
+  lastWorkspace: string | null;
   /** Sync tools' conflict copies beside their notes (UI-41). */
   syncConflicts: SyncConflictView[];
   toast: ToastView | null;
   doc: DocView | null;
+  /** The canvas the active tab shows (then `doc` is null), UI-45. */
+  canvas: CanvasTabView | null;
+  /** The base the active tab shows (then `doc` is null), UI-46. */
+  base: BaseTabView | null;
   conflict: ConflictView | null;
   /** Template note paths, sorted by name. */
   templates: string[];
   isIndexing: boolean;
+  /** Every frontmatter key in the vault with its counts and values (IDX-07), by count then name. */
+  properties: PropertySummary[];
+}
+
+/** A frontmatter key across the vault, compact for the state snapshot (IDX-07). */
+export interface PropertySummary {
+  key: string;
+  /** Notes using the key. */
+  count: number;
+  type: "text" | "list" | "number" | "checkbox" | "date" | "datetime";
+  /** [value, notes] for up to 50 distinct values, commonest first. */
+  values: [string, number][];
 }
 
 export interface AttachmentCleanupItem {
@@ -164,6 +241,8 @@ export interface AppState {
   quickCapture: QuickCaptureView;
   /** The spell checker: dictionaries Chromium offers, and the ones in use right now. */
   spelling: SpellingView;
+  /** The open vault's CSS snippets (`.holocron/snippets/*.css`, §16.11), in file-name order. */
+  snippets: SnippetView[];
 }
 
 export interface SpellingView {
@@ -229,12 +308,16 @@ export interface Backlink {
   source: string;
   title: string;
   contexts: string[];
+  /** 1-based line of each context, for revealing it. */
+  lines: number[];
 }
 
 export interface Mention {
   source: string;
   title: string;
   context: string;
+  /** 1-based line of the mention. */
+  line: number;
 }
 
 export interface OutgoingLink {
@@ -267,8 +350,12 @@ export interface QuickOpenNote {
 
 // ---- Editor bridge ----
 
-/** Which editor: the main one, or split view's right-hand pane (UI-40). */
-export type EditorPane = "main" | "split";
+/**
+ * Which editor: "main" is the primary pane's; every other pane of the layout
+ * has one named by its pane id (UI-40), and stacked tabs (UI-48) one per tab
+ * named "tab:<tab id>".
+ */
+export type EditorPane = string;
 
 /** Messages the editor posts (Editor → native), REQUIREMENTS §2.1. `pane` is absent for the main editor. */
 export type EditorMessage = { pane?: EditorPane } & (
@@ -287,7 +374,7 @@ export type EditorMessage = { pane?: EditorPane } & (
   | { type: "insertTemplate" }
 );
 
-/** A call from main into an editor: `window.holocron`, or the split pane's when `pane` is "split". */
+/** A call from main into an editor: `window.holocron`, or another pane's editor when `pane` names it. */
 export interface EditorCall {
   method: string;
   args: unknown[];

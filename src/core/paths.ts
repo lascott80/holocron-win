@@ -56,6 +56,21 @@ export function isImage(path: string): boolean {
   return IMAGE_EXTENSIONS.has(extname(path).toLowerCase());
 }
 
+/** A JSON Canvas file (".canvas", the format Obsidian uses): shown read-only, never indexed (UI-45). */
+export function isCanvas(path: string): boolean {
+  return extname(path).toLowerCase() === "canvas";
+}
+
+/** A base file (".base"): a saved query with table or card views, opened in the Base view (UI-46), never indexed. */
+export function isBase(path: string): boolean {
+  return extname(path).toLowerCase() === "base";
+}
+
+/** A file shown by a viewer instead of the editor: a canvas (UI-45) or a base (UI-46). */
+export function isViewerFile(path: string): boolean {
+  return isCanvas(path) || isBase(path);
+}
+
 /** A note's title: its file name without extension. */
 export function title(path: string): string {
   return stem(path);

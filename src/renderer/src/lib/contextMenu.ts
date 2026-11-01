@@ -36,7 +36,8 @@ export interface ContextActions {
   replaceMisspelling(word: string): void;
   addToDictionary(word: string): void;
   openLink(target: string, newTab: boolean): void;
-  openLinkInSplit(target: string): void;
+  /** In a new pane beside ("row") or under ("column") the focused one (UI-40). */
+  openLinkInSplit(target: string, direction: "row" | "column"): void;
   openUrl(url: string): void;
   copyText(text: string): void;
   searchTag(tag: string): void;
@@ -73,7 +74,14 @@ export const FORMAT_COMMANDS: { id: string; label: string }[] = [
  * The menu for a right-click, or [] for none (somewhere that's neither text
  * nor the editor, with nothing selected).
  */
-export function buildContextMenu(params: ContextMenuParams, target: ContextTarget, actions: ContextActions, format: FormatCommand[] = []): MenuEntry[] {
+export function buildContextMenu(
+  params: ContextMenuParams,
+  target: ContextTarget,
+  actions: ContextActions,
+  format: FormatCommand[] = [],
+  /** Extract Selection to New Note… (FOP-14), offered for a selection in the editor. */
+  extract?: FormatCommand,
+): MenuEntry[] {
   const editable = params.isEditable;
   const flags = params.editFlags;
   const hasSelection = params.selectionText.trim() !== "";
@@ -105,7 +113,8 @@ export function buildContextMenu(params: ContextMenuParams, target: ContextTarge
       entries.push(
         { label: "Open Link", run: () => actions.openLink(link, false) },
         { label: "Open in New Tab", run: () => actions.openLink(link, true) },
-        { label: "Open to the Right", run: () => actions.openLinkInSplit(link) },
+        { label: "Open to the Right", run: () => actions.openLinkInSplit(link, "row") },
+        { label: "Open Below", run: () => actions.openLinkInSplit(link, "column") },
       );
     } else if (url) {
       entries.push({ label: "Open Link", run: () => actions.openUrl(url) }, { label: "Copy Link Address", run: () => actions.copyText(url) });
@@ -138,6 +147,9 @@ export function buildContextMenu(params: ContextMenuParams, target: ContextTarge
   if (target.inEditor && editable && hasSelection && format.length) {
     const items: MenuItem[] = format.map((command) => ({ label: command.label, shortcut: command.shortcut, run: command.run }));
     entries.push("-", { label: "Format", items });
+  }
+  if (target.inEditor && editable && hasSelection && extract) {
+    entries.push("-", { label: extract.label, shortcut: extract.shortcut, run: extract.run });
   }
 
   return tidySeparators(entries);

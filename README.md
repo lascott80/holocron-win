@@ -117,6 +117,52 @@ node scripts/smoke-update.mjs --app dist-test-0.3.9/win-unpacked/Holocron.exe --
   the open vault or a recent one. Only the installed app writes the jump list
   and the sign-in entry (not `npm run dev` or test profiles).
 
+## Canvas files
+
+`.canvas` files (JSON Canvas, the open format Obsidian's canvases are saved
+in) are listed in the file tree with a canvas icon and open in a read-only
+viewer instead of the editor (REQUIREMENTS UI-45). Text cards are rendered
+as markdown, file cards show a note's first lines or the image, link cards
+open in the browser, and connections are drawn with their arrows, labels
+and colours. Drag the background to pan, scroll to zoom, **Fit** shows the
+whole drawing, Esc clears the selection; the file reloads when it changes
+on disk. Canvases aren't notes: they're not indexed, searched or offered by
+Quick Open, and nothing in Holocron edits them — use Obsidian or another
+canvas editor for that. `[[Board.canvas]]` in a note opens the viewer.
+
+## Bases and query blocks
+
+Live views over your notes, in the style of Obsidian's Bases and embedded
+search (REQUIREMENTS §9.5, UI-46). Both take Holocron's own search syntax —
+`[status:active] tag:project -path:Archive`, `a OR b`, `section:(…)`… —
+not Obsidian's `status == "active"` expressions.
+
+- **Query blocks** — a fenced block with the info string `query` renders the
+  notes matching its text: "N notes", then each title (a link; Ctrl-click
+  for a new tab) with its folder and up to three matching lines. It re-runs
+  as the vault changes and when you edit the block; click its header to
+  edit the source. Export and print write the list out.
+- **Bases** — **File › New Base…** creates `Untitled.base` in the selected
+  folder. A `.base` file sits in the file tree with a table icon and opens
+  in the Base view instead of the editor: tabs for its views (**+** adds
+  one; right-click to rename, switch between table and cards, duplicate or
+  delete), the filter query (Enter re-runs it), a search-within box and the
+  count. In a **table**, click a header to sort (ascending, descending, off),
+  drag headers to reorder, right-click a header to hide it, add a column
+  (the built-ins `file.name`, `file.path`, `file.folder`, `file.mtime`,
+  `file.ctime`, `file.tags`, `file.links`, `file.backlinks`, or any
+  property key your notes use) or sort; property cells are edited in place
+  (text, numbers, dates, lists as comma-separated pills, checkboxes that
+  flip) and the change is written into that one property of the note —
+  through the editor when the note is open, so undo works. **New note**
+  creates a note beside the base whose frontmatter already satisfies the
+  filter's `[key:value]` and `tag:` parts. **Cards** show the title, the
+  first lines of the body and the chosen properties. Everything you change
+  is saved back into the `.base` file (a small YAML file, see §9.5 for its
+  shape). A ````base```` block inside a note shows the same view read-only.
+  Bases written for Obsidian show "This base uses Obsidian’s filter syntax,
+  which Holocron doesn’t read yet" instead of an error.
+
 ## Colour themes
 
 Settings › Appearance picks a **dark theme** and a **light theme**: Holocron
@@ -127,6 +173,25 @@ The Crystal can be **Theme default** to use the theme's own accent. The
 command palette has `Theme: <name>` for each one. Themes are data in
 `src/shared/themes.ts` (REQUIREMENTS §16.10); to screenshot them all, build
 and run `node scripts/smoke.mjs <dir> --script scripts/smoke-themes.mjs`.
+
+**Fonts.** Settings › Editor › Font has **Custom…** beside the bundled
+choices: type or pick any installed font (the list comes from the Windows
+registry), and the same for the reading view. Settings › Appearance has an
+**Interface font** for the sidebar, tabs and dialogs. Missing fonts fall
+back to the defaults (REQUIREMENTS §16.11).
+
+**Snippets.** Drop `.css` files in the vault's `.holocron/snippets` folder
+(Settings › Appearance › CSS snippets › Open snippets folder) and switch each
+one on there; they apply after the theme, to the editor and the window alike.
+The `--hc-*` and `--ui-*` variables and the element classes a snippet can
+rely on are listed in REQUIREMENTS §16.11. `@import` and remote `url()`s are
+stripped. A two-line `wide-serif.css` (the variables are set inline on
+`<html>`, so overriding one takes `!important`):
+
+```css
+:root { --hc-line-width: 960px !important; --hc-font: Georgia, serif !important; }
+.cm-h1 { letter-spacing: 0; }
+```
 
 ## Windows keyboard shortcuts
 
@@ -147,7 +212,24 @@ Mostly ⌘ → Ctrl, with these deliberate changes (REQUIREMENTS §17.2):
 | Hover preview, open link in new tab | ⌘ | Ctrl |
 | Copy as Markdown / Paste as Plain Text | — | Ctrl+Shift+C / Ctrl+Shift+V |
 | Fold / unfold heading | — | Ctrl+Shift+[ / Ctrl+Shift+] |
+| Split Right / Split Down | — | Ctrl+Alt+\ / Ctrl+Alt+- |
+| Close Pane · Focus Next / Previous Pane | — | Ctrl+Alt+W · Ctrl+Alt+] / Ctrl+Alt+[ |
+| Open Reading View Beside (linked pane) | — | Ctrl+Alt+Shift+E |
+| Stack Tabs | — | Ctrl+Alt+S |
 | Quick capture (system-wide) | — | Win+Alt+N (Settings › General); in its window Ctrl+Enter saves, Esc cancels |
 
 App shortcuts match on the character typed, so AltGr combinations on
 international keyboards never trigger them. Tapping Alt opens the menu bar.
+
+**Custom hotkeys** (Settings › Hotkeys, REQUIREMENTS HK-01): every command
+is listed by menu with its shortcut. Click a shortcut and press the keys
+(Esc keeps the current one, Backspace removes it); × clears it, ↺ puts the
+default back, and "Restore all defaults" forgets every change. The menus,
+palette, tooltips, cheat sheet and the editor follow at once. A key needs
+Ctrl or Alt unless it's a function key, so the keys you type with (Enter,
+Tab, Backspace, arrows) can't be taken. If two commands share a key the one
+you set last wins and the other is shown in amber. Only your changes are
+stored, as `hotkeys` in `holocron.json` (`{ "newFolder": "Ctrl+Shift+D",
+"bold": null }`; `null` = no shortcut). The quick-capture shortcut above is
+separate (it needs the Windows key, Ctrl or Alt) and refuses any key the
+app uses. Undo/Redo and Cut/Copy/Paste keep their standard keys.

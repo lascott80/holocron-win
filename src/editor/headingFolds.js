@@ -158,11 +158,6 @@ function toggleSection(view, from) {
   });
 }
 
-export const headingFoldKeymap = [
-  { key: "Mod-Shift-[", run: foldHeading },
-  { key: "Mod-Shift-]", run: unfoldHeading },
-];
-
 // ---------- Chevron and pill ----------
 
 class HeadingChevron extends WidgetType {

@@ -1,16 +1,21 @@
 // User preferences (REQUIREMENTS §13), shared by the main process and the renderer.
 
+import { sanitizeFontFamily } from "./snippets";
 import { crystalIds, darkThemeIds, DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, lightThemeIds, type Crystal } from "./themes";
+import { sanitizeHotkeys, type HotkeyMap } from "./hotkeys";
 
 export type Appearance = "system" | "dark" | "light";
 /** A crystal, or "theme": the active colour theme's own accent. */
 export type Accent = Crystal | "theme";
-export type EditorFont = "system" | "serif" | "mono";
+/** The bundled choices, or "custom": any installed font named in `editorFontFamily` (§16.11). */
+export type EditorFont = "system" | "serif" | "mono" | "custom";
 export type EditorMode = "livePreview" | "source" | "reading";
 export type InspectorTab = "outline" | "links" | "info";
 /** Order of the file tree (folders always first): by name, or newest first by modification or creation time. */
 export type FileSort = "name" | "nameDesc" | "modified" | "created";
-export type SettingsTab = "general" | "appearance" | "editor" | "templates";
+/** Order of the sidebar's tag tree (UI-14): most used first, or by name. */
+export type TagSort = "count" | "name";
+export type SettingsTab = "general" | "appearance" | "editor" | "hotkeys" | "templates";
 export type CaptureTarget = "daily" | "inbox";
 export type ParagraphSpacing = "compact" | "normal" | "relaxed";
 /** The reading view's font: the editor's own ("same") or another one. */
@@ -25,6 +30,8 @@ export type AttachmentLayout = "perNote" | "single";
 export interface Settings {
   reopenLastVault: boolean;
   updateLinksOnMove: boolean;
+  /** Offer to update `[[Note#Heading]]` links when a heading is renamed (LNK-16). */
+  updateHeadingLinks: boolean;
   nameNotesFromFirstLine: boolean;
   autoMergeExternalChanges: boolean;
   appearance: Appearance;
@@ -35,6 +42,8 @@ export interface Settings {
   lightTheme: string;
   showFormattingBar: boolean;
   editorFont: EditorFont;
+  /** The installed font (a family name, or a comma-separated list) used when `editorFont` is "custom". */
+  editorFontFamily: string;
   editorFontSize: number;
   editorLineWidth: number;
   /** Line height as a multiple of the text size. */
@@ -42,6 +51,10 @@ export interface Settings {
   /** How tall blank lines between paragraphs are. */
   paragraphSpacing: ParagraphSpacing;
   readingFont: ReadingFont;
+  /** The installed font used when `readingFont` is "custom". */
+  readingFontFamily: string;
+  /** The window chrome's font; "" = Segoe UI Variable (§16.3). */
+  uiFontFamily: string;
   darkImages: DarkImages;
   /** Number the lines of every code block (a block can also ask with `linenos`). */
   codeLineNumbers: boolean;
@@ -52,6 +65,8 @@ export interface Settings {
   fetchLinkTitles: boolean;
   /** Cap the text column at `editorLineWidth`; off = notes fill the window. */
   readableLineLength: boolean;
+  /** Linked and unlinked mentions under each note's text (UI-44). */
+  backlinksInNote: boolean;
   attachmentFolder: string;
   attachmentLayout: AttachmentLayout;
   templatesFolder: string;
@@ -84,18 +99,25 @@ export interface Settings {
   fileSort: FileSort;
   /** Keep snapshots of notes as they're saved, for File › Version History (HIS-01). */
   keepHistory: boolean;
+  /** Custom shortcuts (HK-01): only the overrides, command id → accelerator, or null for unbound. */
+  hotkeys: HotkeyMap;
   // Remembered UI state
   showInspector: boolean;
   showSidebar: boolean;
   inspectorTab: InspectorTab;
   tagsExpanded: boolean;
+  /** Tag tree order (UI-14). */
+  tagSort: TagSort;
   bookmarksExpanded: boolean;
+  /** The sidebar's Properties section (UI-14b). */
+  propertiesExpanded: boolean;
   settingsTab: SettingsTab;
 }
 
 export const defaultSettings: Settings = {
   reopenLastVault: true,
   updateLinksOnMove: true,
+  updateHeadingLinks: true,
   nameNotesFromFirstLine: true,
   autoMergeExternalChanges: true,
   appearance: "system",
@@ -104,17 +126,21 @@ export const defaultSettings: Settings = {
   lightTheme: DEFAULT_LIGHT_THEME,
   showFormattingBar: true,
   editorFont: "mono",
+  editorFontFamily: "",
   editorFontSize: 16,
   editorLineWidth: 720,
   editorLineHeight: 1.65,
   paragraphSpacing: "normal",
   readingFont: "same",
+  readingFontFamily: "",
+  uiFontFamily: "",
   darkImages: "normal",
   codeLineNumbers: false,
   showHeadingTrail: true,
   revealMarkup: "line",
   fetchLinkTitles: true,
   readableLineLength: true,
+  backlinksInNote: false,
   attachmentFolder: "Attachments",
   attachmentLayout: "perNote",
   templatesFolder: "Templates",
@@ -138,11 +164,14 @@ export const defaultSettings: Settings = {
   lastEditingMode: "livePreview",
   fileSort: "name",
   keepHistory: true,
+  hotkeys: {},
   showInspector: true,
   showSidebar: true,
   inspectorTab: "outline",
   tagsExpanded: true,
+  tagSort: "count",
   bookmarksExpanded: true,
+  propertiesExpanded: false,
   settingsTab: "general",
 };
 
@@ -170,16 +199,21 @@ export function sanitizeSettings(raw: Partial<Record<keyof Settings, unknown>>):
   result.accent = oneOf<Accent>(result.accent, ["theme", ...crystalIds], "kyber");
   result.darkTheme = oneOf(result.darkTheme, darkThemeIds, DEFAULT_DARK_THEME);
   result.lightTheme = oneOf(result.lightTheme, lightThemeIds, DEFAULT_LIGHT_THEME);
-  result.editorFont = oneOf(result.editorFont, ["system", "serif", "mono"], "mono");
+  result.editorFont = oneOf(result.editorFont, ["system", "serif", "mono", "custom"], "mono");
+  result.editorFontFamily = sanitizeFontFamily(result.editorFontFamily);
+  result.readingFontFamily = sanitizeFontFamily(result.readingFontFamily);
+  result.uiFontFamily = sanitizeFontFamily(result.uiFontFamily);
   result.paragraphSpacing = oneOf<ParagraphSpacing>(result.paragraphSpacing, ["compact", "normal", "relaxed"], "normal");
-  result.readingFont = oneOf<ReadingFont>(result.readingFont, ["same", "system", "serif", "mono"], "same");
+  result.readingFont = oneOf<ReadingFont>(result.readingFont, ["same", "system", "serif", "mono", "custom"], "same");
   result.darkImages = oneOf<DarkImages>(result.darkImages, ["normal", "dim", "invertLight"], "normal");
   result.revealMarkup = oneOf<RevealMarkup>(result.revealMarkup, ["line", "span"], "line");
   result.editorMode = oneOf(result.editorMode, ["livePreview", "source", "reading"], "livePreview");
   result.lastEditingMode = oneOf(result.lastEditingMode, ["livePreview", "source"], "livePreview");
   result.inspectorTab = oneOf(result.inspectorTab, ["outline", "links", "info"], "outline");
   result.fileSort = oneOf<FileSort>(result.fileSort, ["name", "nameDesc", "modified", "created"], "name");
-  result.settingsTab = oneOf(result.settingsTab, ["general", "appearance", "editor", "templates"], "general");
+  result.tagSort = oneOf<TagSort>(result.tagSort, ["count", "name"], "count");
+  result.settingsTab = oneOf(result.settingsTab, ["general", "appearance", "editor", "hotkeys", "templates"], "general");
+  result.hotkeys = sanitizeHotkeys(result.hotkeys);
   result.attachmentLayout = oneOf<AttachmentLayout>(result.attachmentLayout, ["perNote", "single"], "perNote");
   result.quickCaptureTarget = oneOf(result.quickCaptureTarget, ["daily", "inbox"], "daily");
   result.quickCaptureShortcut = normalizeShortcut(result.quickCaptureShortcut) ?? defaultSettings.quickCaptureShortcut;

@@ -3,20 +3,35 @@
 // (REQUIREMENTS §12, QO-05). Shortcuts use the Windows mapping in §17.2.
 
 import { app } from "./app.svelte";
+import { SEARCH_SORTS, searchState } from "../components/sidebar/searchState.svelte";
 import { accents, activeTheme, themes } from "./theme";
 import { call, editor, run } from "./host";
+import type { WorkspaceUi } from "@shared/ipc";
 import { defaultSettings, FONT_SIZE_RANGE, shortcutLabel, type Accent, type Appearance, type EditorMode, type FileSort } from "@shared/settings";
+import { effectiveHotkeys, hotkeyLabel, normalizeHotkey, resolveBindings, resolveHotkey, toCodeMirrorKey, type HotkeyBinding, type HotkeyMap } from "@shared/hotkeys";
 import type { MenuEntry } from "./menu.svelte";
 
 export interface Command {
   id: string;
   title: string;
-  /** Display form, e.g. "Ctrl+Shift+D". */
+  /**
+   * The shortcut in force, for display ("Ctrl+Shift+D"), or undefined when
+   * unbound. Written as the default in the table below; after `installHotkeys`
+   * it reads the effective map (defaults overlaid by Settings › Hotkeys, HK-01).
+   */
   shortcut?: string;
-  /** Extra key bindings that run the command but aren't shown. */
+  /** The built-in shortcut, canonical form (set by `installHotkeys`). */
+  defaultShortcut?: string;
+  /** Extra key bindings that run the command but aren't shown; they apply while the command keeps its default. */
   alsoKeys?: string[];
   /** Handled by the editor's own keymap while it has focus (formatting, find…). */
   editorKey?: boolean;
+  /** The editor command's name when it differs from the id (`editor().run(name)`). */
+  editorCommand?: string;
+  /** A standard text-editing key (Undo/Redo) that can't be rebound. */
+  fixedKey?: boolean;
+  /** Settings › Hotkeys group for a command that isn't in a menu ("Go" for Tab 1–9). */
+  group?: string;
   enabled?: () => boolean;
   checked?: () => boolean;
   run: () => void;
@@ -51,6 +66,8 @@ export const FILE_SORTS: { value: FileSort; label: string }[] = [
 const hasVault = () => app.vault !== null;
 const hasNote = () => app.doc !== null;
 const canFormat = () => hasNote() && !app.readingView;
+/** More than the primary pane is open (UI-40). */
+const hasPanes = () => Boolean(app.vault && app.vault.layout.root.kind === "split");
 
 /** Runs an editor command (formatting, find…). */
 function ed(name: string) {
@@ -78,6 +95,8 @@ export const commands: Command[] = [
   { id: "newNote", title: "New Note", shortcut: "Ctrl+N", enabled: hasVault, run: () => run("createNote") },
   { id: "newNoteFromTemplate", title: "New Note from Template…", shortcut: "Ctrl+Shift+N", enabled: hasVault, run: () => (app.templatePicker = "newNote") },
   { id: "newFolder", title: "New Folder", shortcut: "Ctrl+Alt+N", enabled: hasVault, run: () => run("createFolder") },
+  // Bases (UI-46): a .base file with a default table view, in the selected folder.
+  { id: "newBase", title: "New Base…", enabled: hasVault, run: () => run("createBase") },
   { id: "newTab", title: "New Tab", shortcut: "Ctrl+T", enabled: hasVault, run: () => run("newTab") },
   {
     id: "quickCapture",
@@ -127,27 +146,53 @@ export const commands: Command[] = [
   { id: "quitApp", title: "Exit Holocron", run: () => run("quitApp") },
 
   // Edit
-  { id: "undo", title: "Undo", shortcut: "Ctrl+Z", editorKey: true, hidden: true, run: undoOrRedo("undo") },
-  { id: "redo", title: "Redo", shortcut: "Ctrl+Y", editorKey: true, hidden: true, run: undoOrRedo("redo") },
+  { id: "undo", title: "Undo", shortcut: "Ctrl+Z", editorKey: true, fixedKey: true, hidden: true, run: undoOrRedo("undo") },
+  { id: "redo", title: "Redo", shortcut: "Ctrl+Y", editorKey: true, fixedKey: true, hidden: true, run: undoOrRedo("redo") },
   // Not an editorKey: reading view can't take focus, so its keys never reach the editor's keymap.
   { id: "copyMarkdown", title: "Copy as Markdown", shortcut: "Ctrl+Shift+C", enabled: hasNote, run: ed("copyMarkdown") },
   { id: "pastePlainText", title: "Paste as Plain Text", shortcut: "Ctrl+Shift+V", editorKey: true, enabled: canFormat, run: ed("pastePlainText") },
   { id: "find", title: "Find in Note…", shortcut: "Ctrl+F", editorKey: true, enabled: hasNote, run: ed("find") },
   { id: "findNext", title: "Find Next", shortcut: "F3", editorKey: true, enabled: hasNote, run: ed("findNext") },
   { id: "findPrevious", title: "Find Previous", shortcut: "Shift+F3", editorKey: true, enabled: hasNote, run: ed("findPrevious") },
+  // Unbound by default (Ctrl+D is Bookmark); Settings › Hotkeys can give it a key.
+  { id: "selectNextOccurrence", title: "Select Next Occurrence", editorKey: true, editorCommand: "selectMatches", enabled: canFormat, run: ed("selectMatches") },
   { id: "searchVault", title: "Search Vault…", shortcut: "Ctrl+Shift+F", enabled: hasVault, run: () => app.showSearch() },
+  // Search results (SRCH-12, SRCH-13)
+  { id: "copySearchResults", title: "Copy Search Results", enabled: () => hasVault() && searchState.outcome.hits.length > 0, run: () => searchState.copyResults() },
+  ...SEARCH_SORTS.map(
+    ({ value, label }): Command => ({
+      id: `sortSearch:${value}`,
+      title: `Sort Search Results by ${label}`,
+      enabled: hasVault,
+      checked: () => searchState.sort === value,
+      run: () => (searchState.sort = value),
+    }),
+  ),
   { id: "showTasks", title: "Show Tasks", shortcut: "Ctrl+Shift+T", enabled: hasVault, run: () => app.showTasks() },
 
   // View
   { id: "toggleSidebar", title: "Toggle Sidebar", shortcut: "Ctrl+\\", enabled: hasVault, checked: () => app.settings.showSidebar, run: () => app.setSetting("showSidebar", !app.settings.showSidebar) },
   { id: "toggleInspector", title: "Toggle Inspector", shortcut: "Ctrl+Alt+I", enabled: hasVault, checked: () => app.settings.showInspector, run: () => app.setSetting("showInspector", !app.settings.showInspector) },
-  // Split view (UI-40)
-  { id: "splitRight", title: "Split Right", shortcut: "Ctrl+Alt+\\", enabled: hasNote, run: () => run("splitActiveNote") },
-  { id: "closeSplit", title: "Close Split View", enabled: () => Boolean(app.vault?.split), run: () => run("closeSplit") },
+  // Panes (UI-40, UI-47)
+  { id: "splitRight", title: "Split Right", shortcut: "Ctrl+Alt+\\", enabled: hasVault, run: () => run("splitActiveNote", "row") },
+  { id: "splitDown", title: "Split Down", shortcut: "Ctrl+Alt+-", enabled: hasVault, run: () => run("splitActiveNote", "column") },
+  // Ctrl+Alt+E is Toggle Source Mode, so this one takes Shift as well.
+  { id: "openReadingViewBeside", title: "Open Reading View Beside", shortcut: "Ctrl+Alt+Shift+E", enabled: hasNote, run: () => run("openReadingViewBeside") },
+  { id: "closePane", title: "Close Pane", shortcut: "Ctrl+Alt+W", enabled: hasPanes, run: () => run("closePane") },
+  { id: "closeSplit", title: "Close Other Panes", enabled: hasPanes, run: () => run("closeSplit") },
+  { id: "focusNextPane", title: "Focus Next Pane", shortcut: "Ctrl+Alt+]", enabled: hasPanes, run: () => run("focusNextPane", 1) },
+  { id: "focusPreviousPane", title: "Focus Previous Pane", shortcut: "Ctrl+Alt+[", enabled: hasPanes, run: () => run("focusNextPane", -1) },
+  // Stacked tabs (UI-48) and workspaces (UI-49)
+  { id: "stackTabs", title: "Stack Tabs", shortcut: "Ctrl+Alt+S", enabled: hasVault, checked: () => app.vault?.stackTabs ?? false, run: () => run("setStackTabs", !app.vault?.stackTabs) },
+  { id: "saveWorkspace", title: "Save Layout As…", enabled: hasVault, run: () => (app.workspaceDialog = "save") },
+  { id: "deleteWorkspace", title: "Delete Workspace…", enabled: () => (app.vault?.workspaces.length ?? 0) > 0, run: () => (app.workspaceDialog = "delete") },
+  { id: "loadLastWorkspace", title: "Load Last Workspace", enabled: () => Boolean(app.vault?.lastWorkspace), run: () => void call<WorkspaceUi | null>("loadLastWorkspace").then((ui) => app.applyWorkspaceUi(ui)) },
   // Graph view (UI-42)
   { id: "graphView", title: "Graph View", shortcut: "Ctrl+G", enabled: hasVault, run: () => ((app.graphScope = "vault"), (app.graphOpen = true)) },
   { id: "localGraph", title: "Local Graph (This Note)", shortcut: "Ctrl+Shift+G", enabled: hasNote, run: () => ((app.graphScope = "local"), (app.graphOpen = true)) },
   { id: "readableLineLength", title: "Readable Line Length", checked: () => app.settings.readableLineLength, run: () => app.setSetting("readableLineLength", !app.settings.readableLineLength) },
+  // Backlinks under the note (UI-44)
+  { id: "backlinksInNote", title: "Show Backlinks in Note", checked: () => app.settings.backlinksInNote, run: () => app.setSetting("backlinksInNote", !app.settings.backlinksInNote) },
   { id: "toggleFormattingBar", title: "Show Formatting Bar", checked: () => app.settings.showFormattingBar, run: () => app.setSetting("showFormattingBar", !app.settings.showFormattingBar) },
   ...FILE_SORTS.map(
     ({ value, label }): Command => ({
@@ -189,10 +234,11 @@ export const commands: Command[] = [
     title: `Tab ${n}`,
     shortcut: `Ctrl+${n}`,
     hidden: true,
+    group: "Go",
     enabled: hasVault,
     run: () => run("selectTabNumber", n),
   })),
-  { id: "lastTab", title: "Last Tab", shortcut: "Ctrl+9", hidden: true, enabled: hasVault, run: () => run("selectTabNumber", 9) },
+  { id: "lastTab", title: "Last Tab", shortcut: "Ctrl+9", hidden: true, group: "Go", enabled: hasVault, run: () => run("selectTabNumber", 9) },
 
   // Format
   { id: "insertTemplate", title: "Insert Template…", shortcut: "Ctrl+Alt+T", enabled: canFormat, run: () => (app.templatePicker = "insert") },
@@ -211,6 +257,16 @@ export const commands: Command[] = [
   { id: "callout", title: "Callout", enabled: canFormat, run: ed("callout") },
   { id: "divider", title: "Divider", enabled: canFormat, run: ed("divider") },
   { id: "tidyNote", title: "Tidy Note", shortcut: "Ctrl+Alt+L", enabled: canFormat, run: ed("tidyNote") },
+  // Rename Tag… (FOP-13): the tag under the cursor, vault-wide.
+  {
+    id: "renameTag",
+    title: "Rename Tag…",
+    enabled: () => canFormat() && Boolean(editor()?.tagAtCursor()),
+    run: () => {
+      const tag = editor()?.tagAtCursor();
+      if (tag) app.renamingTag = tag;
+    },
+  },
   { id: "heading1", title: "Heading 1", shortcut: "Ctrl+Alt+1", editorKey: true, enabled: canFormat, run: ed("heading1") },
   { id: "heading2", title: "Heading 2", shortcut: "Ctrl+Alt+2", editorKey: true, enabled: canFormat, run: ed("heading2") },
   { id: "heading3", title: "Heading 3", shortcut: "Ctrl+Alt+3", editorKey: true, enabled: canFormat, run: ed("heading3") },
@@ -227,6 +283,10 @@ export const commands: Command[] = [
   { id: "tableMoveColumnRight", title: "Table: Move Column Right", shortcut: "Alt+Shift+Right", editorKey: true, enabled: canFormat, run: ed("tableMoveColumnRight") },
   { id: "tableDeleteRow", title: "Table: Delete Row", shortcut: "Alt+Shift+Backspace", editorKey: true, enabled: canFormat, run: ed("tableDeleteRow") },
   { id: "tableDeleteColumn", title: "Table: Delete Column", shortcut: "Ctrl+Alt+Shift+Backspace", editorKey: true, enabled: canFormat, run: ed("tableDeleteColumn") },
+  // Note composer (FOP-14…FOP-16)
+  { id: "extractSelection", title: "Extract Selection to New Note…", enabled: () => canFormat() && app.cursor.selectedCharacters > 0, run: () => app.extractSelection() },
+  { id: "mergeNote", title: "Merge Note Into…", enabled: hasNote, run: () => app.mergeNote() },
+  { id: "splitAtHeading", title: "Split Note at Heading…", enabled: canFormat, run: () => app.splitAtHeading() },
 
   // Help
   { id: "starterGuide", title: "Add Start Here Guide to Vault", enabled: hasVault, run: () => run("addStarterGuide") },
@@ -238,12 +298,14 @@ export const commands: Command[] = [
   ...(["system", "dark", "light"] as Appearance[]).map((appearance): Command => ({
     id: `appearance:${appearance}`,
     title: `Appearance: ${appearance === "system" ? "Match System" : appearance === "dark" ? "Dark" : "Light"}`,
+    group: "Appearance",
     enabled: () => app.settings.appearance !== appearance,
     run: () => app.setSetting("appearance", appearance),
   })),
   ...(["theme", ...Object.keys(accents)] as Accent[]).map((accent): Command => ({
     id: `accent:${accent}`,
     title: `Crystal: ${accent === "theme" ? "Theme default" : accents[accent].title}`,
+    group: "Appearance",
     enabled: () => app.settings.accent !== accent,
     run: () => app.setSetting("accent", accent),
   })),
@@ -252,6 +314,7 @@ export const commands: Command[] = [
   ...themes.map((theme): Command => ({
     id: `theme:${theme.id}`,
     title: `Theme: ${theme.name}`,
+    group: "Appearance",
     enabled: () => activeTheme(app.state.isDark, app.settings).id !== theme.id,
     run: () => {
       const dark = theme.kind === "dark";
@@ -263,29 +326,56 @@ export const commands: Command[] = [
 
 export const commandById = new Map(commands.map((command) => [command.id, command]));
 
+/** "Workspace: <name>" for each saved workspace (UI-49): View › Workspaces and the palette. */
+export function workspaceCommands(): Command[] {
+  return (app.vault?.workspaces ?? []).map((name) => ({
+    id: `workspace:${name}`,
+    title: `Workspace: ${name}`,
+    group: "View",
+    run: () => void call<WorkspaceUi | null>("loadWorkspace", name).then((ui) => app.applyWorkspaceUi(ui)),
+  }));
+}
+
+/** A command by id, the registry's or a workspace's. */
+export function findCommand(id: string): Command | undefined {
+  return commandById.get(id) ?? (id.startsWith("workspace:") ? workspaceCommands().find((command) => command.id === id) : undefined);
+}
+
 export function runCommand(id: string) {
-  const command = commandById.get(id);
+  const command = findCommand(id);
   if (command && (command.enabled?.() ?? true)) command.run();
 }
 
+/** A submenu whose items are known only when it opens (the saved workspaces). */
+export interface MenuGroup {
+  title: string;
+  items: string[] | (() => string[]);
+}
+
 /** The menu bar (REQUIREMENTS §12). "-" separates groups. */
-export const menus: { title: string; items: (string | { title: string; items: string[] })[] }[] = [
+export const menus: { title: string; items: (string | MenuGroup)[] }[] = [
   {
     title: "File",
-    items: ["newNote", "newNoteFromTemplate", "newFolder", "newTab", "pinTab", "bookmark", "-", "quickCapture", "quickOpen", "commandPalette", "-", "openVault", "createVault", "-", "save", "closeTab", "closeVault", "-", "versionHistory", "showNoteInExplorer", "showVaultInExplorer", "-", "exportPdf", "exportHtml", "print", "-", { title: "Attachments", items: ["organiseAttachments", "organiseNoteAttachments", "-", "cleanUpAttachments", "emptyUnusedAttachments", "-", "undoAttachmentChange"] }, "-", "settings", "-", "quitApp"],
+    items: ["newNote", "newNoteFromTemplate", "newFolder", "newBase", "newTab", "pinTab", "bookmark", "-", "quickCapture", "quickOpen", "commandPalette", "-", "openVault", "createVault", "-", "save", "closeTab", "closeVault", "-", "versionHistory", "showNoteInExplorer", "showVaultInExplorer", "-", "exportPdf", "exportHtml", "print", "-", { title: "Attachments", items: ["organiseAttachments", "organiseNoteAttachments", "-", "cleanUpAttachments", "emptyUnusedAttachments", "-", "undoAttachmentChange"] }, "-", "settings", "-", "quitApp"],
   },
-  { title: "Edit", items: ["undo", "redo", "-", "copyMarkdown", "pastePlainText", "-", "find", "findNext", "findPrevious", "searchVault"] },
+  { title: "Edit", items: ["undo", "redo", "-", "copyMarkdown", "pastePlainText", "-", "find", "findNext", "findPrevious", "selectNextOccurrence", "searchVault", "copySearchResults"] },
   {
     title: "View",
-    items: ["toggleSidebar", "toggleInspector", "splitRight", "closeSplit", "graphView", "localGraph", "toggleFormattingBar", "readableLineLength", "showTasks", { title: "Sort Files", items: FILE_SORTS.map(({ value }) => `sortFiles:${value}`) }, "-", "zoomIn", "zoomOut", "zoomReset", "-", "mode:livePreview", "mode:source", "mode:reading", "-", "toggleReading", "toggleSource", "focusMode", "-", "foldHeading", "unfoldHeading", "foldAllHeadings", "unfoldAll"],
+    items: [
+      "toggleSidebar", "toggleInspector", "-",
+      "splitRight", "splitDown", "openReadingViewBeside", "closePane", "closeSplit", "focusNextPane", "focusPreviousPane", "stackTabs",
+      { title: "Workspaces", items: () => ["saveWorkspace", "deleteWorkspace", "loadLastWorkspace", "-", ...workspaceCommands().map((command) => command.id)] },
+      "-", "graphView", "localGraph", "toggleFormattingBar", "readableLineLength", "backlinksInNote", "showTasks", { title: "Sort Files", items: FILE_SORTS.map(({ value }) => `sortFiles:${value}`) }, { title: "Sort Search Results", items: SEARCH_SORTS.map(({ value }) => `sortSearch:${value}`) }, "-", "zoomIn", "zoomOut", "zoomReset", "-", "mode:livePreview", "mode:source", "mode:reading", "-", "toggleReading", "toggleSource", "focusMode", "-", "foldHeading", "unfoldHeading", "foldAllHeadings", "unfoldAll",
+    ],
   },
   { title: "Go", items: ["today", "calendar", "previousDaily", "nextDaily", "-", "back", "forward", "-", "nextTab", "previousTab"] },
   {
     title: "Format",
     items: [
       "insertTemplate", "-", "bold", "italic", "strikethrough", "highlight", "code", "link", "-", "task", "moveDoneTasksDown", "bulletList", "numberedList", "quote", "-",
-      "codeBlock", "callout", "divider", "-", "tidyNote",
+      "codeBlock", "callout", "divider", "-", "tidyNote", "renameTag",
       { title: "Table", items: ["table", "convertToTable", "-", "tableInsertRowAbove", "tableInsertRowBelow", "tableInsertColumnLeft", "tableInsertColumnRight", "-", "tableMoveRowUp", "tableMoveRowDown", "tableMoveColumnLeft", "tableMoveColumnRight", "-", "tableDeleteRow", "tableDeleteColumn"] },
+      { title: "Note", items: ["extractSelection", "mergeNote", "splitAtHeading"] },
       "-", "heading1", "heading2", "heading3", "heading0",
     ],
   },
@@ -293,14 +383,14 @@ export const menus: { title: string; items: (string | { title: string; items: st
 ];
 
 /** Menu entries for command ids ("-" = separator, nested groups = submenus). */
-export function menuEntries(items: (string | { title: string; items: string[] })[]): MenuEntry[] {
+export function menuEntries(items: (string | MenuGroup)[]): MenuEntry[] {
   return items.map((item): MenuEntry => {
     if (item === "-") return "-";
-    if (typeof item !== "string") return { label: item.title, items: menuEntries(item.items) };
-    const command = commandById.get(item);
+    if (typeof item !== "string") return { label: item.title, items: menuEntries(typeof item.items === "function" ? item.items() : item.items) };
+    const command = findCommand(item);
     if (!command) throw new Error(`Unknown command ${item}`);
     return {
-      label: command.title.replace(/^View Mode: /, "").replace(/^Table: /, ""),
+      label: command.title.replace(/^View Mode: /, "").replace(/^Table: /, "").replace(/^Workspace: /, ""),
       shortcut: command.shortcut,
       checked: command.checked?.(),
       disabled: !(command.enabled?.() ?? true),
@@ -309,60 +399,115 @@ export function menuEntries(items: (string | { title: string; items: string[] })
   });
 }
 
-// MARK: Keyboard
+// MARK: Hotkeys (HK-01)
 
-interface KeySpec {
-  ctrl: boolean;
-  alt: boolean;
-  shift: boolean;
-  key: string;
+/** Whether a command's shortcut can be changed in Settings › Hotkeys. */
+export const rebindable = (command: Command) => !command.globalShortcut && !command.fixedKey;
+
+/** Every rebindable command's built-in shortcut (canonical form) or null. */
+export const defaultHotkeys: HotkeyMap = {};
+const extraKeys: Record<string, string[]> = {};
+
+// The `shortcut` written in the table above is the default; from here on the
+// property reads the effective map, so the menu bar, palette, tooltips and
+// cheat sheet all show what Settings › Hotkeys says.
+for (const command of commands) {
+  if (!rebindable(command)) continue;
+  const literal = command.shortcut;
+  const canonical = literal ? normalizeHotkey(literal) : null;
+  if (literal && !canonical) throw new Error(`Command ${command.id} has an unusable shortcut ${literal}`);
+  command.defaultShortcut = canonical ?? undefined;
+  defaultHotkeys[command.id] = canonical;
+  if (command.alsoKeys?.length) extraKeys[command.id] = command.alsoKeys;
+  Object.defineProperty(command, "shortcut", {
+    enumerable: true,
+    get: () => {
+      const key = hotkeyMap()[command.id];
+      return key ? hotkeyLabel(key) : undefined;
+    },
+  });
 }
 
-const KEY_NAMES: Record<string, string> = { Left: "arrowleft", Right: "arrowright", Up: "arrowup", Down: "arrowdown" };
+interface HotkeyState {
+  overrides: HotkeyMap;
+  map: HotkeyMap;
+  bindings: HotkeyBinding[];
+}
+let hotkeyState: HotkeyState | null = null;
 
-function parseShortcut(shortcut: string): KeySpec {
-  const parts = shortcut.split("+");
-  // "Ctrl++" style isn't used; a trailing "" means the key was "+".
-  const key = parts.pop() || "+";
-  return {
-    ctrl: parts.includes("Ctrl"),
-    alt: parts.includes("Alt"),
-    shift: parts.includes("Shift"),
-    key: (KEY_NAMES[key] ?? key).toLowerCase(),
+/** The effective map and winners for the current overrides (recomputed when the setting changes). */
+function hotkeys(): HotkeyState {
+  const overrides = app.settings.hotkeys;
+  if (hotkeyState?.overrides !== overrides) {
+    hotkeyState = { overrides, map: effectiveHotkeys(defaultHotkeys, overrides), bindings: resolveBindings(defaultHotkeys, overrides, extraKeys) };
+  }
+  return hotkeyState;
+}
+
+/** Command id → shortcut in force (canonical) or null, for every rebindable command. */
+export function hotkeyMap(): HotkeyMap {
+  return hotkeys().map;
+}
+
+/** The keys that run something right now, conflicts settled (last-bound wins). */
+export function boundHotkeys(): HotkeyBinding[] {
+  return hotkeys().bindings;
+}
+
+/** The bindings the editor's own keymap should hold, in CodeMirror spelling. */
+export function editorHotkeys(): { key: string; command: string }[] {
+  return boundHotkeys().flatMap(({ id, key }) => {
+    const command = commandById.get(id);
+    return command?.editorKey ? [{ key: toCodeMirrorKey(key), command: command.editorCommand ?? id }] : [];
+  });
+}
+
+/** Settings › Hotkeys: every rebindable command, grouped by menu (then by `group`, then "Other"). */
+export function hotkeyGroups(): { title: string; commands: Command[] }[] {
+  const placed = new Set<string>();
+  const groups = new Map<string, Command[]>();
+  const add = (title: string, command: Command) => {
+    if (placed.has(command.id) || !rebindable(command)) return;
+    placed.add(command.id);
+    if (!groups.has(title)) groups.set(title, []);
+    groups.get(title)!.push(command);
   };
+  const walk = (title: string, items: (string | MenuGroup)[]) => {
+    for (const item of items) {
+      if (item === "-") continue;
+      if (typeof item !== "string") walk(title, typeof item.items === "function" ? item.items() : item.items);
+      else {
+        const command = commandById.get(item);
+        if (command) add(title, command);
+      }
+    }
+  };
+  for (const menuDef of menus) walk(menuDef.title, menuDef.items);
+  for (const command of commands) add(command.group ?? "Other", command);
+  return [...groups].map(([title, list]) => ({ title, commands: list }));
 }
 
-function matches(spec: KeySpec, event: KeyboardEvent): boolean {
-  if (spec.ctrl !== event.ctrlKey || spec.alt !== event.altKey || spec.shift !== event.shiftKey || event.metaKey) return false;
-  const key = event.key.toLowerCase();
-  if (key === spec.key) return true;
-  // Digits with Shift report "!" etc.; compare the physical key for digits only.
-  return /^[0-9]$/.test(spec.key) && event.code === `Digit${spec.key}`;
-}
-
-const bindings = commands.filter((command) => !command.globalShortcut).flatMap((command) =>
-  [command.shortcut, ...(command.alsoKeys ?? [])].filter((s): s is string => Boolean(s)).map((shortcut) => ({ spec: parseShortcut(shortcut), command })),
-);
+// MARK: Keyboard
 
 /**
  * Global shortcuts. Runs in the capture phase so app shortcuts win over the
  * editor's defaults (e.g. Alt+Left); editor-owned keys are left to the
- * editor while it has focus.
+ * editor while it has focus. Keys are matched on the character typed
+ * (hotkeys.ts), so AltGr combinations never trigger a Ctrl+Alt shortcut.
  */
 export function handleKeydown(event: KeyboardEvent) {
   if (event.isComposing || event.repeat && !event.ctrlKey) return;
-  // Settings' shortcut recorder takes every key combination as it is.
+  // Settings' shortcut recorders take every key combination as it is.
   if ((event.target as Element | null)?.closest?.("[data-shortcut-recorder]")) return;
   const inEditor = (event.target as Element | null)?.closest?.(".cm-editor") != null;
-  for (const { spec, command } of bindings) {
-    if (!matches(spec, event)) continue;
-    if (command.editorKey && (inEditor || command.id === "undo" || command.id === "redo")) return;
-    // Text fields paste plain text natively.
-    if (command.id === "pastePlainText" && (event.target as Element | null)?.closest?.("input, textarea, [contenteditable]")) return;
-    // Plain text fields keep their own Ctrl+A/C/V/X/Z and Backspace handling.
-    event.preventDefault();
-    event.stopPropagation();
-    if (command.enabled?.() ?? true) command.run();
-    return;
-  }
+  const id = resolveHotkey(boundHotkeys(), event);
+  const command = id ? commandById.get(id) : undefined;
+  if (!command) return;
+  if (command.editorKey && (inEditor || command.id === "undo" || command.id === "redo")) return;
+  // Text fields paste plain text natively.
+  if (command.id === "pastePlainText" && (event.target as Element | null)?.closest?.("input, textarea, [contenteditable]")) return;
+  // Plain text fields keep their own Ctrl+A/C/V/X/Z and Backspace handling.
+  event.preventDefault();
+  event.stopPropagation();
+  if (command.enabled?.() ?? true) command.run();
 }

@@ -5,6 +5,7 @@
   import type { EditorMode } from "@shared/settings";
   import Popover from "./Popover.svelte";
   import { app } from "../../lib/app.svelte";
+  import { run } from "../../lib/host";
   import { menu } from "../../lib/menu.svelte";
 
   const modes: { mode: EditorMode; title: string }[] = [
@@ -15,6 +16,17 @@
 
   const doc = $derived(app.doc);
   const fmt = (n: number) => n.toLocaleString();
+  /** A canvas is showing (UI-45): "N cards · N connections" replaces the note's status and counts. */
+  const canvas = $derived(app.vault?.canvas ?? null);
+  /** A base is showing (UI-46): "N notes" replaces the note's counts. */
+  const base = $derived(app.vault?.base ?? null);
+  const baseLabel = $derived(app.baseStats ? `${fmt(app.baseStats.rows)} ${app.baseStats.rows === 1 ? "note" : "notes"}` : "");
+  const canvasLabel = $derived.by(() => {
+    const stats = app.canvasStats;
+    if (!stats) return "";
+    const count = (n: number, noun: string) => `${fmt(n)} ${noun}${n === 1 ? "" : "s"}`;
+    return `${count(stats.cards, "card")} · ${count(stats.connections, "connection")}`;
+  });
 
   const status = $derived.by((): { text: string; tone: "error" | "warning" | "neutral" | "synced" } => {
     if (!doc) return { text: "", tone: "neutral" };
@@ -67,7 +79,17 @@
   });
 
   // View mode menu
-  const modeTitle = $derived(modes.find((m) => m.mode === app.settings.editorMode)?.title ?? "Live Preview");
+  /** The focused pane's mode (UI-40): another pane's own mode, or the setting for the primary pane and stacked tabs. */
+  const paneId = $derived(app.pane !== "main" && !app.pane.startsWith("tab:") ? app.pane : null);
+  const currentMode = $derived.by((): EditorMode => {
+    const mode = app.paneMode(app.pane);
+    return mode === "live" ? "livePreview" : mode;
+  });
+  const modeTitle = $derived(modes.find((m) => m.mode === currentMode)?.title ?? "Live Preview");
+  function setMode(mode: EditorMode) {
+    if (paneId) run("setPaneMode", paneId, mode === "livePreview" ? "live" : mode);
+    else app.setSetting("editorMode", mode);
+  }
   let modeButton = $state<HTMLButtonElement>();
   let modeOpen = $state(false);
 
@@ -83,8 +105,8 @@
     menu.open(
       modes.map(({ mode, title }) => ({
         label: title,
-        checked: app.settings.editorMode === mode,
-        run: () => app.setSetting("editorMode", mode),
+        checked: currentMode === mode,
+        run: () => setMode(mode),
       })),
       rect.right - 220,
       rect.top - 4 - (modes.length * 28 + 10),
@@ -112,22 +134,30 @@
       {wordLabel}
     </button>
     <span class="position">Ln {fmt(app.cursor.line)}, Col {fmt(app.cursor.column)}</span>
+  {:else if canvas}
+    <span class="canvas-counts" title="Cards and connections in this canvas">{canvasLabel}</span>
+    <div class="spacer"></div>
+  {:else if base}
+    <span class="canvas-counts" title="Notes in this view">{baseLabel}</span>
+    <div class="spacer"></div>
   {:else}
     <div class="spacer"></div>
   {/if}
-  <button
-    class="status-button mode"
-    class:open={modeOpen}
-    title="Switch between live preview, source mode and reading view"
-    aria-haspopup="menu"
-    aria-expanded={modeOpen}
-    data-menu-trigger
-    bind:this={modeButton}
-    onclick={openModeMenu}
-  >
-    {modeTitle}
-    <ChevronDown size={11} strokeWidth={2.2} />
-  </button>
+  {#if !canvas && !base}
+    <button
+      class="status-button mode"
+      class:open={modeOpen}
+      title="Switch between live preview, source mode and reading view"
+      aria-haspopup="menu"
+      aria-expanded={modeOpen}
+      data-menu-trigger
+      bind:this={modeButton}
+      onclick={openModeMenu}
+    >
+      {modeTitle}
+      <ChevronDown size={11} strokeWidth={2.2} />
+    </button>
+  {/if}
 </footer>
 
 {#if statsOpen}
@@ -220,6 +250,9 @@
     margin-right: 0;
   }
   .position {
+    font-variant-numeric: tabular-nums;
+  }
+  .canvas-counts {
     font-variant-numeric: tabular-nums;
   }
   .stats {

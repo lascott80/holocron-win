@@ -3,7 +3,7 @@
 // feeds it the vault's note paths (`setPaths`) and each note's text (`update`).
 
 import { isAttachmentTarget } from "./attachments";
-import { LinkResolver, parse, trimWhitespace, type NoteInfo, type Task } from "./noteParser";
+import { LinkResolver, parse, trimWhitespace, type NoteInfo, type Property, type Task } from "./noteParser";
 import { naturalCompare, title as pathTitle } from "./paths";
 
 export interface Backlink {
@@ -12,17 +12,38 @@ export interface Backlink {
   title: string;
   /** The lines containing the links. */
   contexts: string[];
+  /** 1-based line number of each context. */
+  lines: number[];
 }
 
 export interface Mention {
   source: string;
   title: string;
   context: string;
+  /** 1-based line number of the mention. */
+  line: number;
 }
 
 export interface TagCount {
   tag: string;
   count: number;
+}
+
+/** How a frontmatter key's values are written across the vault (IDX-07). */
+export type PropertyType = "text" | "list" | "number" | "checkbox" | "date" | "datetime";
+
+export interface PropertyValueCount {
+  value: string;
+  /** Notes with this value. */
+  count: number;
+}
+
+/** One frontmatter key across the vault: how many notes use it, its inferred type and its commonest values. */
+export interface PropertyInfo {
+  key: string;
+  count: number;
+  type: PropertyType;
+  values: PropertyValueCount[];
 }
 
 export interface OutgoingLink {
@@ -57,11 +78,12 @@ export interface NoteTasks {
   total: number;
 }
 
-/** A note's text and tags, for full-text search. */
+/** A note's text, tags and properties, for full-text search. */
 export interface SearchNote {
   path: string;
   text: string;
   tags: string[];
+  properties: Property[];
 }
 
 /** Lines split at "\n" with a trailing "\r" removed, matching `parse`'s line numbers. */
@@ -136,9 +158,15 @@ export class VaultIndex {
     return this.texts.get(path);
   }
 
-  /** Every indexed note's text and tags, for searching. */
+  /** Every indexed note's text, tags and properties, for searching. */
   searchSnapshot(): SearchNote[] {
-    return [...this.texts].map(([path, text]) => ({ path, text, tags: this.notes.get(path)?.tags ?? [] }));
+    return [...this.texts].map(([path, text]) => this.searchNote(path, text));
+  }
+
+  /** One note as the search worker holds it. */
+  searchNote(path: string, text: string): SearchNote {
+    const info = this.notes.get(path);
+    return { path, text, tags: info?.tags ?? [], properties: info?.properties ?? [] };
   }
 
   /** Notes that link to `path`, by title. */
@@ -146,10 +174,14 @@ export class VaultIndex {
     const result: Backlink[] = [];
     for (const [source, info] of this.notes) {
       if (source === path) continue;
-      const contexts = [
-        ...new Set(info.links.filter((link) => this._resolver.resolve(link, source) === path).map((link) => link.context)),
-      ];
-      if (contexts.length > 0) result.push({ source, title: VaultIndex.title(source), contexts });
+      const contexts: string[] = [];
+      const lines: number[] = [];
+      for (const link of info.links) {
+        if (contexts.includes(link.context) || this._resolver.resolve(link, source) !== path) continue;
+        contexts.push(link.context);
+        lines.push(link.line);
+      }
+      if (contexts.length > 0) result.push({ source, title: VaultIndex.title(source), contexts, lines });
     }
     return result.sort((a, b) => naturalCompare(a.title, b.title));
   }
@@ -173,7 +205,7 @@ export class VaultIndex {
       for (let index = 0; index < lines.length; index++) {
         const line = lines[index];
         if (linkedLines.has(index + 1) || !names.some((name) => VaultIndex.containsWord(name, line))) continue;
-        result.push({ source, title: VaultIndex.title(source), context: trimWhitespace(line) });
+        result.push({ source, title: VaultIndex.title(source), context: trimWhitespace(line), line: index + 1 });
         break;
       }
       if (result.length >= limit) break;
@@ -254,6 +286,43 @@ export class VaultIndex {
     return [...counts.values()].sort((a, b) => b.count - a.count || naturalCompare(a.tag, b.tag));
   }
 
+  /**
+   * Every frontmatter key with its note count, inferred type and up to
+   * `valueLimit` distinct values with counts (IDX-07). Keys match
+   * case-insensitively (shown as first written); values match exactly. A
+   * key is typed by the notes that give it a value: all lists → list, all
+   * numbers → number, and so on; anything mixed, or only empty, is text.
+   * Sorted by count, then name.
+   */
+  allProperties(valueLimit = 50): PropertyInfo[] {
+    const keys = new Map<string, { key: string; count: number; types: Set<PropertyType>; values: Map<string, number> }>();
+    for (const info of this.notes.values()) {
+      const seen = new Set<string>();
+      for (const property of info.properties) {
+        const id = property.key.toLowerCase();
+        if (seen.has(id)) continue;
+        seen.add(id);
+        let entry = keys.get(id);
+        if (!entry) keys.set(id, (entry = { key: property.key, count: 0, types: new Set(), values: new Map() }));
+        entry.count++;
+        const type = propertyType(property);
+        if (type) entry.types.add(type);
+        for (const value of new Set(property.values)) entry.values.set(value, (entry.values.get(value) ?? 0) + 1);
+      }
+    }
+    return [...keys.values()]
+      .map(({ key, count, types, values }) => ({
+        key,
+        count,
+        type: types.size === 1 ? [...types][0] : "text",
+        values: [...values]
+          .map(([value, n]) => ({ value, count: n }))
+          .sort((a, b) => b.count - a.count || naturalCompare(a.value, b.value))
+          .slice(0, valueLimit),
+      }))
+      .sort((a, b) => b.count - a.count || naturalCompare(a.key, b.key));
+  }
+
   /** Notes tagged `tag` or a nested tag under it ("lore" matches "lore/crystals"). */
   notesTaggedWith(tag: string): string[] {
     const wanted = tag.toLowerCase().replace(/^#+|#+$/g, "");
@@ -282,6 +351,22 @@ export class VaultIndex {
     }
     return false;
   }
+}
+
+const NUMBER = /^-?\d+(\.\d+)?$/;
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const DATETIME = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}$/;
+
+/** The type one note's value suggests for its key, or null when it's empty and says nothing. */
+function propertyType(property: { values: string[]; list?: boolean }): PropertyType | null {
+  if (property.list) return "list";
+  const value = property.values[0];
+  if (value === undefined || value === "") return null;
+  if (/^(true|false)$/i.test(value)) return "checkbox";
+  if (NUMBER.test(value)) return "number";
+  if (DATE.test(value)) return "date";
+  if (DATETIME.test(value)) return "datetime";
+  return "text";
 }
 
 /** Lowercased with accents removed: "Ébène" → "ebene". */
