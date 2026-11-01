@@ -15,6 +15,7 @@
   import FormattingBar from "./components/detail/FormattingBar.svelte";
   import Breadcrumb from "./components/detail/Breadcrumb.svelte";
   import SplitPane from "./components/detail/SplitPane.svelte";
+  import CanvasView from "./components/detail/CanvasView.svelte";
   import SyncConflictBanner from "./components/detail/SyncConflictBanner.svelte";
   import SyncConflictSheet from "./components/overlays/SyncConflictSheet.svelte";
   import GraphView from "./components/overlays/GraphView.svelte";
@@ -42,6 +43,8 @@
   const showSidebar = $derived(Boolean(vault) && showChrome && app.settings.showSidebar);
   const showInspector = $derived(Boolean(vault) && showChrome && app.settings.showInspector);
   const hasNote = $derived(Boolean(app.doc));
+  /** The active tab shows a JSON Canvas file in the read-only viewer (UI-45). */
+  const canvas = $derived(vault?.canvas ?? null);
 
   $effect(() => applyTheme(app.state.isDark, app.settings));
   // CSS snippets (§16.11) go in after every stylesheet, so they win on equal specificity.
@@ -109,7 +112,7 @@
         {#if app.settings.showFormattingBar && !app.readingView && hasNote}
           <FormattingBar />
         {/if}
-        {#if hasNote}
+        {#if hasNote || canvas}
           <Breadcrumb />
         {/if}
       {/if}
@@ -122,7 +125,9 @@
       <div class="panes">
         <div class="main-pane" role="presentation" onfocusin={() => app.focusPane("main")}>
           <EditorHost visible={Boolean(vault) && hasNote} />
-          {#if vault && !hasNote}
+          {#if vault && canvas}
+            <CanvasView {canvas} />
+          {:else if vault && !hasNote}
             <EmptyEditor />
           {/if}
         </div>

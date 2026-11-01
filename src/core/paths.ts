@@ -56,6 +56,11 @@ export function isImage(path: string): boolean {
   return IMAGE_EXTENSIONS.has(extname(path).toLowerCase());
 }
 
+/** A JSON Canvas file (".canvas", the format Obsidian uses): shown read-only, never indexed (UI-45). */
+export function isCanvas(path: string): boolean {
+  return extname(path).toLowerCase() === "canvas";
+}
+
 /** A note's title: its file name without extension. */
 export function title(path: string): string {
   return stem(path);

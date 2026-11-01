@@ -4,13 +4,14 @@
   import { isNote, title } from "@core/paths";
   import { app } from "../../lib/app.svelte";
 
-  const path = $derived(app.doc?.path ?? "");
+  // The note, or the canvas the active tab shows (UI-45: its name keeps ".canvas").
+  const path = $derived(app.doc?.path ?? app.vault?.canvas?.path ?? "");
   const parts = $derived(path.split("/").filter(Boolean));
   const folders = $derived(parts.slice(0, -1));
   const fileName = $derived(isNote(path) ? title(path) : (parts.at(-1) ?? ""));
 </script>
 
-<nav class="breadcrumb" aria-label="Note location" title={app.doc?.path}>
+<nav class="breadcrumb" aria-label="Note location" title={path}>
   {#if app.vault}
     <span class="folder vault">{app.vault.name}</span>
     <span class="slash" aria-hidden="true">/</span>

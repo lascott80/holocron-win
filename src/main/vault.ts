@@ -148,6 +148,10 @@ export class Vault {
   allNotes: string[] = [];
   /** Vault paths of every other file (images, PDFs…). */
   attachments: string[] = [];
+  /** Vault paths of every JSON Canvas file (UI-45): neither notes nor attachments. */
+  canvases: string[] = [];
+  /** Bumped when a canvas changes on disk, so the viewer reloads it. */
+  private canvasRevision = 0;
   readonly index = new VaultIndex();
   private resolver = new LinkResolver([]);
 
@@ -286,6 +290,7 @@ export class Vault {
     const sort = this.settings.fileSort;
     const scan = scanVault(this.root, sort === "modified" || sort === "created");
     this.attachments = scan.attachments;
+    this.canvases = scan.canvases;
     const changed = new Set(changedPaths);
     const treeChanged = !sameTree(scan.tree, this.tree);
     if (treeChanged) {
@@ -379,6 +384,14 @@ export class Vault {
     if (this.closed) return;
     const changedNotes = paths.filter((path) => P.isNote(path));
     this.reload(changedNotes);
+    // A canvas on show changed (or went away): the viewer reloads it, or its tabs close (UI-45).
+    const shownCanvases = new Set(this.tabs.map((tab) => tab.path).filter((path): path is string => path !== null && P.isCanvas(path)));
+    for (const path of shownCanvases) {
+      if (!paths.some((changed) => changed === "" || P.isUnder(path, changed))) continue;
+      if (fsx.exists(this.abs(path))) this.canvasRevision++;
+      else this.closeTabsShowing(path);
+    }
+    if (shownCanvases.size) this.changed();
     for (const [path, document] of [...this.documents]) {
       const affected = paths.some((changed) => changed === "" || changed === path || path.startsWith(changed + "/"));
       if (!affected) continue;
@@ -426,6 +439,13 @@ export class Vault {
 
   /** Opens the note a link points to, creating it (at the written path) when it doesn't exist yet. */
   openLink(rawTarget: string, inNewTab = false) {
+    if (P.isCanvas(LinkResolver.linkPath(rawTarget))) {
+      // [[Board.canvas]] opens the canvas viewer (UI-45), found like an attachment would be.
+      const path = Attachments.resolve(rawTarget, this.activeTab?.path ?? "", this.canvases);
+      if (path !== null) this.open(path, inNewTab);
+      else this.showError(`“${LinkResolver.linkPath(rawTarget)}” isn’t in this vault.`);
+      return;
+    }
     if (Attachments.isAttachmentTarget(rawTarget)) {
       // [[report.pdf]] opens the file, never creates "report.pdf.md".
       const from = this.activeTab?.path ?? "";
@@ -794,7 +814,8 @@ export class Vault {
       this.activateTab(existing.id);
       return;
     }
-    if (!this.loadDocument(path)) return;
+    // A canvas has no document: its tab just names the file (UI-45).
+    if (P.isCanvas(path) ? !fsx.exists(this.abs(path)) : !this.loadDocument(path)) return;
     const index = this.activeIndex;
     // A pinned tab keeps its note: anything else opens beside it (TAB-12).
     const reuse = index !== null && (!inNewTab || this.tabs[index].path === null) && !this.tabs[index].pinned;
@@ -976,6 +997,7 @@ export class Vault {
   private loadDocument(path: string): NoteDocument | null {
     const existing = this.documents.get(path);
     if (existing) return existing;
+    if (P.isCanvas(path)) return null; // shown by the canvas viewer, never edited (UI-45)
     try {
       const document = new NoteDocument(this.abs(path), {
         saveDelay: this.options.saveDelay,
@@ -1090,10 +1112,12 @@ export class Vault {
     this.finishAutoTitles(this.document);
     const path = this.activeTab?.path ?? null;
     this.selection = path;
-    if (path) this.rememberRecent(path);
+    if (path && !P.isCanvas(path)) this.rememberRecent(path);
     this.unloadUnusedDocuments();
     this.saveTabs();
-    this.editor.show(path, this.document?.text ?? null);
+    // A canvas tab shows the viewer instead of the editor (UI-45).
+    if (path && P.isCanvas(path)) this.editor.show(null, null);
+    else this.editor.show(path, this.document?.text ?? null);
     this.changed();
   }
 
@@ -1177,7 +1201,7 @@ export class Vault {
 
   /** Reopens the tabs that were open when this vault was last closed. */
   private restoreTabs() {
-    const stored = (this.options.store.get<string[]>(this.tabsKey) ?? []).filter((path) => typeof path === "string" && P.isNote(path));
+    const stored = (this.options.store.get<string[]>(this.tabsKey) ?? []).filter((path) => typeof path === "string" && (P.isNote(path) || P.isCanvas(path)));
     let pinnedCount = Math.max(0, Math.min(this.options.store.get<number>(this.tabsKey + ":pinned") ?? 0, stored.length));
     const paths: { path: string; pinned: boolean }[] = [];
     stored.forEach((path, index) => {
@@ -1193,7 +1217,7 @@ export class Vault {
   select(path: string | null) {
     if (path === this.selection) return;
     this.selection = path;
-    if (path && P.isNote(path)) this.open(path);
+    if (path && (P.isNote(path) || P.isCanvas(path))) this.open(path);
     else this.changed();
   }
 
@@ -1259,7 +1283,7 @@ export class Vault {
     }
     const isDir = fsx.isDirectory(this.abs(path));
     let fileName = name;
-    if (!isDir && P.isNote(path) && !P.isNote(name)) fileName += "." + P.extname(path);
+    if (!isDir && ((P.isNote(path) && !P.isNote(name)) || (P.isCanvas(path) && !P.isCanvas(name)))) fileName += "." + P.extname(path);
     const renamed = this.performMove(path, P.join(P.dirname(path), fileName));
     if (renamed !== path) {
       this.showToast(`Renamed ${this.describe([path])} to ${this.describe([renamed])}`, () =>
@@ -1836,6 +1860,33 @@ export class Vault {
     } catch {
       return null;
     }
+  }
+
+  // MARK: Canvases (UI-45)
+
+  /** A canvas file's text for the viewer, or null when it isn't one of the vault's canvases. */
+  canvasText(path: string): string | null {
+    if (!P.isCanvas(path) || !this.canvases.includes(path)) return null;
+    try {
+      return fsx.readText(this.abs(path));
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * What a canvas's file card shows for a note: its path as the vault has it
+   * (the file is matched ignoring case) and its first `lines` lines after any
+   * frontmatter. Null for files that aren't notes in this vault.
+   */
+  notePreview(file: string, lines: number): { path: string; text: string } | null {
+    const wanted = file.replace(/\\/g, "/").replace(/^\/+/, "").toLowerCase();
+    const path = this.allNotes.find((note) => note.toLowerCase() === wanted);
+    if (path === undefined) return null;
+    const text = this.textFor(path);
+    if (text === null) return null;
+    const body = text.replace(/^﻿?---\r?\n[\s\S]*?\r?\n---[ \t]*(\r?\n|$)/, "");
+    return { path, text: body.split(/\r?\n/).slice(0, lines).join("\n") };
   }
 
   /** Every note's current text, and the notes that couldn't be read. */
@@ -2731,6 +2782,7 @@ export class Vault {
       recentNotes: this.recentNotes,
       toast: this.toast ? { id: this.toast.id, message: this.toast.message, actionTitle: this.toast.actionTitle, isWarning: this.toast.isWarning } : null,
       doc: document && path ? this.docView(path, document) : null,
+      canvas: path && P.isCanvas(path) ? { path, title: P.stem(path), revision: this.canvasRevision } : null,
       conflict: document?.conflict && path ? this.conflictView(path, document) : null,
       templates: this.templates,
       isIndexing: this.isIndexing,
@@ -2932,9 +2984,10 @@ export function sameTree(a: TreeNode[], b: TreeNode[]): boolean {
  * tree sorted by time (UI-10a); that costs a stat per note, so it's only
  * asked for when the tree is sorted that way.
  */
-export function scanVault(root: string, withTimes = false): { tree: TreeNode[]; notes: string[]; attachments: string[] } {
+export function scanVault(root: string, withTimes = false): { tree: TreeNode[]; notes: string[]; attachments: string[]; canvases: string[] } {
   const notes: string[] = [];
   const attachments: string[] = [];
+  const canvases: string[] = [];
 
   function walk(folder: string, prefix: string): TreeNode[] {
     let entries: fs.Dirent[];
@@ -2969,8 +3022,10 @@ export function scanVault(root: string, withTimes = false): { tree: TreeNode[]; 
           }
         }
         nodes.push(node);
-      } else if (isFile && P.isNote(entry.name)) {
-        const node: TreeNode = { path, name: P.stem(entry.name), isDir: false, noteCount: 1 };
+      } else if (isFile && (P.isNote(entry.name) || P.isCanvas(entry.name))) {
+        // Canvases sit in the tree beside notes (with their own icon) but aren't counted or indexed (UI-45).
+        const node: TreeNode = { path, name: P.stem(entry.name), isDir: false, noteCount: P.isNote(entry.name) ? 1 : 0 };
+        if (P.isCanvas(entry.name)) node.kind = "canvas";
         if (withTimes) {
           try {
             const stat = fs.statSync(full);
@@ -2994,10 +3049,11 @@ export function scanVault(root: string, withTimes = false): { tree: TreeNode[]; 
   const flatten = (nodes: TreeNode[]) => {
     for (const node of nodes) {
       if (node.isDir) flatten(node.children ?? []);
+      else if (node.kind === "canvas") canvases.push(node.path);
       else notes.push(node.path);
     }
   };
   flatten(tree);
   attachments.sort(P.naturalCompare);
-  return { tree, notes, attachments };
+  return { tree, notes, attachments, canvases };
 }

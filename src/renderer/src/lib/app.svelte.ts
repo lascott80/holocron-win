@@ -50,6 +50,8 @@ class AppStore {
   cursor = $state({ line: 1, column: 1, selectedWords: 0, selectedCharacters: 0 });
   /** The editor's current text for the shown note (word counts). */
   text = $state("");
+  /** What the canvas viewer shows, for the status bar (UI-45); null when no canvas is open or it couldn't be read. */
+  canvasStats = $state<{ cards: number; connections: number } | null>(null);
   /** The editor last focused: the main one or split view's right-hand pane (UI-40). */
   pane = $state<EditorPane>("main");
   editorReady = $state(false);
