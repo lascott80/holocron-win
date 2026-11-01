@@ -5,6 +5,11 @@
 import { StateField } from "@codemirror/state";
 import { focusChanged, focusTracking, isEditing, setFocused } from "./focus.js";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
+// The parsing and rewriting rules are shared with main (the Base view edits
+// properties through `setProperty`, UI-46): src/core/properties.ts.
+import { parseProperties, propertyType, removePropertyChange, serializeProperty, setPropertyChange, yamlScalar } from "@core/properties";
+
+export { parseProperties, propertyType, serializeProperty, yamlScalar };
 
 // ---------- Locating & parsing ----------
 
@@ -20,78 +25,6 @@ export function frontmatterRange(doc) {
     }
   }
   return null;
-}
-
-function unquote(value) {
-  const trimmed = value.trim();
-  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
-    return trimmed.slice(1, -1);
-  }
-  return trimmed;
-}
-
-function splitInlineList(inner) {
-  const items = [];
-  let current = "";
-  let quote = null;
-  for (const character of inner) {
-    if (quote) {
-      if (character === quote) quote = null;
-      current += character;
-    } else if (character === '"' || character === "'") {
-      quote = character;
-      current += character;
-    } else if (character === ",") {
-      items.push(current);
-      current = "";
-    } else {
-      current += character;
-    }
-  }
-  if (current.trim()) items.push(current);
-  return items.map(unquote).filter((item) => item.length);
-}
-
-/**
- * A forgiving reader for the frontmatter people actually write:
- * `key: value`, `key: [a, b]`, block lists (`- a`), true/false. Anything
- * nested is kept as raw text.
- */
-export function parseProperties(yaml) {
-  const properties = [];
-  const lines = yaml.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line.trim() || /^\s*#/.test(line) || /^\s/.test(line)) continue;
-    const match = /^([^:#][^:]*):(?:\s+(.*)|\s*)$/.exec(line);
-    if (!match) continue;
-    const key = match[1].trim();
-    const raw = (match[2] ?? "").trim();
-    let value;
-    if (raw === "") {
-      const items = [];
-      const nested = [];
-      while (i + 1 < lines.length && (/^\s/.test(lines[i + 1]) || lines[i + 1].trim() === "")) {
-        const next = lines[++i];
-        const item = /^\s*-\s+(.*)$/.exec(next);
-        if (item) items.push(unquote(item[1]));
-        else if (next.trim()) nested.push(next.trim());
-      }
-      value = items.length ? items : nested.length ? nested.join(", ") : null;
-      if (!items.length && nested.length) {
-        properties.push({ key, value, nested: true });
-        continue;
-      }
-    } else if (raw.startsWith("[") && raw.endsWith("]")) {
-      value = splitInlineList(raw.slice(1, -1));
-    } else if (/^(true|false)$/i.test(raw)) {
-      value = raw.toLowerCase() === "true";
-    } else {
-      value = unquote(raw);
-    }
-    properties.push({ key, value });
-  }
-  return properties;
 }
 
 /** Top-level YAML blocks: each key with its continuation lines. */
@@ -127,62 +60,15 @@ export function mergeFrontmatterChanges(doc, yaml) {
 
 // ---------- Editing (ED-75) ----------
 
-/** Where `key`'s lines sit in the document: [from, to) plus whether its list is written as a block. */
-function propertyBlock(doc, key) {
-  const range = frontmatterRange(doc);
-  if (!range) return null;
-  const first = doc.lineAt(range.yamlFrom).number;
-  const closing = doc.lineAt(range.to).number;
-  for (let n = first; n < closing; n++) {
-    const line = doc.line(n);
-    const match = /^([^\s#:][^:]*):/.exec(line.text);
-    if (!match || match[1].trim() !== key) continue;
-    let last = n;
-    // Continuation: indented lines, or "- item" lines (YAML lets a block list start at column 0).
-    while (last + 1 < closing && /^(\s|-\s|-$)/.test(doc.line(last + 1).text)) last++;
-    const blockList = last > n && /^\s*-/.test(doc.line(n + 1).text);
-    return { from: line.from, to: doc.line(last).to, blockList };
-  }
-  return null;
-}
-
-// A leading "-" is only a list marker before a space (so -3 stays a plain number).
-const NEEDS_QUOTES = /^[\s?:,[\]{}#&*!|>'"%@`]|^-(\s|$)|\s$|: | #|^(true|false|yes|no|null|~)$/i;
-
-/** A scalar as YAML: plain when that reads back the same, otherwise double-quoted. */
-export function yamlScalar(text) {
-  const value = String(text);
-  if (value === "") return "";
-  return NEEDS_QUOTES.test(value) || value.includes('"') ? JSON.stringify(value) : value;
-}
-
-/** The YAML for one property. Lists keep the block style (`- item`) when `blockList`. */
-export function serializeProperty(key, value, { blockList = false } = {}) {
-  if (typeof value === "boolean") return `${key}: ${value}`;
-  if (Array.isArray(value)) {
-    const items = value.map((item) => yamlScalar(item.trim())).filter((item) => item !== "");
-    if (blockList && items.length) return `${key}:\n${items.map((item) => `  - ${item}`).join("\n")}`;
-    return `${key}: [${items.join(", ")}]`;
-  }
-  if (value === null || value === undefined || value === "") return `${key}:`;
-  return `${key}: ${yamlScalar(value)}`;
-}
-
 /** Changes that set `key` to `value`: rewrites its lines, or adds it (creating the frontmatter if needed). */
 export function setPropertyChanges(doc, key, value) {
-  const block = propertyBlock(doc, key);
-  if (block) return [{ from: block.from, to: block.to, insert: serializeProperty(key, value, block) }];
-  const range = frontmatterRange(doc);
-  const text = serializeProperty(key, value);
-  if (!range) return [{ from: 0, insert: `---\n${text}\n---\n` }];
-  return [{ from: doc.lineAt(range.to).from, insert: text + "\n" }];
+  return [setPropertyChange(doc.toString(), key, value)];
 }
 
 /** Changes that delete `key` and its lines. */
 export function removePropertyChanges(doc, key) {
-  const block = propertyBlock(doc, key);
-  if (!block) return [];
-  return [{ from: block.from, to: Math.min(doc.length, block.to + 1) }];
+  const change = removePropertyChange(doc.toString(), key);
+  return change ? [change] : [];
 }
 
 // ---------- Rendering ----------
@@ -192,18 +78,6 @@ const NUMBER = /^-?\d+(\.\d+)?$/;
 const TAG_KEYS = new Set(["tags", "tag"]);
 const LIST_KEYS = /^(tags|tag|aliases|alias|cssclasses)$/i;
 const PROPERTY_TYPES = [["text", "Text"], ["list", "List"], ["number", "Number"], ["checkbox", "Checkbox"], ["date", "Date"], ["datetime", "Date & time"]];
-
-/** The type a property's value shows as: list, checkbox, number, date, datetime or text. */
-export function propertyType(property) {
-  const { key, value, nested } = property;
-  if (nested) return "text";
-  if (typeof value === "boolean") return "checkbox";
-  if (Array.isArray(value) || TAG_KEYS.has(key.toLowerCase())) return "list";
-  const text = value === null ? "" : String(value);
-  if (NUMBER.test(text)) return "number";
-  if (DATE.test(text)) return /[ T]\d{2}:\d{2}$/.test(text) ? "datetime" : "date";
-  return "text";
-}
 
 // Small type glyphs (16 px grid, like diagramViewer's), one per property type.
 const icon = (paths) =>

@@ -25,7 +25,7 @@
   $effect(() => {
     if (app.calendarRequest > 0) calendarOpen = true;
   });
-  const shown = $derived(app.doc ?? vault?.canvas ?? null);
+  const shown = $derived(app.doc ?? vault?.canvas ?? vault?.base ?? null);
   const title = $derived(shown?.title ?? (vault ? vault.name : "Holocron"));
   const subtitle = $derived(shown && vault ? vault.name : "");
 

@@ -8,7 +8,9 @@ import fs from "node:fs";
 import nodePath from "node:path";
 import os from "node:os";
 import * as P from "@core/paths";
-import { LinkResolver, parse as parseNote, toggleTaskLine } from "@core/noteParser";
+import { LinkResolver, parse as parseNote, plainLine, toggleTaskLine } from "@core/noteParser";
+import { setProperty as setPropertyText } from "@core/properties";
+import { defaultBase, serializeBase, type BaseRow } from "@core/base";
 import { rewrite as rewriteLinks, relativePath as relativeLinkPath } from "@core/linkRewriter";
 import { linkMentionOnLine } from "@core/mentions";
 import * as Attachments from "@core/attachments";
@@ -29,7 +31,7 @@ import {
 import { VaultIndex } from "@core/vaultIndex";
 import { combineVersions, findSyncConflicts, type SyncConflict } from "@core/syncConflicts";
 import { dailyNoteDate, dailyNotePath, renderPlaceholders } from "@core/dailyNotes";
-import { INVALID_REGEX_MESSAGE, parseQuery, replaceMatches, runSearch, type Replacement } from "@core/vaultSearch";
+import { compileQuery, INVALID_REGEX_MESSAGE, parseQuery, replaceMatches, runSearch, type Replacement } from "@core/vaultSearch";
 import { buildTagTree, isValidTagName, renameTagInText, type TagNode, type TagSort } from "@core/tagTree";
 import { noteText, renderTemplate } from "@core/templates";
 import { isPlaceholderName, titleFromContent } from "@core/autoTitle";
@@ -157,6 +159,10 @@ export class Vault {
   canvases: string[] = [];
   /** Bumped when a canvas changes on disk, so the viewer reloads it. */
   private canvasRevision = 0;
+  /** Vault paths of every `.base` file (UI-46): like canvases, neither notes nor attachments. */
+  bases: string[] = [];
+  /** Bumped when a base on show changes on disk, so the view reloads it. */
+  private baseRevision = 0;
   readonly index = new VaultIndex();
   private resolver = new LinkResolver([]);
 
@@ -299,6 +305,7 @@ export class Vault {
     const scan = scanVault(this.root, sort === "modified" || sort === "created");
     this.attachments = scan.attachments;
     this.canvases = scan.canvases;
+    this.bases = scan.bases;
     const changed = new Set(changedPaths);
     const treeChanged = !sameTree(scan.tree, this.tree);
     if (treeChanged) {
@@ -392,12 +399,13 @@ export class Vault {
     if (this.closed) return;
     const changedNotes = paths.filter((path) => P.isNote(path));
     this.reload(changedNotes);
-    // A canvas on show changed (or went away): the viewer reloads it, or its tabs close (UI-45).
-    const shownCanvases = new Set(this.tabs.map((tab) => tab.path).filter((path): path is string => path !== null && P.isCanvas(path)));
+    // A canvas or base on show changed (or went away): the viewer reloads it, or its tabs close (UI-45, UI-46).
+    const shownCanvases = new Set(this.tabs.map((tab) => tab.path).filter((path): path is string => path !== null && P.isViewerFile(path)));
     for (const path of shownCanvases) {
       if (!paths.some((changed) => changed === "" || P.isUnder(path, changed))) continue;
-      if (fsx.exists(this.abs(path))) this.canvasRevision++;
-      else this.closeTabsShowing(path);
+      if (!fsx.exists(this.abs(path))) this.closeTabsShowing(path);
+      else if (P.isBase(path)) this.baseRevision++;
+      else this.canvasRevision++;
     }
     if (shownCanvases.size) this.changed();
     for (const [path, document] of [...this.documents]) {
@@ -447,9 +455,9 @@ export class Vault {
 
   /** Opens the note a link points to, creating it (at the written path) when it doesn't exist yet. */
   openLink(rawTarget: string, inNewTab = false) {
-    if (P.isCanvas(LinkResolver.linkPath(rawTarget))) {
-      // [[Board.canvas]] opens the canvas viewer (UI-45), found like an attachment would be.
-      const path = Attachments.resolve(rawTarget, this.activeTab?.path ?? "", this.canvases);
+    if (P.isViewerFile(LinkResolver.linkPath(rawTarget))) {
+      // [[Board.canvas]] opens the canvas viewer (UI-45) and [[Tasks.base]] the Base view (UI-46), found like an attachment would be.
+      const path = Attachments.resolve(rawTarget, this.activeTab?.path ?? "", P.isBase(LinkResolver.linkPath(rawTarget)) ? this.bases : this.canvases);
       if (path !== null) this.open(path, inNewTab);
       else this.showError(`“${LinkResolver.linkPath(rawTarget)}” isn’t in this vault.`);
       return;
@@ -822,8 +830,8 @@ export class Vault {
       this.activateTab(existing.id);
       return;
     }
-    // A canvas has no document: its tab just names the file (UI-45).
-    if (P.isCanvas(path) ? !fsx.exists(this.abs(path)) : !this.loadDocument(path)) return;
+    // A canvas or base has no document: its tab just names the file (UI-45, UI-46).
+    if (P.isViewerFile(path) ? !fsx.exists(this.abs(path)) : !this.loadDocument(path)) return;
     const index = this.activeIndex;
     // A pinned tab keeps its note: anything else opens beside it (TAB-12).
     const reuse = index !== null && (!inNewTab || this.tabs[index].path === null) && !this.tabs[index].pinned;
@@ -1005,7 +1013,7 @@ export class Vault {
   private loadDocument(path: string): NoteDocument | null {
     const existing = this.documents.get(path);
     if (existing) return existing;
-    if (P.isCanvas(path)) return null; // shown by the canvas viewer, never edited (UI-45)
+    if (P.isViewerFile(path)) return null; // shown by the canvas viewer or the Base view, never edited here (UI-45, UI-46)
     try {
       const document = new NoteDocument(this.abs(path), {
         saveDelay: this.options.saveDelay,
@@ -1140,11 +1148,11 @@ export class Vault {
     this.finishAutoTitles(this.document);
     const path = this.activeTab?.path ?? null;
     this.selection = path;
-    if (path && !P.isCanvas(path)) this.rememberRecent(path);
+    if (path && !P.isViewerFile(path)) this.rememberRecent(path);
     this.unloadUnusedDocuments();
     this.saveTabs();
-    // A canvas tab shows the viewer instead of the editor (UI-45).
-    if (path && P.isCanvas(path)) this.editor.show(null, null);
+    // A canvas or base tab shows its viewer instead of the editor (UI-45, UI-46).
+    if (path && P.isViewerFile(path)) this.editor.show(null, null);
     else this.editor.show(path, this.document?.text ?? null);
     this.changed();
   }
@@ -1229,7 +1237,7 @@ export class Vault {
 
   /** Reopens the tabs that were open when this vault was last closed. */
   private restoreTabs() {
-    const stored = (this.options.store.get<string[]>(this.tabsKey) ?? []).filter((path) => typeof path === "string" && (P.isNote(path) || P.isCanvas(path)));
+    const stored = (this.options.store.get<string[]>(this.tabsKey) ?? []).filter((path) => typeof path === "string" && (P.isNote(path) || P.isViewerFile(path)));
     let pinnedCount = Math.max(0, Math.min(this.options.store.get<number>(this.tabsKey + ":pinned") ?? 0, stored.length));
     const paths: { path: string; pinned: boolean }[] = [];
     stored.forEach((path, index) => {
@@ -1245,7 +1253,7 @@ export class Vault {
   select(path: string | null) {
     if (path === this.selection) return;
     this.selection = path;
-    if (path && (P.isNote(path) || P.isCanvas(path))) this.open(path);
+    if (path && (P.isNote(path) || P.isViewerFile(path))) this.open(path);
     else this.changed();
   }
 
@@ -1312,7 +1320,7 @@ export class Vault {
     }
     const isDir = fsx.isDirectory(this.abs(path));
     let fileName = name;
-    if (!isDir && ((P.isNote(path) && !P.isNote(name)) || (P.isCanvas(path) && !P.isCanvas(name)))) fileName += "." + P.extname(path);
+    if (!isDir && ((P.isNote(path) && !P.isNote(name)) || (P.isCanvas(path) && !P.isCanvas(name)) || (P.isBase(path) && !P.isBase(name)))) fileName += "." + P.extname(path);
     const renamed = this.performMove(path, P.join(P.dirname(path), fileName));
     if (renamed !== path) {
       this.showToast(`Renamed ${this.describe([path])} to ${this.describe([renamed])}`, () =>
@@ -2170,6 +2178,130 @@ export class Vault {
     return { path, text: body.split(/\r?\n/).slice(0, lines).join("\n") };
   }
 
+  // MARK: Bases (UI-46)
+
+  /** A base file's text for the view, or null when it isn't one of the vault's bases. */
+  baseText(path: string): string | null {
+    if (!P.isBase(path) || !this.bases.includes(path)) return null;
+    try {
+      return fsx.readText(this.abs(path));
+    } catch {
+      return null;
+    }
+  }
+
+  /** Writes a base file the view edited (columns, sort, views), atomically; the view keeps the file's line endings. */
+  writeBase(path: string, text: string): boolean {
+    if (!P.isBase(path) || !this.bases.includes(path)) return false;
+    try {
+      fsx.writeAtomic(this.abs(path), text);
+      return true;
+    } catch (error) {
+      this.showError(`Couldn’t save “${P.stem(path)}”: ${message(error)}`);
+      return false;
+    }
+  }
+
+  /** File › New Base…: an "Untitled.base" (numbered if taken) with the default table view, opened in a new tab. */
+  createBase(folder: string | null = null): string | null {
+    const path = this.uniquePath("Untitled", "base", folder ?? this.targetFolderForNewItems());
+    try {
+      fsx.writeAtomic(this.abs(path), serializeBase(defaultBase()), { withoutOverwriting: true });
+    } catch (error) {
+      this.showError(`Couldn’t create a base: ${message(error)}`);
+      return null;
+    }
+    this.reload();
+    this.open(path, true);
+    return path;
+  }
+
+  /**
+   * Sets one frontmatter property of a note from a base's cell (UI-46) with
+   * the panel's rewriting rules (ED-75): through the note's document when it's
+   * open (unsaved edits and undo survive), else an atomic rewrite keeping the
+   * file's line endings. The index follows at once so the view re-sorts.
+   */
+  setProperty(path: string, key: string, value: string | string[] | boolean | null): boolean {
+    if (!this.index.hasPath(path) || !key.trim()) return false;
+    const text = this.textFor(path);
+    if (text === null) return false;
+    const updated = setPropertyText(text, key.trim(), value);
+    if (updated === text) return true;
+    if (!this.writeUpdatedLinks(path, updated, "properties")) return false;
+    this.indexRevision++;
+    this.changed();
+    return true;
+  }
+
+  /**
+   * The notes a base's filter matches, as rows for its table or cards. The
+   * filter is a search query (SRCH-01/SRCH-11; empty = every note). Costly
+   * fields are only gathered when `needs` names them: "times" (a stat per
+   * note, for the first 2000 rows), "backlinks" (one pass over every link)
+   * and "preview" (the first lines of each body, for cards).
+   */
+  baseRows(filters: string, needs: readonly string[] = []): { rows: BaseRow[]; error: string | null } {
+    let matches: (note: { path: string; text: string; tags: string[] }) => boolean;
+    try {
+      matches = compileQuery(filters);
+    } catch (error) {
+      return { rows: [], error: message(error) };
+    }
+    const wantTimes = needs.includes("times");
+    const wantBacklinks = needs.includes("backlinks");
+    const wantPreview = needs.includes("preview");
+    const backlinkCounts = new Map<string, number>();
+    if (wantBacklinks) {
+      for (const [source, info] of this.index.allNotes) {
+        const seen = new Set<string>();
+        for (const link of info.links) {
+          const target = this.index.resolver.resolve(link, source);
+          if (target === null || target === source || seen.has(target)) continue;
+          seen.add(target);
+          backlinkCounts.set(target, (backlinkCounts.get(target) ?? 0) + 1);
+        }
+      }
+    }
+    const rows: BaseRow[] = [];
+    for (const note of this.index.searchSnapshot()) {
+      if (!matches(note)) continue;
+      const info = this.index.info(note.path);
+      const properties: BaseRow["properties"] = {};
+      for (const property of info?.properties ?? []) {
+        if (property.list) properties[property.key] = property.values;
+        else if (property.values.length === 0) properties[property.key] = null;
+        else if (property.values.length > 1) properties[property.key] = property.values;
+        else if (/^(true|false)$/i.test(property.values[0]!)) properties[property.key] = property.values[0]!.toLowerCase() === "true";
+        else properties[property.key] = property.values[0]!;
+      }
+      let mtime: number | null = null;
+      let ctime: number | null = null;
+      if (wantTimes && rows.length < 2000) {
+        try {
+          const stat = fs.statSync(this.abs(note.path));
+          mtime = stat.mtimeMs;
+          ctime = stat.birthtimeMs || stat.ctimeMs;
+        } catch {
+          // Vanished since the index saw it.
+        }
+      }
+      rows.push({
+        path: note.path,
+        title: P.stem(note.path),
+        folder: P.dirname(note.path),
+        mtime,
+        ctime,
+        tags: info?.tags ?? [],
+        links: info ? new Set(info.links.map((link) => link.target.toLowerCase())).size : null,
+        backlinks: wantBacklinks ? (backlinkCounts.get(note.path) ?? 0) : null,
+        properties,
+        preview: wantPreview ? bodyPreview(note.text, 6) : "",
+      });
+    }
+    return { rows, error: null };
+  }
+
   /** Every note's current text, and the notes that couldn't be read. */
   private readAllNotes(): { texts: Map<string, string>; unreadable: string[] } {
     return this.readNotes(this.allNotes);
@@ -2942,11 +3074,14 @@ export class Vault {
     this.openLink(cleaned.includes("/") || !folder ? cleaned : `${folder}/${cleaned}`, inNewTab);
   }
 
-  /** Creates an empty "Untitled" note (numbered if taken) in the selected folder, beside the selected note, or at the root. */
-  createNote(folder: string | null = null): string | null {
+  /**
+   * Creates an "Untitled" note (numbered if taken) in the selected folder, beside the selected note, or at the root.
+   * `contents` prefills it (a base's New note writes the frontmatter its filter asks for, UI-46).
+   */
+  createNote(folder: string | null = null, contents = ""): string | null {
     const path = this.uniquePath("Untitled", "md", folder ?? this.targetFolderForNewItems());
     try {
-      fsx.writeAtomic(this.abs(path), "", { withoutOverwriting: true });
+      fsx.writeAtomic(this.abs(path), contents, { withoutOverwriting: true });
     } catch (error) {
       this.showError(`Couldn’t create a note: ${message(error)}`);
       return null;
@@ -3064,6 +3199,7 @@ export class Vault {
       toast: this.toast ? { id: this.toast.id, message: this.toast.message, actionTitle: this.toast.actionTitle, isWarning: this.toast.isWarning } : null,
       doc: document && path ? this.docView(path, document) : null,
       canvas: path && P.isCanvas(path) ? { path, title: P.stem(path), revision: this.canvasRevision } : null,
+      base: path && P.isBase(path) ? { path, title: P.stem(path), revision: this.baseRevision } : null,
       conflict: document?.conflict && path ? this.conflictView(path, document) : null,
       templates: this.templates,
       isIndexing: this.isIndexing,
@@ -3245,6 +3381,31 @@ function wikiTarget(newTarget: string, original: string, resolver: LinkResolver)
  * rescan after every watcher batch doesn't serialise the whole tree twice
  * (noticeable with thousands of notes).
  */
+/** The first `lines` non-empty body lines of a note as plain text, for a base's cards (UI-46). */
+export function bodyPreview(text: string, lines: number): string {
+  const body = text.replace(/^\uFEFF?---\r?\n[\s\S]*?\r?\n(?:---|\.\.\.)[ \t]*(\r?\n|$)/, "");
+  const out: string[] = [];
+  let fence: string | null = null;
+  for (const raw of body.split(/\r?\n/)) {
+    const line = raw.trim();
+    const marker = /^(`{3,}|~{3,})/.exec(line);
+    if (fence) {
+      if (marker && marker[1]![0] === fence[0]) fence = null;
+      continue;
+    }
+    if (marker) {
+      fence = marker[1]!;
+      continue;
+    }
+    if (line === "" || /^(---|\*\*\*|___)\s*$/.test(line)) continue;
+    const plain = plainLine(line).trim();
+    if (plain === "") continue;
+    out.push(plain);
+    if (out.length >= lines) break;
+  }
+  return out.join("\n");
+}
+
 export function sameTree(a: TreeNode[], b: TreeNode[]): boolean {
   if (a === b) return true;
   if (a.length !== b.length) return false;
@@ -3265,10 +3426,11 @@ export function sameTree(a: TreeNode[], b: TreeNode[]): boolean {
  * tree sorted by time (UI-10a); that costs a stat per note, so it's only
  * asked for when the tree is sorted that way.
  */
-export function scanVault(root: string, withTimes = false): { tree: TreeNode[]; notes: string[]; attachments: string[]; canvases: string[] } {
+export function scanVault(root: string, withTimes = false): { tree: TreeNode[]; notes: string[]; attachments: string[]; canvases: string[]; bases: string[] } {
   const notes: string[] = [];
   const attachments: string[] = [];
   const canvases: string[] = [];
+  const bases: string[] = [];
 
   function walk(folder: string, prefix: string): TreeNode[] {
     let entries: fs.Dirent[];
@@ -3303,10 +3465,11 @@ export function scanVault(root: string, withTimes = false): { tree: TreeNode[]; 
           }
         }
         nodes.push(node);
-      } else if (isFile && (P.isNote(entry.name) || P.isCanvas(entry.name))) {
-        // Canvases sit in the tree beside notes (with their own icon) but aren't counted or indexed (UI-45).
+      } else if (isFile && (P.isNote(entry.name) || P.isViewerFile(entry.name))) {
+        // Canvases and bases sit in the tree beside notes (with their own icons) but aren't counted or indexed (UI-45, UI-46).
         const node: TreeNode = { path, name: P.stem(entry.name), isDir: false, noteCount: P.isNote(entry.name) ? 1 : 0 };
         if (P.isCanvas(entry.name)) node.kind = "canvas";
+        else if (P.isBase(entry.name)) node.kind = "base";
         if (withTimes) {
           try {
             const stat = fs.statSync(full);
@@ -3331,10 +3494,11 @@ export function scanVault(root: string, withTimes = false): { tree: TreeNode[]; 
     for (const node of nodes) {
       if (node.isDir) flatten(node.children ?? []);
       else if (node.kind === "canvas") canvases.push(node.path);
+      else if (node.kind === "base") bases.push(node.path);
       else notes.push(node.path);
     }
   };
   flatten(tree);
   attachments.sort(P.naturalCompare);
-  return { tree, notes, attachments, canvases };
+  return { tree, notes, attachments, canvases, bases };
 }

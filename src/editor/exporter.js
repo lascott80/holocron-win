@@ -10,6 +10,7 @@ import { highlightCode, loadDiagram, loadImage, sanitizeForClipboard } from "./r
 import * as mermaid from "./mermaid.js";
 import { Text } from "@codemirror/state";
 import { noteHeadings, TOC_LINE } from "./headings.js";
+import { queryText } from "./queryBlocks.js";
 
 const PAGE_STYLE = `
   :root { color-scheme: light; }
@@ -78,6 +79,7 @@ export async function exportHtml(note, title) {
   const urls = new Map(resources.images.map((image) => [image.key, assetSource(image.kind, image.target)]));
   const images = {};
   const diagrams = {};
+  const queries = {};
   const tasks = [];
   for (const image of resources.images) {
     tasks.push(loadImage(urls.get(image.key)).then((loaded) => loaded && (images[image.key] = loaded)).catch(() => null));
@@ -86,6 +88,12 @@ export async function exportHtml(note, title) {
     for (const code of resources.diagrams) {
       tasks.push(loadDiagram(code).then((loaded) => loaded && (diagrams[code] = loaded)).catch(() => null));
     }
+  }
+  // Query blocks export as the list they show (§9.5).
+  for (const code of resources.queries) {
+    const host = globalThis.window?.holocronHost;
+    if (!host) continue;
+    tasks.push(host.call("runQuery", queryText(code)).then((result) => result && (queries[code] = result)).catch(() => null));
   }
   for (const language of resources.languages) {
     const description = codeLanguage(language);
@@ -102,6 +110,7 @@ export async function exportHtml(note, title) {
   const body = markdownToHtml(markdown, {
     images,
     diagrams,
+    queries,
     sanitize: (html) => sanitizeForClipboard(html, images),
     highlight: highlightCode,
     math: katex

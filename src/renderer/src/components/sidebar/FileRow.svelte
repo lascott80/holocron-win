@@ -1,7 +1,7 @@
 <!-- One row of the file tree: chevron, folder/note icon and name, or the inline
      rename field (UI-11). Drop handling lives in FileTree (event delegation on data-path). -->
 <script lang="ts">
-  import { ChevronRight, FileText, Folder, FolderOpen, LayoutDashboard } from "@lucide/svelte";
+  import { ChevronRight, FileText, Folder, FolderOpen, LayoutDashboard, Table2 } from "@lucide/svelte";
   import type { TreeNode } from "@shared/ipc";
 
   let {
@@ -102,6 +102,8 @@
       {#if expanded}<FolderOpen size={15} />{:else}<Folder size={15} />{/if}
     {:else if node.kind === "canvas"}
       <LayoutDashboard size={15} />
+    {:else if node.kind === "base"}
+      <Table2 size={15} />
     {:else}
       <FileText size={15} />
     {/if}

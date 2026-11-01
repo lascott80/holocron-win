@@ -130,6 +130,39 @@ on disk. Canvases aren't notes: they're not indexed, searched or offered by
 Quick Open, and nothing in Holocron edits them — use Obsidian or another
 canvas editor for that. `[[Board.canvas]]` in a note opens the viewer.
 
+## Bases and query blocks
+
+Live views over your notes, in the style of Obsidian's Bases and embedded
+search (REQUIREMENTS §9.5, UI-46). Both take Holocron's own search syntax —
+`[status:active] tag:project -path:Archive`, `a OR b`, `section:(…)`… —
+not Obsidian's `status == "active"` expressions.
+
+- **Query blocks** — a fenced block with the info string `query` renders the
+  notes matching its text: "N notes", then each title (a link; Ctrl-click
+  for a new tab) with its folder and up to three matching lines. It re-runs
+  as the vault changes and when you edit the block; click its header to
+  edit the source. Export and print write the list out.
+- **Bases** — **File › New Base…** creates `Untitled.base` in the selected
+  folder. A `.base` file sits in the file tree with a table icon and opens
+  in the Base view instead of the editor: tabs for its views (**+** adds
+  one; right-click to rename, switch between table and cards, duplicate or
+  delete), the filter query (Enter re-runs it), a search-within box and the
+  count. In a **table**, click a header to sort (ascending, descending, off),
+  drag headers to reorder, right-click a header to hide it, add a column
+  (the built-ins `file.name`, `file.path`, `file.folder`, `file.mtime`,
+  `file.ctime`, `file.tags`, `file.links`, `file.backlinks`, or any
+  property key your notes use) or sort; property cells are edited in place
+  (text, numbers, dates, lists as comma-separated pills, checkboxes that
+  flip) and the change is written into that one property of the note —
+  through the editor when the note is open, so undo works. **New note**
+  creates a note beside the base whose frontmatter already satisfies the
+  filter's `[key:value]` and `tag:` parts. **Cards** show the title, the
+  first lines of the body and the chosen properties. Everything you change
+  is saved back into the `.base` file (a small YAML file, see §9.5 for its
+  shape). A ````base```` block inside a note shows the same view read-only.
+  Bases written for Obsidian show "This base uses Obsidian’s filter syntax,
+  which Holocron doesn’t read yet" instead of an error.
+
 ## Colour themes
 
 Settings › Appearance picks a **dark theme** and a **light theme**: Holocron

@@ -16,6 +16,7 @@
   import Breadcrumb from "./components/detail/Breadcrumb.svelte";
   import SplitPane from "./components/detail/SplitPane.svelte";
   import CanvasView from "./components/detail/CanvasView.svelte";
+  import BaseView from "./components/detail/BaseView.svelte";
   import SyncConflictBanner from "./components/detail/SyncConflictBanner.svelte";
   import SyncConflictSheet from "./components/overlays/SyncConflictSheet.svelte";
   import GraphView from "./components/overlays/GraphView.svelte";
@@ -46,6 +47,8 @@
   const hasNote = $derived(Boolean(app.doc));
   /** The active tab shows a JSON Canvas file in the read-only viewer (UI-45). */
   const canvas = $derived(vault?.canvas ?? null);
+  /** The active tab shows a `.base` file in the Base view (UI-46). */
+  const base = $derived(vault?.base ?? null);
 
   $effect(() => applyTheme(app.state.isDark, app.settings));
   // CSS snippets (§16.11) go in after every stylesheet, so they win on equal specificity.
@@ -113,7 +116,7 @@
         {#if app.settings.showFormattingBar && !app.readingView && hasNote}
           <FormattingBar />
         {/if}
-        {#if hasNote || canvas}
+        {#if hasNote || canvas || base}
           <Breadcrumb />
         {/if}
       {/if}
@@ -128,6 +131,8 @@
           <EditorHost visible={Boolean(vault) && hasNote} />
           {#if vault && canvas}
             <CanvasView {canvas} />
+          {:else if vault && base}
+            <BaseView {base} />
           {:else if vault && !hasNote}
             <EmptyEditor />
           {/if}

@@ -38,6 +38,10 @@ export interface EditorApi {
   /** The main selection's offsets into getText() and its text ("" when nothing is selected). */
   getSelection(): { from: number; to: number; text: string };
   exportHtml(title: string): Promise<string>;
+  /** The index changed: ```query blocks run again (debounced, §9.5). */
+  indexChanged(): void;
+  /** How ```base blocks are drawn: mounts the Base view into a widget's element, returning an unmount function. */
+  setBlockHost(host: { mountBase: (element: HTMLElement, source: string) => () => void }): void;
   [method: string]: unknown;
 }
 
