@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  compileQuery,
   INVALID_REGEX_MESSAGE,
   parseQuery,
   replaceMatches,
+  resultsAsMarkdown,
   runSearch,
   search,
   snippet,
@@ -278,5 +280,220 @@ describe("replaceMatches", () => {
 
   it("throws on an invalid pattern", () => {
     expect(() => replaceMatches("x", parseQuery("(", { useRegex: true }), "")).toThrow();
+  });
+});
+
+// Operators and property search (SRCH-11)
+describe("parseQuery operators", () => {
+  const expr = (text: string) => parseQuery(text).expr;
+
+  it("binds AND tighter than OR and lets parentheses override", () => {
+    expect(expr("a OR b c")).toEqual({ kind: "or", nodes: [{ kind: "term", text: "a" }, { kind: "and", nodes: [{ kind: "term", text: "b" }, { kind: "term", text: "c" }] }] });
+    expect(expr("(a OR b) c")).toEqual({ kind: "and", nodes: [{ kind: "or", nodes: [{ kind: "term", text: "a" }, { kind: "term", text: "b" }] }, { kind: "term", text: "c" }] });
+    expect(expr("-(a OR b)")).toEqual({ kind: "not", node: { kind: "or", nodes: [{ kind: "term", text: "a" }, { kind: "term", text: "b" }] } });
+  });
+
+  it("ignores a dangling OR, empty groups and stray parentheses", () => {
+    expect(expr("OR a OR")).toEqual({ kind: "term", text: "a" });
+    expect(expr("a OR OR b")).toEqual({ kind: "or", nodes: [{ kind: "term", text: "a" }, { kind: "term", text: "b" }] });
+    expect(expr("() a")).toEqual({ kind: "term", text: "a" });
+    expect(expr("(a")).toEqual({ kind: "term", text: "a" });
+    expect(expr("a )")).toEqual({ kind: "and", nodes: [{ kind: "term", text: "a" }, { kind: "term", text: ")" }] }); // no group open: a word
+    expect(parseQuery("OR").expr).toBeNull();
+  });
+
+  it("keeps parentheses inside words and quotes", () => {
+    expect(expr("f(x)")).toEqual({ kind: "term", text: "f(x)" });
+    expect(expr('"(a OR b)"')).toEqual({ kind: "term", text: "(a OR b)" });
+    expect(expr('"OR"')).toEqual({ kind: "term", text: "OR" });
+  });
+
+  it("parses scoped, task and content operators", () => {
+    expect(expr("line:(a b)")).toEqual({ kind: "scope", scope: "line", node: { kind: "and", nodes: [{ kind: "term", text: "a" }, { kind: "term", text: "b" }] } });
+    expect(expr("Block:word")).toEqual({ kind: "scope", scope: "block", node: { kind: "term", text: "word" } });
+    expect(expr('section:"a b"')).toEqual({ kind: "scope", scope: "section", node: { kind: "term", text: "a b" } });
+    expect(expr("task:")).toEqual({ kind: "task", status: "any", node: null });
+    expect(expr("task-todo:x")).toEqual({ kind: "task", status: "todo", node: { kind: "term", text: "x" } });
+    expect(expr("task-done:(a OR b)")).toEqual({ kind: "task", status: "done", node: { kind: "or", nodes: [{ kind: "term", text: "a" }, { kind: "term", text: "b" }] } });
+    expect(expr("content:(a -b)")).toEqual({ kind: "and", nodes: [{ kind: "content", text: "a" }, { kind: "not", node: { kind: "content", text: "b" } }] });
+    expect(expr("-line:(a)")).toEqual({ kind: "not", node: { kind: "scope", scope: "line", node: { kind: "term", text: "a" } } });
+    expect(expr("line:")).toEqual({ kind: "term", text: "line:" });
+    expect(expr("line:()")).toBeNull();
+  });
+
+  it("parses properties, quoted values included, but not wikilinks", () => {
+    expect(expr("[status]")).toEqual({ kind: "property", key: "status", value: null });
+    expect(expr("[status:active]")).toEqual({ kind: "property", key: "status", value: "active" });
+    expect(expr('[status:"in progress"]')).toEqual({ kind: "property", key: "status", value: "in progress" });
+    expect(expr("[[Note]]")).toEqual({ kind: "term", text: "[[Note]]" });
+    expect(expr("[]")).toEqual({ kind: "term", text: "[]" });
+  });
+
+  it("excludes phrases and filters", () => {
+    expect(expr('-"red shift"')).toEqual({ kind: "not", node: { kind: "term", text: "red shift" } });
+    expect(expr("-tag:lore")).toEqual({ kind: "not", node: { kind: "tag", value: "lore" } });
+  });
+
+  it("fills the flat fields from the top level", () => {
+    const query = parseQuery("(a OR b) -c tag:x line:(d e) -(f g)");
+    expect(query.terms).toEqual(["a", "b", "d", "e"]);
+    expect(query.excluded).toEqual(["c"]);
+    expect(query.tags).toEqual(["x"]);
+  });
+});
+
+describe("runSearch operators", () => {
+  const notes: SearchNote[] = [
+    {
+      path: "Lore/Kyber.md",
+      text: [
+        "---",
+        "status: active",
+        "tags: [lore]",
+        "---",
+        "# Kyber",
+        "",
+        "Kyber crystals grow on Ilum.",
+        "Red shift happens when a crystal is bled.",
+        "",
+        "## Caves",
+        "",
+        "The caves of Ilum are cold.",
+        "- [ ] Attune the crystal",
+        "- [x] Visit the caves",
+        "- [/] Polish the hilt",
+        "",
+        "## Forging",
+        "",
+        "| part | note |",
+        "| --- | --- |",
+        "| hilt | steel |",
+        "",
+      ].join("\n"),
+      tags: ["lore"],
+      properties: [
+        { key: "status", values: ["active"] },
+        { key: "tags", values: ["lore"] },
+      ],
+    },
+    {
+      // No `properties`: they're parsed from the text.
+      path: "Orders/Saber.md",
+      text: ["---", "status: in progress", "owners: [Ahsoka, Café]", "---", "Intro line about a saber.", "", "## Parts", "", "A saber needs a kyber crystal.", "", "## Steps", "", "Red", "shift", ""].join("\n"),
+      tags: [],
+    },
+    { path: "Daily/Log.md", text: "Nothing here.\n- [ ] Buy milk\n", tags: [] },
+  ];
+  const find = (text: string, matchCase = false) => runSearch(parseQuery(text, { matchCase }), notes);
+  const titles = (text: string, matchCase = false) => find(text, matchCase).hits.map((hit) => hit.title);
+  const highlighted = (text: string, title: string) => {
+    const hit = find(text).hits.find((h) => h.title === title)!;
+    return hit.lines.map((line) => [line.line, ...line.ranges.map((range) => sub(line.text, range))]);
+  };
+
+  it("matches either side of OR and highlights both", () => {
+    expect(titles("milk OR saber")).toEqual(["Saber", "Log"]);
+    expect(highlighted("milk OR saber", "Saber")).toEqual([[5, "saber"], [9, "saber"]]);
+  });
+
+  it("applies precedence and parentheses", () => {
+    expect(titles("kyber milk OR saber")).toEqual(["Saber"]);
+    expect(titles("kyber (milk OR saber)")).toEqual(["Saber"]);
+    expect(titles("(milk OR saber) -kyber")).toEqual(["Log"]);
+  });
+
+  it("excludes groups", () => {
+    expect(titles("-(saber OR milk)")).toEqual(["Kyber"]);
+    expect(titles("-(kyber OR milk)")).toEqual([]);
+    expect(titles("ilum -line:(red shift)")).toEqual([]);
+    expect(titles("-tag:lore")).toEqual(["Log", "Saber"]);
+  });
+
+  it("scopes to one line, block or section", () => {
+    expect(titles("line:(red shift)")).toEqual(["Kyber"]);
+    expect(titles("block:(red shift)")).toEqual(["Kyber", "Saber"]);
+    expect(titles("block:(part steel)")).toEqual(["Kyber"]); // a table is one block
+    expect(titles("line:(part steel)")).toEqual([]);
+    expect(titles("block:(cold attune)")).toEqual([]); // a list item is its own block
+    expect(titles("section:(kyber shift)")).toEqual(["Kyber"]); // H1 holds its subsections
+    expect(titles("section:(saber kyber)")).toEqual(["Saber"]);
+    expect(titles("section:(intro saber)")).toEqual(["Saber"]); // the text before the first heading
+    expect(titles("section:(attune steel)")).toEqual(["Kyber"]);
+    expect(titles("section:(kyber steps)")).toEqual([]);
+  });
+
+  it("highlights only the lines of the regions that matched", () => {
+    expect(highlighted("line:(red shift)", "Kyber")).toEqual([[8, "Red", "shift"]]);
+    // Only the Parts section holds both words; the intro's "saber" (line 5) isn't highlighted.
+    expect(highlighted("section:(saber kyber)", "Saber")).toEqual([[9, "saber", "kyber"]]);
+    expect(find("section:(saber kyber)").hits[0]!.matchCount).toBe(2);
+  });
+
+  it("matches checklist lines by status", () => {
+    expect(titles("task:")).toEqual(["Kyber", "Log"]);
+    expect(titles("task:attune")).toEqual(["Kyber"]);
+    expect(titles("task:milk")).toEqual(["Log"]);
+    expect(titles("task:cold")).toEqual([]); // not a task line
+    expect(titles("task-done:caves")).toEqual(["Kyber"]);
+    expect(titles("task-todo:caves")).toEqual([]);
+    expect(titles("task-todo:hilt")).toEqual(["Kyber"]); // a custom status counts as open
+    expect(titles("task-done:hilt")).toEqual([]);
+    expect(titles("-task:")).toEqual(["Saber"]);
+    expect(highlighted("task-todo:(attune OR hilt)", "Kyber")).toEqual([[13, "Attune"], [15, "hilt"]]);
+    expect(highlighted("task:", "Log")).toEqual([[2, "Buy milk"]]);
+  });
+
+  it("matches content: in the text only", () => {
+    expect(titles("log")).toEqual(["Log"]);
+    expect(titles("content:log")).toEqual([]);
+    expect(titles("content:(crystal -bled)")).toEqual(["Saber"]);
+  });
+
+  it("matches properties by key and value, lists and quotes included", () => {
+    expect(titles("[status]")).toEqual(["Kyber", "Saber"]);
+    expect(titles("[Status:ACTIVE]")).toEqual(["Kyber"]);
+    expect(titles('[status:"in progress"]')).toEqual(["Saber"]);
+    expect(titles("[owners:cafe]")).toEqual(["Saber"]); // list item, accent-insensitive
+    expect(titles("[owners:ahsoka] kyber")).toEqual(["Saber"]);
+    expect(titles("[missing]")).toEqual([]);
+    expect(titles("[status:Active]", true)).toEqual([]);
+    expect(titles("[status:active] OR milk")).toEqual(["Log", "Kyber"]); // Log's one match ranks above Kyber's none
+  });
+
+  it("lists property-only matches without lines", () => {
+    const hit = find("[status]").hits[0]!;
+    expect(hit.lines).toEqual([]);
+    expect(hit.matchCount).toBe(0);
+    expect(find("[status]").totalMatches).toBe(0);
+  });
+
+  it("still matches a word in the file name, except inside a scope", () => {
+    expect(titles("saber")).toEqual(["Saber"]);
+    expect(find("saber").hits[0]!.titleMatches).toBe(true);
+    expect(titles("line:(log)")).toEqual([]);
+  });
+
+  it("compiles a query into a note filter", () => {
+    const paths = (filter: (note: SearchNote) => boolean) => notes.filter(filter).map((note) => note.path);
+    expect(paths(compileQuery("milk OR saber"))).toEqual(["Orders/Saber.md", "Daily/Log.md"]);
+    expect(paths(compileQuery("[status:active] task-todo:attune"))).toEqual(["Lore/Kyber.md"]);
+    expect(paths(compileQuery(parseQuery("-tag:lore")))).toEqual(["Orders/Saber.md", "Daily/Log.md"]);
+    expect(paths(compileQuery(""))).toHaveLength(3);
+    expect(paths(compileQuery("^## ", { useRegex: true }))).toEqual(["Lore/Kyber.md", "Orders/Saber.md"]);
+    expect(() => compileQuery("(", { useRegex: true })).toThrow(INVALID_REGEX_MESSAGE);
+  });
+
+  it("copies results as markdown", () => {
+    const outcome = find("red shift");
+    expect(resultsAsMarkdown(outcome.hits)).toBe("- [[Kyber]]\n    Red shift happens when a crystal is bled.\n- [[Saber]]\n    Red\n    shift\n");
+    expect(resultsAsMarkdown(find("[status]").hits)).toBe("- [[Kyber]]\n- [[Saber]]\n");
+    expect(resultsAsMarkdown([])).toBe("");
+  });
+
+  it("replaces exactly what the results highlight", () => {
+    expect(replaceMatches("milk and saber", parseQuery("milk OR saber"), "x")).toEqual({ text: "x and x", count: 2 });
+    expect(replaceMatches("a b\na\n", parseQuery("line:(a b)"), "_")).toEqual({ text: "_ _\na\n", count: 2 });
+    expect(replaceMatches("- [ ] a\na\n", parseQuery("task:a"), "_")).toEqual({ text: "- [ ] _\na\n", count: 1 });
+    expect(replaceMatches("a", parseQuery("a [status:x]"), "_")).toEqual({ text: "_", count: 1 }); // filters picked the note already
   });
 });

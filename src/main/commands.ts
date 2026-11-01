@@ -322,6 +322,14 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
     linkMentions: withVault((vault, path, sources) => vault.linkMentions(str(path), sources == null ? null : strings(sources))),
     notesTagged: withVault((vault, tag) => vault.index.notesTaggedWith(str(tag))),
     search: (query, matchCase, useRegex) => app.search.search(str(query), bool(matchCase), bool(useRegex)),
+    noteTimes: withVault((vault, paths) => vault.noteTimes(strings(paths).slice(0, 1000))),
+    /** Plain-text copy with a toast, e.g. "Copy results" in the search panel (SRCH-13). */
+    copyToClipboard: withVault((vault, text, message) => {
+      const plain = str(text);
+      if (plain.length > MAX_CLIPBOARD_LENGTH) throw new RangeError("Clipboard content too large");
+      clipboard.writeText(plain);
+      vault.showToast(str(message));
+    }),
     replaceInVault: withVault((vault, query, replacement, matchCase, useRegex, onlyPath) =>
       vault.replaceInNotes(str(query), str(replacement), bool(matchCase), bool(useRegex), optStr(onlyPath)),
     ),
