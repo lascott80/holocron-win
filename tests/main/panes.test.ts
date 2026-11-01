@@ -26,6 +26,7 @@ beforeEach(() => {
   temp.write("B.md", "b\n");
   temp.write("C.md", "c\n");
   temp.write("Board.canvas", JSON.stringify({ nodes: [], edges: [] }));
+  temp.write("Tasks.base", 'filters: ""\nviews:\n  - type: table\n    name: Table\n    columns: [file.name]\n');
   vault = openVault();
 });
 
@@ -76,6 +77,32 @@ describe("Splitting", () => {
     const [id] = others(vault);
     expect(vault.view().panes[id]).toMatchObject({ path: "Board.canvas", kind: "canvas", title: "Board.canvas" });
     expect(lastShow(ports[id])).toEqual([null, null]);
+  });
+
+  it("shows a base in a pane without an editor, reloading it when it changes and closing it when it goes (UI-46)", () => {
+    vault.open("A.md");
+    vault.openInSplit("Tasks.base", "column");
+    const [id] = others(vault);
+    expect(vault.view().panes[id]).toMatchObject({ path: "Tasks.base", kind: "base", title: "Tasks.base" });
+    expect(lastShow(ports[id])).toEqual([null, null]);
+    const before = vault.view().panes[id].revision;
+    temp.write("Tasks.base", 'filters: "tag:x"\n');
+    vault.handleDiskChanges(["Tasks.base"]);
+    expect(vault.view().panes[id].revision).toBeGreaterThan(before);
+    temp.remove("Tasks.base");
+    vault.reload();
+    vault.handleDiskChanges(["Tasks.base"]);
+    expect(others(vault)).toEqual([]);
+  });
+
+  it("splits a base tab and opens a [[link]] to a base in a pane", () => {
+    vault.open("Tasks.base");
+    vault.splitActiveNote();
+    const [first] = others(vault);
+    expect(vault.view().panes[first]).toMatchObject({ path: "Tasks.base", kind: "base" });
+    vault.openLinkInSplit("Tasks.base", "column");
+    expect(others(vault)).toHaveLength(2);
+    expect(vault.view().panes[vault.focusedPane]).toMatchObject({ path: "Tasks.base", kind: "base" });
   });
 
   it("refuses a ninth pane with a toast", () => {

@@ -30,6 +30,8 @@ export type AttachmentLayout = "perNote" | "single";
 export interface Settings {
   reopenLastVault: boolean;
   updateLinksOnMove: boolean;
+  /** Offer to update `[[Note#Heading]]` links when a heading is renamed (LNK-16). */
+  updateHeadingLinks: boolean;
   nameNotesFromFirstLine: boolean;
   autoMergeExternalChanges: boolean;
   appearance: Appearance;
@@ -115,6 +117,7 @@ export interface Settings {
 export const defaultSettings: Settings = {
   reopenLastVault: true,
   updateLinksOnMove: true,
+  updateHeadingLinks: true,
   nameNotesFromFirstLine: true,
   autoMergeExternalChanges: true,
   appearance: "system",

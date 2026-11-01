@@ -6,6 +6,8 @@
 import type { Layout } from "@core/layout";
 import type { Settings } from "./settings";
 import type { SnippetView } from "./snippets";
+import type { BaseRow } from "../core/base";
+import type { LineMatch } from "../core/vaultSearch";
 
 export interface TreeNode {
   /** Vault path ("Lore/Kyber.md"; folders without a trailing slash). */
@@ -13,10 +15,10 @@ export interface TreeNode {
   /** Folders: their name. Notes: title without extension. */
   name: string;
   isDir: boolean;
-  /** A JSON Canvas file (UI-45): shown with its own icon and opened in the read-only viewer. */
-  kind?: "canvas";
+  /** A JSON Canvas file (UI-45) or a base (UI-46): shown with its own icon and opened in its viewer. */
+  kind?: "canvas" | "base";
   children?: TreeNode[];
-  /** Notes in this subtree (1 for a note, 0 for a canvas). */
+  /** Notes in this subtree (1 for a note, 0 for a canvas or base). */
   noteCount: number;
   /** ms since epoch; only when the tree is sorted by time (folders: the newest note inside). */
   modified?: number;
@@ -52,15 +54,40 @@ export interface CanvasTabView {
   revision: number;
 }
 
+/** The `.base` file in the active tab (UI-46); the renderer reads its text with `readBase`. */
+export interface BaseTabView {
+  path: string;
+  /** File name without extension. */
+  title: string;
+  /** Bumped when the file changes on disk, so the view reloads it. */
+  revision: number;
+}
+
+/** One note as a base's table or cards show it (UI-46): see `BaseRow` in src/core/base.ts. */
+export interface BaseRowsResult {
+  rows: BaseRow[];
+  /** The filter couldn't be read (an invalid regular expression, say). */
+  error: string | null;
+}
+
+/** A ```query block's results (§9.5): a trimmed search outcome. */
+export interface QueryBlockResult {
+  hits: { path: string; title: string; folder: string; lines: LineMatch[] }[];
+  /** Notes that matched, listed or not. */
+  total: number;
+  truncated: boolean;
+  error: string | null;
+}
+
 /** What a pane other than the primary one shows (UI-40): the file, its state and how to draw it. */
 export interface PaneInfo {
   path: string | null;
   title: string;
   isDirty: boolean;
   hasWarning: boolean;
-  /** "note": an editor; "canvas": the canvas viewer; "empty": nothing yet. */
-  kind: "note" | "canvas" | "empty";
-  /** Bumped when a canvas on show changes on disk (UI-45). */
+  /** "note": an editor; "canvas": the canvas viewer; "base": the Base view; "empty": nothing yet. */
+  kind: "note" | "canvas" | "base" | "empty";
+  /** Bumped when a canvas or base on show changes on disk (UI-45, UI-46). */
   revision: number;
 }
 
@@ -147,6 +174,8 @@ export interface VaultView {
   doc: DocView | null;
   /** The canvas the active tab shows (then `doc` is null), UI-45. */
   canvas: CanvasTabView | null;
+  /** The base the active tab shows (then `doc` is null), UI-46. */
+  base: BaseTabView | null;
   conflict: ConflictView | null;
   /** Template note paths, sorted by name. */
   templates: string[];

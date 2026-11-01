@@ -33,6 +33,8 @@ export interface EditorApi {
   getText(): string;
   /** The #tag at the cursor without the "#", or null (FOP-13). */
   tagAtCursor(): string | null;
+  /** The main selection's offsets into getText() and its text ("" when nothing is selected). */
+  getSelection(): { from: number; to: number; text: string };
   exportHtml(title: string): Promise<string>;
   /** Linked scrolling (UI-47): the fractional 1-based line at the top of the view, and the note's line count. */
   getScrollLine(): { line: number; lines: number };
@@ -40,6 +42,10 @@ export interface EditorApi {
   onScroll(listener: () => void): () => void;
   /** Tears the editor down (a pane closed). */
   destroy(): void;
+  /** The index changed: ```query blocks run again (debounced, §9.5). */
+  indexChanged(): void;
+  /** How ```base blocks are drawn: mounts the Base view into a widget's element, returning an unmount function. */
+  setBlockHost(host: { mountBase: (element: HTMLElement, source: string) => () => void }): void;
   [method: string]: unknown;
 }
 

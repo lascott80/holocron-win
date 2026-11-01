@@ -29,6 +29,7 @@ import { folding } from "./folds.js";
 import { foldAllHeadings, foldHeading, headingFolding, unfoldAll, unfoldHeading } from "./headingFolds.js";
 import { comments } from "./comments.js";
 import { mermaidDiagrams, setMermaidTheme } from "./mermaid.js";
+import { configureQueryBlocks, queryBlocks, queryIndexChanged } from "./queryBlocks.js";
 import { math } from "./math.js";
 import { emoji } from "./emoji.js";
 import { livePreview, setRevealMode } from "./livePreview.js";
@@ -150,6 +151,7 @@ function embeddedEditorExtensions() {
     htmlRendering,
     tables,
     mermaidDiagrams,
+    queryBlocks,
     math,
     emoji,
     folding,
@@ -165,6 +167,12 @@ function embeddedEditorExtensions() {
     })),
   ];
 }
+
+// Query and base blocks (§9.5) ask the app for results; openLink goes by vault path.
+configureQueryBlocks({
+  runQuery: window.holocronHost ? (query) => window.holocronHost.call("runQuery", query) : null,
+  openLink: (path, newTab) => (window.holocronHost ? window.holocronHost.call("open", path, newTab) : post({ type: "openLink", target: path, newTab })),
+});
 
 configureEmbeds({
   request: ({ id, target, from }) => {
@@ -245,6 +253,7 @@ function createEditor(parent, pane = "main") {
     noteEmbeds,
     tables,
     mermaidDiagrams,
+    queryBlocks,
     math,
     emoji,
     folding,
@@ -455,6 +464,16 @@ function createEditor(parent, pane = "main") {
       resolveEmbed(id, result);
     },
 
+    /** The index changed: query blocks run again, 500 ms after the last change (§9.5). */
+    indexChanged() {
+      queryIndexChanged();
+    },
+
+    /** How ```base blocks are drawn: `mountBase(element, source)` mounts the app's Base view, returning an unmount function. */
+    setBlockHost(host) {
+      configureQueryBlocks(host ?? {});
+    },
+
     vaultDataSummary,
 
     /** A note's file was renamed or moved: keep its state under the new id. */
@@ -621,6 +640,11 @@ function createEditor(parent, pane = "main") {
         if (node) return view.state.doc.sliceString(node.from + 1, node.to);
       }
       return null;
+    },
+    /** The main selection: offsets into getText() and the text between them (empty when nothing is selected). */
+    getSelection() {
+      const { from, to } = view.state.selection.main;
+      return { from, to, text: view.state.sliceDoc(from, to) };
     },
 
     /** The note as a standalone HTML page for Export as PDF / HTML and Print (exporter.js). */

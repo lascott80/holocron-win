@@ -9,7 +9,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { MAIN_PANE, type LayoutNode } from "@core/layout";
-  import { isCanvas, isNote } from "@core/paths";
+  import { isNote, isViewerFile } from "@core/paths";
   import PaneTree from "./PaneTree.svelte";
   import PaneView from "./PaneView.svelte";
   import { app } from "../../lib/app.svelte";
@@ -130,7 +130,7 @@
     if (!(into instanceof Node) || !(event.currentTarget as HTMLElement).contains(into)) zone = null;
   }
 
-  /** The note or canvas dragged: a tab's, or the first in a file-tree drag. */
+  /** The note, canvas or base dragged: a tab's, or the first in a file-tree drag. */
   function droppedPath(event: DragEvent): string | null {
     const transfer = event.dataTransfer;
     if (!transfer) return null;
@@ -140,7 +140,7 @@
     if (!paths) return null;
     try {
       const list: unknown = JSON.parse(paths);
-      return (Array.isArray(list) ? list : []).find((path): path is string => typeof path === "string" && (isNote(path) || isCanvas(path))) ?? null;
+      return (Array.isArray(list) ? list : []).find((path): path is string => typeof path === "string" && (isNote(path) || isViewerFile(path))) ?? null;
     } catch {
       return null;
     }

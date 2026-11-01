@@ -3,12 +3,13 @@
      appearance, mode and focus mode in sync, and handles files dropped from
      File Explorer (linked if in the vault, else copied in — VLT-10). -->
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { mount, onMount, unmount } from "svelte";
   import { app } from "../lib/app.svelte";
   import { call, editorFor } from "../lib/host";
   import { editorVariables } from "../lib/theme";
   import { editorHotkeys, zoomText } from "../lib/commands";
   import BacklinksPanel from "./detail/BacklinksPanel.svelte";
+  import BaseView from "./detail/BaseView.svelte";
 
   let { visible }: { visible: boolean } = $props();
   let dragging = $state(false);
@@ -42,6 +43,21 @@
   $effect(() => {
     const mode = app.settings.revealMarkup;
     if (app.editorReady) editorFor("main")?.setRevealMode(mode);
+  });
+
+  // ```base blocks render the Base view inline (read-only), and ```query blocks follow the index (§9.5).
+  $effect(() => {
+    if (!app.editorReady) return;
+    editorFor("main")?.setBlockHost({
+      mountBase: (target, source) => {
+        const instance = mount(BaseView, { target, props: { source } });
+        return () => void unmount(instance);
+      },
+    });
+  });
+  $effect(() => {
+    const revision = app.vault?.indexRevision;
+    if (revision !== undefined && app.editorReady) editorFor("main")?.indexChanged();
   });
 
   // Custom shortcuts (HK-01): the editor's keymap follows Settings › Hotkeys at once.

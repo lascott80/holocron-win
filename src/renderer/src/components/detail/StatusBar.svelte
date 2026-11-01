@@ -18,6 +18,9 @@
   const fmt = (n: number) => n.toLocaleString();
   /** A canvas is showing (UI-45): "N cards · N connections" replaces the note's status and counts. */
   const canvas = $derived(app.vault?.canvas ?? null);
+  /** A base is showing (UI-46): "N notes" replaces the note's counts. */
+  const base = $derived(app.vault?.base ?? null);
+  const baseLabel = $derived(app.baseStats ? `${fmt(app.baseStats.rows)} ${app.baseStats.rows === 1 ? "note" : "notes"}` : "");
   const canvasLabel = $derived.by(() => {
     const stats = app.canvasStats;
     if (!stats) return "";
@@ -134,10 +137,13 @@
   {:else if canvas}
     <span class="canvas-counts" title="Cards and connections in this canvas">{canvasLabel}</span>
     <div class="spacer"></div>
+  {:else if base}
+    <span class="canvas-counts" title="Notes in this view">{baseLabel}</span>
+    <div class="spacer"></div>
   {:else}
     <div class="spacer"></div>
   {/if}
-  {#if !canvas}
+  {#if !canvas && !base}
     <button
       class="status-button mode"
       class:open={modeOpen}

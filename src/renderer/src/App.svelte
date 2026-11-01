@@ -18,6 +18,7 @@
   import PaneTree from "./components/detail/PaneTree.svelte";
   import StackedTabs from "./components/detail/StackedTabs.svelte";
   import CanvasView from "./components/detail/CanvasView.svelte";
+  import BaseView from "./components/detail/BaseView.svelte";
   import SyncConflictBanner from "./components/detail/SyncConflictBanner.svelte";
   import SyncConflictSheet from "./components/overlays/SyncConflictSheet.svelte";
   import GraphView from "./components/overlays/GraphView.svelte";
@@ -25,6 +26,7 @@
   import StatusBar from "./components/detail/StatusBar.svelte";
   import EmptyEditor from "./components/detail/EmptyEditor.svelte";
   import QuickOpen from "./components/overlays/QuickOpen.svelte";
+  import NoteComposer from "./components/overlays/NoteComposer.svelte";
   import TemplatePicker from "./components/overlays/TemplatePicker.svelte";
   import Welcome from "./components/overlays/Welcome.svelte";
   import SettingsDialog from "./components/overlays/SettingsDialog.svelte";
@@ -48,6 +50,8 @@
   const hasNote = $derived(Boolean(app.doc));
   /** The active tab shows a JSON Canvas file in the read-only viewer (UI-45). */
   const canvas = $derived(vault?.canvas ?? null);
+  /** The active tab shows a `.base` file in the Base view (UI-46). */
+  const base = $derived(vault?.base ?? null);
   /** Stacked tabs (UI-48): the primary pane shows every tab as a column instead of the one editor. */
   const stacked = $derived(Boolean(vault?.stackTabs) && (vault?.tabs.some((tab) => tab.path !== null) ?? false));
   /** The pane tree (UI-40); the primary pane alone until a vault is open. */
@@ -106,7 +110,7 @@
         {#if app.settings.showFormattingBar && !app.readingView && hasNote}
           <FormattingBar />
         {/if}
-        {#if hasNote || canvas}
+        {#if hasNote || canvas || base}
           <Breadcrumb />
         {/if}
       {/if}
@@ -118,13 +122,15 @@
       {/if}
       <!-- The primary pane's content is made once, here, and moved into whichever leaf of the
            pane tree is the primary pane (PaneTree adopts it), so the editor is never re-created
-           when the tree changes. It stays mounted, hidden, when a canvas or stacked tabs show instead. -->
+           when the tree changes. It stays mounted, hidden, when a canvas, a base or stacked tabs show instead. -->
       <div class="main-content" bind:this={mainContent}>
         <EditorHost visible={Boolean(vault) && hasNote && !stacked} />
         {#if vault && stacked}
           <StackedTabs />
         {:else if vault && canvas}
           <CanvasView {canvas} />
+        {:else if vault && base}
+          <BaseView {base} />
         {:else if vault && !hasNote}
           <EmptyEditor />
         {/if}
@@ -152,6 +158,7 @@
 </div>
 
 {#if app.quickOpen}<QuickOpen />{/if}
+{#if app.composer}<NoteComposer />{/if}
 {#if app.templatePicker}<TemplatePicker />{/if}
 {#if app.settingsOpen}<SettingsDialog />{/if}
 {#if app.aboutOpen}<AboutDialog />{/if}

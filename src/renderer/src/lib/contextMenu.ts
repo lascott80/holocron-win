@@ -74,7 +74,14 @@ export const FORMAT_COMMANDS: { id: string; label: string }[] = [
  * The menu for a right-click, or [] for none (somewhere that's neither text
  * nor the editor, with nothing selected).
  */
-export function buildContextMenu(params: ContextMenuParams, target: ContextTarget, actions: ContextActions, format: FormatCommand[] = []): MenuEntry[] {
+export function buildContextMenu(
+  params: ContextMenuParams,
+  target: ContextTarget,
+  actions: ContextActions,
+  format: FormatCommand[] = [],
+  /** Extract Selection to New Note… (FOP-14), offered for a selection in the editor. */
+  extract?: FormatCommand,
+): MenuEntry[] {
   const editable = params.isEditable;
   const flags = params.editFlags;
   const hasSelection = params.selectionText.trim() !== "";
@@ -140,6 +147,9 @@ export function buildContextMenu(params: ContextMenuParams, target: ContextTarge
   if (target.inEditor && editable && hasSelection && format.length) {
     const items: MenuItem[] = format.map((command) => ({ label: command.label, shortcut: command.shortcut, run: command.run }));
     entries.push("-", { label: "Format", items });
+  }
+  if (target.inEditor && editable && hasSelection && extract) {
+    entries.push("-", { label: extract.label, shortcut: extract.shortcut, run: extract.run });
   }
 
   return tidySeparators(entries);

@@ -1,6 +1,6 @@
 <!-- A pane other than the primary one (UI-40, UI-47): a header with the file's
      title (a dot while unsaved), a link toggle, the pane's view mode, Open in
-     a Tab and Close, over an editor, the canvas viewer or an empty placeholder.
+     a Tab and Close, over an editor, the canvas viewer, the Base view or an empty placeholder.
      The focused pane's header has the accent underline. -->
 <script lang="ts">
   import { ChevronDown, ExternalLink, Link2, Link2Off, X } from "@lucide/svelte";
@@ -10,6 +10,7 @@
   import { menu, type MenuEntry } from "../../lib/menu.svelte";
   import PaneEditor from "./PaneEditor.svelte";
   import CanvasView from "./CanvasView.svelte";
+  import BaseView from "./BaseView.svelte";
 
   let { leaf }: { leaf: PaneLeaf } = $props();
 
@@ -63,6 +64,8 @@
     <PaneEditor id={leaf.id} {mode} {linked} />
   {:else if info?.kind === "canvas" && info.path}
     <CanvasView canvas={{ path: info.path, title: info.title, revision: info.revision }} reportStats={false} />
+  {:else if info?.kind === "base" && info.path}
+    <BaseView base={{ path: info.path, title: info.title, revision: info.revision }} reportStats={false} />
   {:else}
     <div class="empty">Nothing open here yet. Drop a note on the pane, or link it to the main editor.</div>
   {/if}

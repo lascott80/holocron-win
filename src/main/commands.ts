@@ -4,7 +4,9 @@
 import os from "node:os";
 import { app as electronApp, clipboard, ClipboardItem, shell } from "electron";
 import { quickOpenSearch } from "@core/quickOpen";
-import { stem } from "@core/paths";
+import { prefilledProperties } from "@core/base";
+import { setProperty as setPropertyText } from "@core/properties";
+import { dirname, stem } from "@core/paths";
 import type { PaneMode, SplitDirection } from "@core/layout";
 import { defaultSettings, type Settings } from "@shared/settings";
 import { EDIT_ACTIONS, type EditAction, type WorkspaceUi } from "@shared/ipc";
@@ -291,6 +293,12 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
     commitRename: withVault((vault, path, name) => vault.commitRename(str(path), str(name))),
     move: withVault((vault, items, folder) => vault.move(strings(items), str(folder))),
     duplicate: withVault((vault, path) => vault.duplicate(str(path))),
+    // Note composer (FOP-14…FOP-16): `from`/`to` are the editor's selection offsets, `selected` its text.
+    extractSelection: withVault((vault, path, from, to, selected, name, embed) =>
+      vault.extractSelection(str(path), num(from), num(to), str(selected), str(name), bool(embed)),
+    ),
+    mergeNote: withVault((vault, source, target, withHeading) => vault.mergeNote(str(source), str(target), bool(withHeading))),
+    splitAtHeading: withVault((vault, path, line) => vault.splitAtHeading(str(path), num(line))),
     requestDeletion: withVault((vault, paths) => vault.requestDeletion(strings(paths))),
     confirmDeletion: withVault((vault, withAttachments) => vault.confirmDeletion(withAttachments === undefined ? false : bool(withAttachments))),
     cancelDeletion: withVault((vault) => vault.cancelDeletion()),
@@ -338,6 +346,36 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
     // Canvas viewer (UI-45)
     readCanvas: withVault((vault, path) => vault.canvasText(str(path))),
     notePreview: withVault((vault, file, lines) => vault.notePreview(str(file), Math.max(1, Math.min(200, Math.trunc(num(lines)))))),
+
+    // Bases and query blocks (UI-46, §9.5)
+    readBase: withVault((vault, path) => vault.baseText(str(path))),
+    writeBase: withVault((vault, path, text) => vault.writeBase(str(path), str(text))),
+    createBase: withVault((vault, folder) => vault.createBase(optStr(folder))),
+    /** The rows a base's filter matches; `needs` names the costly fields to gather ("times", "backlinks", "preview"). */
+    baseRows: withVault((vault, filters, needs) => vault.baseRows(str(filters), needs === undefined ? [] : strings(needs))),
+    /** A base's New note: an "Untitled" note beside the base whose frontmatter satisfies the filter's simple parts. */
+    createNoteForBase: withVault((vault, base, filters) => {
+      let text = "";
+      for (const { key, value } of prefilledProperties(str(filters))) text = setPropertyText(text, key, value);
+      return vault.createNote(dirname(str(base)), text);
+    }),
+    /** One cell of a base: sets a note's property through its document or an atomic rewrite (ED-75 rules). */
+    setProperty: withVault((vault, path, key, value) => {
+      if (!(typeof value === "string" || typeof value === "boolean" || value === null || (Array.isArray(value) && value.every((item) => typeof item === "string")))) {
+        throw new TypeError("Expected a string, a list of strings, a boolean or null");
+      }
+      return vault.setProperty(str(path), str(key), value as string | string[] | boolean | null);
+    }),
+    /** A ```query block's results: the search service's hits trimmed to what the block shows (at most 200 notes, 3 lines each). */
+    runQuery: async (query) => {
+      const outcome = await app.search.search(str(query).slice(0, 2000), false, false);
+      return {
+        hits: outcome.hits.slice(0, 200).map((hit) => ({ path: hit.path, title: hit.title, folder: dirname(hit.path), lines: hit.lines.slice(0, 3) })),
+        total: outcome.hits.length,
+        truncated: outcome.truncated,
+        error: outcome.error ?? null,
+      };
+    },
 
     // Index queries
     details: withVault((vault, path) => vault.details(str(path))),

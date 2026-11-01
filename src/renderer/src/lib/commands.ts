@@ -95,6 +95,8 @@ export const commands: Command[] = [
   { id: "newNote", title: "New Note", shortcut: "Ctrl+N", enabled: hasVault, run: () => run("createNote") },
   { id: "newNoteFromTemplate", title: "New Note from Template…", shortcut: "Ctrl+Shift+N", enabled: hasVault, run: () => (app.templatePicker = "newNote") },
   { id: "newFolder", title: "New Folder", shortcut: "Ctrl+Alt+N", enabled: hasVault, run: () => run("createFolder") },
+  // Bases (UI-46): a .base file with a default table view, in the selected folder.
+  { id: "newBase", title: "New Base…", enabled: hasVault, run: () => run("createBase") },
   { id: "newTab", title: "New Tab", shortcut: "Ctrl+T", enabled: hasVault, run: () => run("newTab") },
   {
     id: "quickCapture",
@@ -281,6 +283,10 @@ export const commands: Command[] = [
   { id: "tableMoveColumnRight", title: "Table: Move Column Right", shortcut: "Alt+Shift+Right", editorKey: true, enabled: canFormat, run: ed("tableMoveColumnRight") },
   { id: "tableDeleteRow", title: "Table: Delete Row", shortcut: "Alt+Shift+Backspace", editorKey: true, enabled: canFormat, run: ed("tableDeleteRow") },
   { id: "tableDeleteColumn", title: "Table: Delete Column", shortcut: "Ctrl+Alt+Shift+Backspace", editorKey: true, enabled: canFormat, run: ed("tableDeleteColumn") },
+  // Note composer (FOP-14…FOP-16)
+  { id: "extractSelection", title: "Extract Selection to New Note…", enabled: () => canFormat() && app.cursor.selectedCharacters > 0, run: () => app.extractSelection() },
+  { id: "mergeNote", title: "Merge Note Into…", enabled: hasNote, run: () => app.mergeNote() },
+  { id: "splitAtHeading", title: "Split Note at Heading…", enabled: canFormat, run: () => app.splitAtHeading() },
 
   // Help
   { id: "starterGuide", title: "Add Start Here Guide to Vault", enabled: hasVault, run: () => run("addStarterGuide") },
@@ -350,7 +356,7 @@ export interface MenuGroup {
 export const menus: { title: string; items: (string | MenuGroup)[] }[] = [
   {
     title: "File",
-    items: ["newNote", "newNoteFromTemplate", "newFolder", "newTab", "pinTab", "bookmark", "-", "quickCapture", "quickOpen", "commandPalette", "-", "openVault", "createVault", "-", "save", "closeTab", "closeVault", "-", "versionHistory", "showNoteInExplorer", "showVaultInExplorer", "-", "exportPdf", "exportHtml", "print", "-", { title: "Attachments", items: ["organiseAttachments", "organiseNoteAttachments", "-", "cleanUpAttachments", "emptyUnusedAttachments", "-", "undoAttachmentChange"] }, "-", "settings", "-", "quitApp"],
+    items: ["newNote", "newNoteFromTemplate", "newFolder", "newBase", "newTab", "pinTab", "bookmark", "-", "quickCapture", "quickOpen", "commandPalette", "-", "openVault", "createVault", "-", "save", "closeTab", "closeVault", "-", "versionHistory", "showNoteInExplorer", "showVaultInExplorer", "-", "exportPdf", "exportHtml", "print", "-", { title: "Attachments", items: ["organiseAttachments", "organiseNoteAttachments", "-", "cleanUpAttachments", "emptyUnusedAttachments", "-", "undoAttachmentChange"] }, "-", "settings", "-", "quitApp"],
   },
   { title: "Edit", items: ["undo", "redo", "-", "copyMarkdown", "pastePlainText", "-", "find", "findNext", "findPrevious", "selectNextOccurrence", "searchVault", "copySearchResults"] },
   {
@@ -369,6 +375,7 @@ export const menus: { title: string; items: (string | MenuGroup)[] }[] = [
       "insertTemplate", "-", "bold", "italic", "strikethrough", "highlight", "code", "link", "-", "task", "moveDoneTasksDown", "bulletList", "numberedList", "quote", "-",
       "codeBlock", "callout", "divider", "-", "tidyNote", "renameTag",
       { title: "Table", items: ["table", "convertToTable", "-", "tableInsertRowAbove", "tableInsertRowBelow", "tableInsertColumnLeft", "tableInsertColumnRight", "-", "tableMoveRowUp", "tableMoveRowDown", "tableMoveColumnLeft", "tableMoveColumnRight", "-", "tableDeleteRow", "tableDeleteColumn"] },
+      { title: "Note", items: ["extractSelection", "mergeNote", "splitAtHeading"] },
       "-", "heading1", "heading2", "heading3", "heading0",
     ],
   },

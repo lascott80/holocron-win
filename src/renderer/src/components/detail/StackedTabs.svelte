@@ -9,11 +9,12 @@
      header and editor at the column's own place along it. -->
 <script lang="ts">
   import { tick } from "svelte";
-  import { isCanvas } from "@core/paths";
+  import { isBase, isCanvas } from "@core/paths";
   import { app } from "../../lib/app.svelte";
   import { run } from "../../lib/host";
   import PaneEditor from "./PaneEditor.svelte";
   import CanvasView from "./CanvasView.svelte";
+  import BaseView from "./BaseView.svelte";
 
   /** The width of a column's header strip. */
   const HEADER = 34;
@@ -71,6 +72,8 @@
       <div class="body">
         {#if tab.path && isCanvas(tab.path)}
           <CanvasView canvas={{ path: tab.path, title: tab.title, revision: app.vault?.canvas?.revision ?? 0 }} reportStats={isActive} />
+        {:else if tab.path && isBase(tab.path)}
+          <BaseView base={{ path: tab.path, title: tab.title, revision: app.vault?.base?.revision ?? 0 }} reportStats={isActive} />
         {:else}
           <PaneEditor id={"tab:" + tab.id} {mode} />
         {/if}

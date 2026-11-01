@@ -38,7 +38,9 @@
   });
 
   const trimmed = $derived(query.replace(/^[\t\p{Zs}]+|[\t\p{Zs}]+$/gu, ""));
-  const commandMode = $derived(trimmed.startsWith(">"));
+  /** Picking a note for another command (QO-08): notes only, no creating or commands. */
+  const pick = $derived(app.quickOpen?.pick ?? null);
+  const commandMode = $derived(!pick && trimmed.startsWith(">"));
   const tagMode = $derived(trimmed.startsWith("#"));
 
   let request = 0;
@@ -84,7 +86,8 @@
 
   const sections = $derived.by((): { notes: Row[]; commands: Row[] } => {
     if (commandMode) return { notes: [], commands: matchingCommands(trimmed.slice(1).trim(), 200) };
-    const notes: Row[] = hits.map((hit) => ({ kind: "note", key: "note:" + hit.path, hit }));
+    const notes: Row[] = hits.filter((hit) => !pick?.exclude.includes(hit.path)).map((hit) => ({ kind: "note", key: "note:" + hit.path, hit }));
+    if (pick) return { notes, commands: [] };
     const plain = trimmed !== "" && !tagMode;
     if (plain) {
       const lower = trimmed.toLowerCase();
@@ -124,7 +127,7 @@
 
   function createNote(newTab = false) {
     const name = trimmed;
-    if (!name || name.startsWith("#") || name.startsWith(">")) return;
+    if (pick || !name || name.startsWith("#") || name.startsWith(">")) return;
     close();
     run("createNoteNamed", name, newTab);
   }
@@ -132,7 +135,8 @@
   async function activate(row: Row | undefined, newTab = false) {
     if (!row) return;
     close();
-    if (row.kind === "note") run("open", row.hit.path, newTab);
+    if (row.kind === "note" && pick) pick.onPick(row.hit.path);
+    else if (row.kind === "note") run("open", row.hit.path, newTab);
     else if (row.kind === "create") run("createNoteNamed", row.name, newTab);
     else {
       // Let the palette close (and focus return) before the command runs.
@@ -233,14 +237,14 @@
   </div>
 {/snippet}
 
-<Modal width={600} placement="top" closeOnBackdrop label="Quick Open" panelClass="quick-open" onclose={close}>
+<Modal width={600} placement="top" closeOnBackdrop label={pick ? pick.title : "Quick Open"} panelClass="quick-open" onclose={close}>
   <div class="search">
     <Search size={18} />
     <input
       bind:this={input}
       bind:value={query}
       data-autofocus
-      placeholder="Find a note, #tag, or > command"
+      placeholder={pick ? pick.title : "Find a note, #tag, or > command"}
       spellcheck="false"
       autocomplete="off"
       role="combobox"
@@ -273,11 +277,17 @@
 
   <footer>
     <span><span class="key">↑↓</span> navigate</span>
-    <span><span class="key">↵</span> open</span>
-    <span><span class="key">Ctrl+↵</span> new tab</span>
-    <span><span class="key">Shift+↵</span> create</span>
-    <span class="spacer"></span>
-    <span>#tag · &gt; commands</span>
+    {#if pick}
+      <span><span class="key">↵</span> choose</span>
+      <span class="spacer"></span>
+      <span>#tag</span>
+    {:else}
+      <span><span class="key">↵</span> open</span>
+      <span><span class="key">Ctrl+↵</span> new tab</span>
+      <span><span class="key">Shift+↵</span> create</span>
+      <span class="spacer"></span>
+      <span>#tag · &gt; commands</span>
+    {/if}
   </footer>
 </Modal>
 
