@@ -15,6 +15,14 @@
 
   const doc = $derived(app.doc);
   const fmt = (n: number) => n.toLocaleString();
+  /** A canvas is showing (UI-45): "N cards · N connections" replaces the note's status and counts. */
+  const canvas = $derived(app.vault?.canvas ?? null);
+  const canvasLabel = $derived.by(() => {
+    const stats = app.canvasStats;
+    if (!stats) return "";
+    const count = (n: number, noun: string) => `${fmt(n)} ${noun}${n === 1 ? "" : "s"}`;
+    return `${count(stats.cards, "card")} · ${count(stats.connections, "connection")}`;
+  });
 
   const status = $derived.by((): { text: string; tone: "error" | "warning" | "neutral" | "synced" } => {
     if (!doc) return { text: "", tone: "neutral" };
@@ -112,22 +120,27 @@
       {wordLabel}
     </button>
     <span class="position">Ln {fmt(app.cursor.line)}, Col {fmt(app.cursor.column)}</span>
+  {:else if canvas}
+    <span class="canvas-counts" title="Cards and connections in this canvas">{canvasLabel}</span>
+    <div class="spacer"></div>
   {:else}
     <div class="spacer"></div>
   {/if}
-  <button
-    class="status-button mode"
-    class:open={modeOpen}
-    title="Switch between live preview, source mode and reading view"
-    aria-haspopup="menu"
-    aria-expanded={modeOpen}
-    data-menu-trigger
-    bind:this={modeButton}
-    onclick={openModeMenu}
-  >
-    {modeTitle}
-    <ChevronDown size={11} strokeWidth={2.2} />
-  </button>
+  {#if !canvas}
+    <button
+      class="status-button mode"
+      class:open={modeOpen}
+      title="Switch between live preview, source mode and reading view"
+      aria-haspopup="menu"
+      aria-expanded={modeOpen}
+      data-menu-trigger
+      bind:this={modeButton}
+      onclick={openModeMenu}
+    >
+      {modeTitle}
+      <ChevronDown size={11} strokeWidth={2.2} />
+    </button>
+  {/if}
 </footer>
 
 {#if statsOpen}
@@ -220,6 +233,9 @@
     margin-right: 0;
   }
   .position {
+    font-variant-numeric: tabular-nums;
+  }
+  .canvas-counts {
     font-variant-numeric: tabular-nums;
   }
   .stats {

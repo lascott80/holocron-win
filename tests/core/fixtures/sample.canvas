@@ -1,0 +1,18 @@
+{
+	"nodes":[
+		{"id":"group1","type":"group","x":-40,"y":-60,"width":720,"height":360,"label":"Planning","color":"4"},
+		{"id":"text1","type":"text","x":0,"y":0,"width":260,"height":120,"color":"1","text":"# Idea\n\nA **bold** thought with `code`."},
+		{"id":"file1","type":"file","x":380,"y":0,"width":260,"height":180,"file":"Notes/Kyber.md","subpath":"#Crystals"},
+		{"id":"image1","type":"file","x":380,"y":220,"width":200,"height":60,"file":"Attachments/pic.png","color":"#ff8800"},
+		{"id":"link1","type":"link","x":0,"y":200,"width":260,"height":80,"url":"https://jsoncanvas.org/","color":"6"},
+		{"id":"bad1","type":"text","x":0,"y":0,"width":100,"height":100},
+		{"id":"bad2","type":"sticker","x":0,"y":0,"width":100,"height":100},
+		{"id":"text1","type":"text","x":999,"y":999,"width":10,"height":10,"text":"duplicate id"}
+	],
+	"edges":[
+		{"id":"edge1","fromNode":"text1","fromSide":"right","toNode":"file1","toSide":"left","label":"leads to","color":"2"},
+		{"id":"edge2","fromNode":"link1","toNode":"text1","fromEnd":"arrow","toEnd":"none"},
+		{"id":"edge3","fromNode":"text1","toNode":"nowhere"},
+		{"id":"edge4","fromNode":"image1","toNode":"link1","fromSide":"sideways","color":"9"}
+	]
+}

@@ -11,8 +11,10 @@ export interface TreeNode {
   /** Folders: their name. Notes: title without extension. */
   name: string;
   isDir: boolean;
+  /** A JSON Canvas file (UI-45): shown with its own icon and opened in the read-only viewer. */
+  kind?: "canvas";
   children?: TreeNode[];
-  /** Notes in this subtree (1 for a note). */
+  /** Notes in this subtree (1 for a note, 0 for a canvas). */
   noteCount: number;
   /** ms since epoch; only when the tree is sorted by time (folders: the newest note inside). */
   modified?: number;
@@ -37,6 +39,15 @@ export interface SyncConflictView {
   original: string;
   service: "Dropbox" | "OneDrive" | "Syncthing" | "Nextcloud";
   device: string | null;
+}
+
+/** The JSON Canvas file in the active tab (UI-45); the renderer reads its text with `readCanvas`. */
+export interface CanvasTabView {
+  path: string;
+  /** File name without extension. */
+  title: string;
+  /** Bumped when the file changes on disk, so the viewer reloads it. */
+  revision: number;
 }
 
 /** The note in split view's right-hand pane (UI-40). */
@@ -111,6 +122,8 @@ export interface VaultView {
   syncConflicts: SyncConflictView[];
   toast: ToastView | null;
   doc: DocView | null;
+  /** The canvas the active tab shows (then `doc` is null), UI-45. */
+  canvas: CanvasTabView | null;
   conflict: ConflictView | null;
   /** Template note paths, sorted by name. */
   templates: string[];

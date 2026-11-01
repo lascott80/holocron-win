@@ -25,8 +25,9 @@
   $effect(() => {
     if (app.calendarRequest > 0) calendarOpen = true;
   });
-  const title = $derived(app.doc?.title ?? (vault ? vault.name : "Holocron"));
-  const subtitle = $derived(app.doc && vault ? vault.name : "");
+  const shown = $derived(app.doc ?? vault?.canvas ?? null);
+  const title = $derived(shown?.title ?? (vault ? vault.name : "Holocron"));
+  const subtitle = $derived(shown && vault ? vault.name : "");
 
   function openMenu(index: number) {
     const element = titles[index];
@@ -92,7 +93,7 @@
     </div>
   {/if}
 
-  <div class="title" title={app.doc?.path}>
+  <div class="title" title={shown?.path}>
     <span class="title-main">{title}</span>
     {#if subtitle}<span class="title-sub">{subtitle}</span>{/if}
   </div>

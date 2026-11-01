@@ -117,6 +117,19 @@ node scripts/smoke-update.mjs --app dist-test-0.3.9/win-unpacked/Holocron.exe --
   the open vault or a recent one. Only the installed app writes the jump list
   and the sign-in entry (not `npm run dev` or test profiles).
 
+## Canvas files
+
+`.canvas` files (JSON Canvas, the open format Obsidian's canvases are saved
+in) are listed in the file tree with a canvas icon and open in a read-only
+viewer instead of the editor (REQUIREMENTS UI-45). Text cards are rendered
+as markdown, file cards show a note's first lines or the image, link cards
+open in the browser, and connections are drawn with their arrows, labels
+and colours. Drag the background to pan, scroll to zoom, **Fit** shows the
+whole drawing, Esc clears the selection; the file reloads when it changes
+on disk. Canvases aren't notes: they're not indexed, searched or offered by
+Quick Open, and nothing in Holocron edits them — use Obsidian or another
+canvas editor for that. `[[Board.canvas]]` in a note opens the viewer.
+
 ## Colour themes
 
 Settings › Appearance picks a **dark theme** and a **light theme**: Holocron

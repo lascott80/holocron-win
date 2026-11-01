@@ -286,6 +286,10 @@ export function createCommands(app: HolocronApp): Record<string, Command> {
     insertTemplate: withVault((vault, path) => vault.insertTemplate(str(path))),
     createNoteFromTemplate: withVault((vault, template, name) => vault.createNoteFromTemplate(str(template), str(name))),
 
+    // Canvas viewer (UI-45)
+    readCanvas: withVault((vault, path) => vault.canvasText(str(path))),
+    notePreview: withVault((vault, file, lines) => vault.notePreview(str(file), Math.max(1, Math.min(200, Math.trunc(num(lines)))))),
+
     // Index queries
     details: withVault((vault, path) => vault.details(str(path))),
     allTags: withVault((vault) => vault.index.allTags()),
