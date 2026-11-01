@@ -26,7 +26,7 @@ import { hoverPreview } from "./hoverPreview.js";
 import { focusMode } from "./focusMode.js";
 import { insertSizedTable, tableCommands, tableEditing } from "./tableEditing.js";
 import { folding } from "./folds.js";
-import { foldAllHeadings, foldHeading, headingFoldKeymap, headingFolding, unfoldAll, unfoldHeading } from "./headingFolds.js";
+import { foldAllHeadings, foldHeading, headingFolding, unfoldAll, unfoldHeading } from "./headingFolds.js";
 import { comments } from "./comments.js";
 import { mermaidDiagrams, setMermaidTheme } from "./mermaid.js";
 import { math } from "./math.js";
@@ -82,20 +82,43 @@ function post(message) {
 
 // ---------- Editor setup ----------
 
-const formatKeymap = [
-  { key: "Mod-b", run: toggleBold },
-  { key: "Mod-i", run: toggleItalic },
-  { key: "Mod-Shift-x", run: toggleStrikethrough },
-  { key: "Mod-e", run: toggleCode },
-  { key: "Mod-k", run: insertLink },
-  { key: "Mod-l", run: toggleTask },
-  { key: "Mod-Shift-h", run: toggleHighlight },
-  { key: "Mod-Alt-0", run: setHeading(0) },
-  { key: "Mod-Alt-1", run: setHeading(1) },
-  { key: "Mod-Alt-2", run: setHeading(2) },
-  { key: "Mod-Alt-3", run: setHeading(3) },
-  { key: "Mod-Shift-v", run: pastePlainText }, // Paste as Plain Text (Windows convention)
+// The editor's own shortcuts, as command names (the `commands` table below).
+// These are the defaults; the app replaces them through `setHotkeys` when the
+// user customises shortcuts (Settings › Hotkeys, HK-01), so the editor's
+// keymap and the app's menus never disagree.
+const defaultEditorHotkeys = [
+  { key: "Mod-b", command: "bold" },
+  { key: "Mod-i", command: "italic" },
+  { key: "Mod-Shift-x", command: "strikethrough" },
+  { key: "Mod-e", command: "code" },
+  { key: "Mod-k", command: "link" },
+  { key: "Mod-l", command: "task" },
+  { key: "Mod-Shift-h", command: "highlight" },
+  { key: "Mod-Alt-0", command: "heading0" },
+  { key: "Mod-Alt-1", command: "heading1" },
+  { key: "Mod-Alt-2", command: "heading2" },
+  { key: "Mod-Alt-3", command: "heading3" },
+  { key: "Mod-Shift-v", command: "pastePlainText" }, // Paste as Plain Text (Windows convention)
+  { key: "Mod-f", command: "find" },
+  { key: "F3", command: "findNext" },
+  { key: "Shift-F3", command: "findPrevious" },
+  { key: "Mod-Shift-[", command: "foldHeading" },
+  { key: "Mod-Shift-]", command: "unfoldHeading" },
+  { key: "Alt-Shift-ArrowUp", command: "tableMoveRowUp" },
+  { key: "Alt-Shift-ArrowDown", command: "tableMoveRowDown" },
+  { key: "Alt-Shift-ArrowLeft", command: "tableMoveColumnLeft" },
+  { key: "Alt-Shift-ArrowRight", command: "tableMoveColumnRight" },
+  { key: "Ctrl-Alt-Shift-ArrowUp", command: "tableInsertRowAbove" },
+  { key: "Ctrl-Alt-Shift-ArrowDown", command: "tableInsertRowBelow" },
+  { key: "Ctrl-Alt-Shift-ArrowLeft", command: "tableInsertColumnLeft" },
+  { key: "Ctrl-Alt-Shift-ArrowRight", command: "tableInsertColumnRight" },
+  { key: "Alt-Shift-Backspace", command: "tableDeleteRow" },
+  { key: "Ctrl-Alt-Shift-Backspace", command: "tableDeleteColumn" },
 ];
+
+// The keys above are the app's to assign, so CodeMirror's own bindings for them step aside.
+const REBINDABLE_SEARCH_KEYS = new Set(["Mod-f", "F3", "Mod-d"]);
+const fixedSearchKeymap = searchKeymap.filter((binding) => !REBINDABLE_SEARCH_KEYS.has(binding.key));
 
 const markdownSupport = markdown({
   base: markdownLanguage,
@@ -226,7 +249,6 @@ function createEditor(parent, pane = "main") {
     emoji,
     folding,
     headingFolding,
-    keymap.of(headingFoldKeymap),
     comments,
     codeBlockTools((code) => send({ type: "copy", text: code })),
     inlineImages,
@@ -257,69 +279,7 @@ function createEditor(parent, pane = "main") {
   const focusing = new Compartment();
   let focusModeOn = false;
 
-  /** Brings the view in line with the current mode and focus mode (saved states may be behind). */
-  function syncMode() {
-    const effects = [];
-    if (modes.get(view.state) !== modeExtensions[currentMode]) {
-      effects.push(modes.reconfigure(modeExtensions[currentMode]), setFocused.of(currentMode !== "reading" && view.hasFocus));
-    }
-    const wantFocus = focusModeOn ? focusMode : noFocusMode;
-    if (focusing.get(view.state) !== wantFocus) effects.push(focusing.reconfigure(wantFocus));
-    if (effects.length) view.dispatch({ effects });
-  }
-
-  const extensions = (mode) => [
-    history(),
-    drawSelection(),
-    dropCursor(),
-    rectangularSelection(),
-    EditorState.allowMultipleSelections.of(true),
-    indentOnInput(),
-    markdownSupport,
-    markdownKeys,
-    syntaxHighlighting(holocronHighlight),
-    syntaxHighlighting(codeHighlight),
-    firstLineHeading,
-    paragraphSpacing,
-    tableEditing,
-    closeBrackets(),
-    wrapSelectionOnInput,
-    linkAutocomplete,
-    search({ top: true }),
-    EditorView.lineWrapping,
-    modes.of(modeExtensions[mode]),
-    focusing.of(focusModeOn ? focusMode : noFocusMode),
-    keymap.of([
-      ...formatKeymap,
-      ...closeBracketsKeymap,
-      ...searchKeymap,
-      ...historyKeymap,
-      ...defaultKeymap,
-      indentWithTab,
-    ]),
-    imagePaste((image) => send({ type: "pasteImage", ...image })),
-    // Formatted pastes as markdown; local pictures in them are saved as attachments first.
-    pasteMarkdown({
-      saveImage: (mime, data) => window.holocronHost?.call("saveAttachmentData", "", mime, data) ?? Promise.resolve(null),
-      importFile: (path) => window.holocronHost?.call("importFiles", [path]).then((texts) => texts?.[0] ?? null) ?? Promise.resolve(null),
-      // A lone pasted link becomes [Page title](url) (ED-76; main returns null when the setting is off).
-      fetchTitle: window.holocronHost ? (url) => window.holocronHost.call("fetchPageTitle", url) : undefined,
-    }),
-    EditorView.contentAttributes.of({ spellcheck: "true", autocorrect: "off", autocapitalize: "off" }),
-    EditorView.domEventHandlers({ focus: () => void claimNoteContext() }),
-    placeholder("Start writing…"),
-    holocronTheme,
-    notifyNative,
-  ];
-
-  function createState(text) {
-    return EditorState.create({ doc: text, extensions: extensions(currentMode) });
-  }
-
-  const view = new EditorView({ state: createState(""), parent });
-  const savedStates = new Map();
-
-  // ---------- API called from Swift ----------
+  // ---------- Commands (what Swift / the app runs by name) ----------
 
   const commands = {
     undo,
@@ -358,7 +318,89 @@ function createEditor(parent, pane = "main") {
     tidyNote,
   };
 
+  // The editor's shortcuts live in a compartment so `setHotkeys` can swap
+  // them without rebuilding the editor (HK-01). High precedence: the table
+  // keys must beat CodeMirror's defaults (Alt+Shift+↑ copies a line otherwise).
+  const hotkeys = new Compartment();
+  const hotkeyKeymap = (entries) => Prec.high(keymap.of(entries.filter(({ command }) => commands[command]).map(({ key, command }) => ({ key, run: commands[command] }))));
+  let currentHotkeys = hotkeyKeymap(defaultEditorHotkeys);
+
+  /** Brings the view in line with the current mode, focus mode and hotkeys (saved states may be behind). */
+  function syncMode() {
+    const effects = [];
+    if (modes.get(view.state) !== modeExtensions[currentMode]) {
+      effects.push(modes.reconfigure(modeExtensions[currentMode]), setFocused.of(currentMode !== "reading" && view.hasFocus));
+    }
+    const wantFocus = focusModeOn ? focusMode : noFocusMode;
+    if (focusing.get(view.state) !== wantFocus) effects.push(focusing.reconfigure(wantFocus));
+    if (hotkeys.get(view.state) !== currentHotkeys) effects.push(hotkeys.reconfigure(currentHotkeys));
+    if (effects.length) view.dispatch({ effects });
+  }
+
+  const extensions = (mode) => [
+    history(),
+    drawSelection(),
+    dropCursor(),
+    rectangularSelection(),
+    EditorState.allowMultipleSelections.of(true),
+    indentOnInput(),
+    markdownSupport,
+    markdownKeys,
+    syntaxHighlighting(holocronHighlight),
+    syntaxHighlighting(codeHighlight),
+    firstLineHeading,
+    paragraphSpacing,
+    tableEditing,
+    closeBrackets(),
+    wrapSelectionOnInput,
+    linkAutocomplete,
+    search({ top: true }),
+    EditorView.lineWrapping,
+    modes.of(modeExtensions[mode]),
+    focusing.of(focusModeOn ? focusMode : noFocusMode),
+    hotkeys.of(currentHotkeys),
+    keymap.of([
+      ...closeBracketsKeymap,
+      ...fixedSearchKeymap,
+      ...historyKeymap,
+      ...defaultKeymap,
+      indentWithTab,
+    ]),
+    imagePaste((image) => send({ type: "pasteImage", ...image })),
+    // Formatted pastes as markdown; local pictures in them are saved as attachments first.
+    pasteMarkdown({
+      saveImage: (mime, data) => window.holocronHost?.call("saveAttachmentData", "", mime, data) ?? Promise.resolve(null),
+      importFile: (path) => window.holocronHost?.call("importFiles", [path]).then((texts) => texts?.[0] ?? null) ?? Promise.resolve(null),
+      // A lone pasted link becomes [Page title](url) (ED-76; main returns null when the setting is off).
+      fetchTitle: window.holocronHost ? (url) => window.holocronHost.call("fetchPageTitle", url) : undefined,
+    }),
+    EditorView.contentAttributes.of({ spellcheck: "true", autocorrect: "off", autocapitalize: "off" }),
+    EditorView.domEventHandlers({ focus: () => void claimNoteContext() }),
+    placeholder("Start writing…"),
+    holocronTheme,
+    notifyNative,
+  ];
+
+  function createState(text) {
+    return EditorState.create({ doc: text, extensions: extensions(currentMode) });
+  }
+
+  const view = new EditorView({ state: createState(""), parent });
+  const savedStates = new Map();
+
+  // ---------- API called from Swift ----------
+
   const api = {
+    /**
+     * Replaces the editor's shortcuts with the app's effective ones (HK-01):
+     * `[{ key: "Ctrl-b", command: "bold" }, …]` in CodeMirror's key spelling.
+     * Takes effect at once, in saved states too.
+     */
+    setHotkeys(entries) {
+      currentHotkeys = hotkeyKeymap(Array.isArray(entries) ? entries : defaultEditorHotkeys);
+      syncMode();
+    },
+
     /** Shows a note. `id` identifies it (Swift passes the file path). */
     setDocument(text, id) {
       if (currentId !== null && currentId !== id) {

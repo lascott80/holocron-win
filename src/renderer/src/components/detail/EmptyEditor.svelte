@@ -33,11 +33,16 @@
   const title = (path: string) => (path.split("/").pop() ?? path).replace(/\.md$/i, "");
   const folder = (path: string) => path.split("/").slice(0, -1).join(" / ");
 
-  const hints: [string, string][] = [
-    [shortcut("commandPalette") ?? "Ctrl+Shift+P", "Commands"],
-    [shortcut("searchVault") ?? "Ctrl+Shift+F", "Search"],
-    [shortcut("focusMode") ?? "Ctrl+Alt+F", "Focus"],
-  ];
+  // Follows Settings › Hotkeys (HK-01); a command left without a key drops out.
+  const hints = $derived(
+    (
+      [
+        [shortcut("commandPalette"), "Commands"],
+        [shortcut("searchVault"), "Search"],
+        [shortcut("focusMode"), "Focus"],
+      ] as [string | undefined, string][]
+    ).filter((hint): hint is [string, string] => Boolean(hint[0])),
+  );
 </script>
 
 <div class="empty-editor">

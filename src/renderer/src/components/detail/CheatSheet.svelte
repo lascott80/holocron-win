@@ -14,7 +14,7 @@
         ["/", "On an empty line: insert a heading, table, callout…"],
         ["select, then * _ ~ = `", "Wraps the selection (twice for **bold**)"],
         ["Alt+↑  Alt+↓", "Move the line (or selected lines)"],
-        ["Ctrl+Shift+[  Ctrl+Shift+]", "Fold / unfold the heading’s section"],
+        [`${key("foldHeading")}  ${key("unfoldHeading")}`.trim(), "Fold / unfold the heading’s section"],
         ["Ctrl+click", "Open a link on the line you’re editing"],
         ["Ctrl+D", "Select the next match (more cursors)"],
         [key("splitRight"), "Split Right: this note beside itself"],

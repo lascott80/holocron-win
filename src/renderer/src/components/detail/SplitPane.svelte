@@ -6,7 +6,7 @@
   import { app } from "../../lib/app.svelte";
   import { call, run, type EditorApi } from "../../lib/host";
   import { editorVariables } from "../../lib/theme";
-  import { zoomText } from "../../lib/commands";
+  import { editorHotkeys, zoomText } from "../../lib/commands";
 
   const split = $derived(app.vault?.split ?? null);
   let parent = $state<HTMLDivElement>();
@@ -35,6 +35,9 @@
   });
   $effect(() => {
     api?.setRevealMode(app.settings.revealMarkup);
+  });
+  $effect(() => {
+    api?.setHotkeys(editorHotkeys());
   });
 
   // Closing split view while typing in it hands commands back to the main editor.

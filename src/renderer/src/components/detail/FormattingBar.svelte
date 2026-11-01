@@ -59,7 +59,8 @@
     return `${button.title} — ${button.markdown}` + (shortcut ? ` (${shortcut})` : "");
   }
 
-  const headingShortcut = (commandById.get("heading1")?.shortcut ?? "Ctrl+Alt+1").replace(/1$/, "1–3");
+  // Follows Settings › Hotkeys (HK-01), like the tooltips.
+  const headingShortcut = $derived((commandById.get("heading1")?.shortcut ?? "Ctrl+Alt+1").replace(/1$/, "1–3"));
 
   let headingButton = $state<HTMLButtonElement>();
   let headingOpen = $state(false);

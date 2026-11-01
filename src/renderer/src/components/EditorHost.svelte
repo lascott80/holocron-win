@@ -5,9 +5,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { app } from "../lib/app.svelte";
-  import { call, editor } from "../lib/host";
+  import { call, editor, editorFor } from "../lib/host";
   import { editorVariables } from "../lib/theme";
-  import { zoomText } from "../lib/commands";
+  import { editorHotkeys, zoomText } from "../lib/commands";
   import BacklinksPanel from "./detail/BacklinksPanel.svelte";
 
   let { visible }: { visible: boolean } = $props();
@@ -41,6 +41,12 @@
   $effect(() => {
     const mode = app.settings.revealMarkup;
     if (app.editorReady) editor()?.setRevealMode(mode);
+  });
+
+  // Custom shortcuts (HK-01): the editor's keymap follows Settings › Hotkeys at once.
+  $effect(() => {
+    const entries = editorHotkeys();
+    if (app.editorReady) editorFor("main")?.setHotkeys(entries);
   });
 
   function hasFiles(event: DragEvent) {
