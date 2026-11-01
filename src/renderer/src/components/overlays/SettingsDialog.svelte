@@ -45,8 +45,8 @@
   const s = $derived(app.settings);
 
   // ---- Text fields ----
-  type TextKey = "attachmentFolder" | "templatesFolder" | "dailyNoteFolder" | "dailyNoteFormat" | "dailyNoteTemplate" | "quickCaptureInbox";
-  const textKeys: TextKey[] = ["attachmentFolder", "templatesFolder", "dailyNoteFolder", "dailyNoteFormat", "dailyNoteTemplate", "quickCaptureInbox"];
+  type TextKey = "attachmentFolder" | "templatesFolder" | "dailyNoteFolder" | "dailyNoteFormat" | "dailyNoteTemplate" | "quickCaptureInbox" | "editorFontFamily" | "readingFontFamily" | "uiFontFamily";
+  const textKeys: TextKey[] = ["attachmentFolder", "templatesFolder", "dailyNoteFolder", "dailyNoteFormat", "dailyNoteTemplate", "quickCaptureInbox", "editorFontFamily", "readingFontFamily", "uiFontFamily"];
   let drafts = $state(Object.fromEntries(textKeys.map((key) => [key, app.settings[key]])) as Record<TextKey, string>);
   let editing = $state<TextKey | null>(null);
   const timers = new Map<TextKey, ReturnType<typeof setTimeout>>();
@@ -188,12 +188,29 @@
     { value: "light", label: "Light" },
   ];
   // Each font's name, drawn in that font, so the choice previews itself.
-  const fontOptions: { value: EditorFont; label: string; font: string }[] = (["system", "serif", "mono"] as const).map((value) => ({
+  const fontOptions: { value: EditorFont; label: string; font?: string }[] = (["system", "serif", "mono", "custom"] as const).map((value) => ({
     value,
     label: editorFonts[value].title,
-    font: editorFonts[value].css,
+    // "Custom…" is drawn in the UI font: it stands for whatever is typed below.
+    font: value === "custom" ? undefined : editorFonts[value].css,
   }));
   const readingFontOptions: { value: ReadingFont; label: string; font?: string }[] = [{ value: "same", label: "Same" }, ...fontOptions];
+
+  // ---- Installed fonts (§16.11) ----
+  // Listed once per dialog, from the registry; an empty list leaves plain text fields.
+  let fonts = $state<string[]>([]);
+  let fontsRequested = false;
+  $effect(() => {
+    if (fontsRequested || (tab !== "editor" && tab !== "appearance")) return;
+    fontsRequested = true;
+    call<string[]>("listFonts")
+      .then((names) => (fonts = Array.isArray(names) ? names : []))
+      .catch(() => (fonts = []));
+  });
+  const fontListId = $derived(fonts.length ? "installed-fonts" : undefined);
+
+  // ---- CSS snippets (§16.11) ----
+  const snippets = $derived(app.state.snippets);
   const revealOptions: { value: RevealMarkup; label: string }[] = [
     { value: "line", label: "Whole line" },
     { value: "span", label: "Under cursor" },
@@ -324,11 +341,12 @@
   {@render row(label, control, help)}
 {/snippet}
 
-{#snippet textField(key: TextKey, placeholder: string, label: string)}
+{#snippet textField(key: TextKey, placeholder: string, label: string, list?: string)}
   <input
     id="setting-{key}"
     class="text-field"
     {placeholder}
+    {list}
     aria-label={label}
     spellcheck="false"
     autocomplete="off"
@@ -535,6 +553,41 @@
             </div>
           </div>
         </div>
+        <div class="group">
+          {#snippet uiFont()}{@render textField("uiFontFamily", "Segoe UI Variable", "Interface font", fontListId)}{/snippet}
+          {@render row("Interface font", uiFont, "The font of the sidebar, tabs, menus and dialogs. Leave it empty for Segoe UI Variable.", "setting-uiFontFamily", true)}
+        </div>
+        <h3 class="section-label">CSS snippets</h3>
+        <div class="group">
+          <div class="row stacked">
+            <div class="row-text">
+              <span class="row-label" id="snippets-label">Snippets</span>
+              <span class="row-help">
+                {#if !app.vault}
+                  Open a vault to use snippets.
+                {:else if snippets.length === 0}
+                  Put .css files in the vault’s .holocron\snippets folder, then Reload. Each one can be turned on and off here.
+                {:else}
+                  Stylesheets from the vault’s .holocron\snippets folder, applied in file-name order after the theme. Edits to a file apply when it’s saved.
+                {/if}
+              </span>
+            </div>
+            {#if snippets.length}
+              <div class="snippets" role="group" aria-labelledby="snippets-label">
+                {#each snippets as snippet (snippet.name)}
+                  <div class="snippet">
+                    <span class="snippet-name" title="{snippet.name}.css">{snippet.name}</span>
+                    <Switch label={`Snippet ${snippet.name}`} checked={snippet.enabled} onchange={(on) => run("setSnippetEnabled", snippet.name, on)} />
+                  </div>
+                {/each}
+              </div>
+            {/if}
+            <div class="snippet-actions">
+              <button class="button" disabled={!app.vault} onclick={() => run("openSnippetsFolder")}>Open snippets folder</button>
+              <button class="button" disabled={!app.vault} onclick={() => run("reloadSnippets")}>Reload</button>
+            </div>
+          </div>
+        </div>
       {:else if tab === "editor"}
         <div class="group">
           {@render switchRow("Show the formatting bar above notes", s.showFormattingBar, toggle("showFormattingBar"))}
@@ -542,6 +595,10 @@
             <div class="font-picker"><Segmented label="Font" options={fontOptions} value={s.editorFont} onchange={(value) => app.setSetting("editorFont", value)} /></div>
           {/snippet}
           {@render row("Font", font)}
+          {#if s.editorFont === "custom"}
+            {#snippet fontFamily()}{@render textField("editorFontFamily", "Font name", "Editor font name", fontListId)}{/snippet}
+            {@render row("Font name", fontFamily, fonts.length ? "Pick an installed font, or type its name. Several names separated by commas are tried in order." : "Type the name of an installed font. Several names separated by commas are tried in order.", "setting-editorFontFamily", true)}
+          {/if}
           {#snippet size()}{@render slider("editorFontSize", FONT_SIZE_RANGE, 1, "Text size")}{/snippet}
           {@render row("Text size", size)}
           {@render switchRow("Readable line length — limit the text width instead of filling the window", s.readableLineLength, toggle("readableLineLength"))}
@@ -559,6 +616,10 @@
             <div class="font-picker"><Segmented label="Reading view font" options={readingFontOptions} value={s.readingFont} onchange={(value) => app.setSetting("readingFont", value)} /></div>
           {/snippet}
           {@render row("Reading view font", readingFont)}
+          {#if s.readingFont === "custom"}
+            {#snippet readingFamily()}{@render textField("readingFontFamily", "Font name", "Reading view font name", fontListId)}{/snippet}
+            {@render row("Reading view font name", readingFamily, undefined, "setting-readingFontFamily")}
+          {/if}
           {#snippet reveal()}
             <Segmented label="Show markdown" options={revealOptions} value={s.revealMarkup} onchange={(value) => app.setSetting("revealMarkup", value)} />
           {/snippet}
@@ -621,6 +682,14 @@
       {/if}
     </div>
   </div>
+  {#if fonts.length}
+    <!-- The installed font families, offered by every font-name field (§16.11). -->
+    <datalist id="installed-fonts">
+      {#each fonts as name (name)}
+        <option value={name}></option>
+      {/each}
+    </datalist>
+  {/if}
 </Modal>
 
 <style>
@@ -778,6 +847,38 @@
   }
   .row-help.error {
     color: var(--ui-danger);
+  }
+  /* CSS snippets (§16.11): one row per file with a switch. */
+  .snippets {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 220px;
+    overflow-y: auto;
+    padding: 4px 8px;
+    border: 1px solid var(--ui-border);
+    border-radius: 6px;
+    background: var(--ui-bg);
+  }
+  .snippet {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-width: 0;
+    padding: 3px 2px;
+  }
+  .snippet-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+    font-size: 12px;
+  }
+  .snippet-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
   }
   .languages {
     display: grid;

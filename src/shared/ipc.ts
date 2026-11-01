@@ -4,6 +4,7 @@
 // (REQUIREMENTS §2.1) travel on their own channels.
 
 import type { Settings } from "./settings";
+import type { SnippetView } from "./snippets";
 
 export interface TreeNode {
   /** Vault path ("Lore/Kyber.md"; folders without a trailing slash). */
@@ -164,6 +165,8 @@ export interface AppState {
   quickCapture: QuickCaptureView;
   /** The spell checker: dictionaries Chromium offers, and the ones in use right now. */
   spelling: SpellingView;
+  /** The open vault's CSS snippets (`.holocron/snippets/*.css`, §16.11), in file-name order. */
+  snippets: SnippetView[];
 }
 
 export interface SpellingView {

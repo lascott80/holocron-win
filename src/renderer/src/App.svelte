@@ -5,7 +5,7 @@
 <script lang="ts">
   import { app } from "./lib/app.svelte";
   import { handleKeydown } from "./lib/commands";
-  import { applyTheme } from "./lib/theme";
+  import { applyTheme, applySnippets } from "./lib/theme";
   import TitleBar from "./components/TitleBar.svelte";
   import PopupMenu from "./components/PopupMenu.svelte";
   import EditorHost from "./components/EditorHost.svelte";
@@ -43,6 +43,8 @@
   const hasNote = $derived(Boolean(app.doc));
 
   $effect(() => applyTheme(app.state.isDark, app.settings));
+  // CSS snippets (§16.11) go in after every stylesheet, so they win on equal specificity.
+  $effect(() => applySnippets(app.state.snippets));
 
   // Panel widths (UI-02): sidebar 200–400 (260), inspector 240–420 (290).
   function storedWidth(key: string, fallback: number) {
