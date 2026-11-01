@@ -151,3 +151,16 @@ Mostly ⌘ → Ctrl, with these deliberate changes (REQUIREMENTS §17.2):
 
 App shortcuts match on the character typed, so AltGr combinations on
 international keyboards never trigger them. Tapping Alt opens the menu bar.
+
+**Custom hotkeys** (Settings › Hotkeys, REQUIREMENTS HK-01): every command
+is listed by menu with its shortcut. Click a shortcut and press the keys
+(Esc keeps the current one, Backspace removes it); × clears it, ↺ puts the
+default back, and "Restore all defaults" forgets every change. The menus,
+palette, tooltips, cheat sheet and the editor follow at once. A key needs
+Ctrl or Alt unless it's a function key, so the keys you type with (Enter,
+Tab, Backspace, arrows) can't be taken. If two commands share a key the one
+you set last wins and the other is shown in amber. Only your changes are
+stored, as `hotkeys` in `holocron.json` (`{ "newFolder": "Ctrl+Shift+D",
+"bold": null }`; `null` = no shortcut). The quick-capture shortcut above is
+separate (it needs the Windows key, Ctrl or Alt) and refuses any key the
+app uses. Undo/Redo and Cut/Copy/Paste keep their standard keys.

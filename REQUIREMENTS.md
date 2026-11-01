@@ -715,11 +715,13 @@ Every command must be reachable from a menu (and so from the palette).
 
 Editor-only keys: §10.8, §10.11–10.13. Palette/picker keys: §9.1.
 
+**HK-01 Custom hotkeys** (*Windows*): every menu command has a stable id (the command registry's; `tab1`–`tab8`, `lastTab`, `commandPalette` and the palette-only appearance commands included) and its shortcut can be changed in Settings › Hotkeys (§13). The effective map is the built-in defaults overlaid by the stored overrides, and *everything* reads it: the menu bar, the palette's shortcut labels (QO-05), the formatting bar's tooltips and heading menu, the cheat sheet, the empty-editor tiles, the window's keydown matcher and the editor's own keymap (rebuilt through `setHotkeys` whenever the map changes — formatting, find, heading folds, Paste as Plain Text and the table row/column keys live there). A change applies at once, without a restart. Accelerators use the quick-capture canonical form without the Windows key (Ctrl, Alt, Shift, then one key; "Ctrl+Shift+N", "Alt+PageUp", "F3"); a key needs Ctrl or Alt unless it's a function key, so the keys CodeMirror uses for typing (Enter, Tab, Backspace, plain or shifted arrows and letters) and Escape can never be bound. Two commands may hold the same key: the one bound last wins (an override beats a default; a later override beats an earlier one) and the other is shown in amber. Unlisted alternatives (Ctrl+F4 for Close Tab, Ctrl+PageUp/PageDown for the tabs, Ctrl++ for Zoom In) apply only while their command keeps its default. Undo/Redo and the standard Cut/Copy/Paste keys aren't rebindable; the quick-capture system-wide shortcut is set on its own row in General (§13) and refuses any key in the customised map. Matching stays on the typed character (§17.2), so AltGr combinations never trigger a custom Ctrl+Alt binding either.
+
 ---
 
 ## 13. Settings
 
-Stored per user (Mac: UserDefaults). Window with four tabs; the last tab is remembered.
+Stored per user (Mac: UserDefaults). Window with four tabs (five on Windows, with Hotkeys); the last tab is remembered.
 
 | Tab | Label | Key | Default | Notes |
 |---|---|---|---|---|
@@ -763,6 +765,8 @@ Stored per user (Mac: UserDefaults). Window with four tabs; the last tab is reme
 | (View menu) | View mode | `editorMode` | livePreview | livePreview / source / reading |
 | (Files header, View menu) | Sort files | `fileSort` | name | name / nameDesc / modified / created (UI-10a) |
 | General › Files (*Windows*) | Keep a history of note versions | `keepHistory` | on | HIS-01. Below it: the vault's history size and a Clear History button |
+| Hotkeys (*Windows*) | Filter commands (a search field) and Restore all defaults (disabled with no overrides) | — | | HK-01. Below: every rebindable command grouped by menu (File, Edit, View, Go, Format, Help, then Appearance for the palette-only commands) with its shortcut in force |
+| Hotkeys (*Windows*) | Per command: the shortcut (a key recorder: click or press Enter, then press the keys; Esc keeps the current one, Backspace/Delete clears it to "None"), × Remove shortcut, ↺ Reset to default (enabled only for an override) | `hotkeys` | `{}` | Only overrides are stored: command id → accelerator, or null for unbound; an entry equal to the default is removed. Unknown ids and unusable accelerators are dropped on load. A row whose key another command also has shows "Also used by <name> — the one set last wins" in amber; a combination that can't be bound says "That key is used for typing. Add Ctrl or Alt, or use a function key." |
 
 UI state also persisted: inspector visible (`showInspector`), inspector tab, tags and bookmarks sections expanded, settings tab, per-vault tabs and recents (§7).
 
@@ -1024,7 +1028,7 @@ Map ⌘ → Ctrl, ⌥ → Alt, ⇧ → Shift, ⌃ → Ctrl where it would otherw
 | ⌥-drag rectangular selection | Alt-drag | |
 | — | Tapping Alt opens the menu bar | Windows convention |
 
-App shortcuts are matched on `KeyboardEvent.key` (digits also by physical key), in the capture phase so they win over the editor's defaults; formatting and find keys are left to the editor while it has focus.
+App shortcuts are matched on `KeyboardEvent.key` (shifted digits and punctuation also by physical key), in the capture phase so they win over the editor's defaults; formatting and find keys are left to the editor while it has focus. Custom bindings (HK-01) are matched the same way.
 
 ### 17.3 Platform UX differences
 
@@ -1131,7 +1135,7 @@ Found while documenting the Mac app (0.1). The last column says how the Windows 
 
 See `Holocron Roadmap.md` for the full roadmap. Not part of the current product (don't treat as requirements for parity): quick capture, Shortcuts/Siri, Spotlight, Share/Services, tasks view, daily-notes calendar, version history, editing properties inline, vault-wide search & replace, editing inside embeds, split view, bookmarks, sidebar sort options, note icons, export & print, themes/CSS snippets, vault health, large-vault caching, multiple windows, a dedicated Holocron iCloud folder, signing/notarisation/auto-updates.
 
-*Built in the Windows port since this list was written:* quick capture (with a tray icon and taskbar jump list, §22), maths (ED-53), Mermaid (ED-52), PDF/audio/video embeds (ED-56), heading folding (ED-38a), HTML rendering (ED-55), emoji shortcodes (ED-54), more code languages (ED-37), reduce-motion support (animations and transitions are cut to near zero when Windows' "Animation effects" is off), and — from 0.8.0 — vault-wide search & replace (SRCH-10), sidebar sort options (UI-10a), multi-select in the file tree (UI-10b), bookmarks (UI-14a) and pinned tabs (TAB-12), a tasks view (§9.4), a daily-notes calendar (DAY-07), version history (§14.6), a disk cache for the index (NFR-03), crash recovery (§22, Failures) and spell-check languages (§13); and — from 0.10.0 — split view (UI-40), editing properties in place (ED-75), sync conflict copies (UI-41), a graph view (UI-42), reordering sections from the outline (UI-43), page titles for pasted links (ED-76) and YouTube thumbnails (ED-77).
+*Built in the Windows port since this list was written:* quick capture (with a tray icon and taskbar jump list, §22), maths (ED-53), Mermaid (ED-52), PDF/audio/video embeds (ED-56), heading folding (ED-38a), HTML rendering (ED-55), emoji shortcodes (ED-54), more code languages (ED-37), reduce-motion support (animations and transitions are cut to near zero when Windows' "Animation effects" is off), and — from 0.8.0 — vault-wide search & replace (SRCH-10), sidebar sort options (UI-10a), multi-select in the file tree (UI-10b), bookmarks (UI-14a) and pinned tabs (TAB-12), a tasks view (§9.4), a daily-notes calendar (DAY-07), version history (§14.6), a disk cache for the index (NFR-03), crash recovery (§22, Failures) and spell-check languages (§13); and — from 0.10.0 — split view (UI-40), editing properties in place (ED-75), sync conflict copies (UI-41), a graph view (UI-42), reordering sections from the outline (UI-43), page titles for pasted links (ED-76) and YouTube thumbnails (ED-77); and — after 0.10.1 — custom hotkeys (HK-01, Settings › Hotkeys).
 
 *Not built in the Windows port yet:* everything above that's still listed, plus §15 cloud handling (iCloud doesn't apply; OneDrive/Dropbox placeholders from §17.4 aren't built — conflict copies are, UI-41), dragging notes out of the sidebar to File Explorer, math inside callouts/blockquotes, inline HTML inside rendered table cells, remote (https) media, and code signing.
 
@@ -1153,7 +1157,7 @@ How this repository's Electron app (0.2.0) realises the spec, and where it delib
 - Fonts: UI Segoe UI Variable; editor System = Segoe UI Variable, Serif = Cambria/Georgia, Monospaced = Cascadia Mono/Consolas.
 - Wording: "Show in File Explorer", "Recycle Bin", Ctrl-based shortcuts everywhere (tooltips, cheat sheet, the Start Here guide).
 - The file tree also supports middle-click to open in a new tab (Ctrl-click selects several rows, UI-10b), F2 to rename, Home/End and ←/→ to collapse/expand, and expanding a collapsed folder by hovering over it while dragging. Middle-click closes a tab.
-- Settings is a modal dialog with a left-hand list of the four tabs.
+- Settings is a modal dialog with a left-hand list of the five tabs (General, Appearance, Editor, Hotkeys, Templates).
 
 **Files** (§3, §6)
 - Deletion goes to the Recycle Bin (`shell.trashItem`). Electron can't say where an item went, so for Undo a copy is first staged in the app's data folder; Undo restores from it, and it's removed after 60 s. Toasts read "Moved “X” to the Recycle Bin".

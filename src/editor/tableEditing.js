@@ -328,15 +328,12 @@ export const tableEditing = [
   tidyOnLeave,
   tidyOnEnter,
   tablePaste,
+  // The row/column keys (Alt+Shift+arrows…) come from the editor's rebindable
+  // keymap in main.js (`tableCommands` by name), so Settings › Hotkeys can change them.
   Prec.high(keymap.of([
     { key: "Tab", run: nextCell },
     { key: "Shift-Tab", run: previousCell },
     { key: "Enter", run: (view) => completeHeader(view) || nextRow(view), shift: leaveTable },
-    { key: "Alt-Shift-ArrowUp", run: moveRow(-1) }, { key: "Ctrl-Alt-Shift-ArrowUp", run: insertRow(false) },
-    { key: "Alt-Shift-ArrowDown", run: moveRow(1) }, { key: "Ctrl-Alt-Shift-ArrowDown", run: insertRow(true) },
-    { key: "Alt-Shift-ArrowLeft", run: moveColumn(-1) }, { key: "Ctrl-Alt-Shift-ArrowLeft", run: insertColumn(false) },
-    { key: "Alt-Shift-ArrowRight", run: moveColumn(1) }, { key: "Ctrl-Alt-Shift-ArrowRight", run: insertColumn(true) },
-    { key: "Alt-Shift-Backspace", run: deleteRow }, { key: "Ctrl-Alt-Shift-Backspace", run: deleteColumn },
   ])),
 ];
 

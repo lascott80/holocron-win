@@ -1,6 +1,7 @@
 // User preferences (REQUIREMENTS §13), shared by the main process and the renderer.
 
 import { crystalIds, darkThemeIds, DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, lightThemeIds, type Crystal } from "./themes";
+import { sanitizeHotkeys, type HotkeyMap } from "./hotkeys";
 
 export type Appearance = "system" | "dark" | "light";
 /** A crystal, or "theme": the active colour theme's own accent. */
@@ -10,7 +11,7 @@ export type EditorMode = "livePreview" | "source" | "reading";
 export type InspectorTab = "outline" | "links" | "info";
 /** Order of the file tree (folders always first): by name, or newest first by modification or creation time. */
 export type FileSort = "name" | "nameDesc" | "modified" | "created";
-export type SettingsTab = "general" | "appearance" | "editor" | "templates";
+export type SettingsTab = "general" | "appearance" | "editor" | "hotkeys" | "templates";
 export type CaptureTarget = "daily" | "inbox";
 export type ParagraphSpacing = "compact" | "normal" | "relaxed";
 /** The reading view's font: the editor's own ("same") or another one. */
@@ -84,6 +85,8 @@ export interface Settings {
   fileSort: FileSort;
   /** Keep snapshots of notes as they're saved, for File › Version History (HIS-01). */
   keepHistory: boolean;
+  /** Custom shortcuts (HK-01): only the overrides, command id → accelerator, or null for unbound. */
+  hotkeys: HotkeyMap;
   // Remembered UI state
   showInspector: boolean;
   showSidebar: boolean;
@@ -138,6 +141,7 @@ export const defaultSettings: Settings = {
   lastEditingMode: "livePreview",
   fileSort: "name",
   keepHistory: true,
+  hotkeys: {},
   showInspector: true,
   showSidebar: true,
   inspectorTab: "outline",
@@ -179,7 +183,8 @@ export function sanitizeSettings(raw: Partial<Record<keyof Settings, unknown>>):
   result.lastEditingMode = oneOf(result.lastEditingMode, ["livePreview", "source"], "livePreview");
   result.inspectorTab = oneOf(result.inspectorTab, ["outline", "links", "info"], "outline");
   result.fileSort = oneOf<FileSort>(result.fileSort, ["name", "nameDesc", "modified", "created"], "name");
-  result.settingsTab = oneOf(result.settingsTab, ["general", "appearance", "editor", "templates"], "general");
+  result.settingsTab = oneOf(result.settingsTab, ["general", "appearance", "editor", "hotkeys", "templates"], "general");
+  result.hotkeys = sanitizeHotkeys(result.hotkeys);
   result.attachmentLayout = oneOf<AttachmentLayout>(result.attachmentLayout, ["perNote", "single"], "perNote");
   result.quickCaptureTarget = oneOf(result.quickCaptureTarget, ["daily", "inbox"], "daily");
   result.quickCaptureShortcut = normalizeShortcut(result.quickCaptureShortcut) ?? defaultSettings.quickCaptureShortcut;

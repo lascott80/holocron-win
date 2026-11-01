@@ -1,8 +1,9 @@
-<!-- Settings (§13): General / Appearance / Editor / Templates; the last tab is remembered.
+<!-- Settings (§13): General / Appearance / Editor / Hotkeys / Templates; the last tab is remembered.
      Toggles apply at once; text fields save shortly after typing stops and are trimmed on blur. -->
 <script lang="ts">
   import { onDestroy, type Snippet } from "svelte";
-  import { Files, Palette, Settings2, Type, X } from "@lucide/svelte";
+  import { Files, Keyboard, Palette, RotateCcw, Settings2, Type, X } from "@lucide/svelte";
+  import { hotkeyConflicts, recordHotkey } from "@shared/hotkeys";
   import { dailyNotePath } from "@core/dailyNotes";
   import {
     defaultSettings,
@@ -25,7 +26,7 @@
     type SettingsTab,
   } from "@shared/settings";
   import { app } from "../../lib/app.svelte";
-  import { commands } from "../../lib/commands";
+  import { boundHotkeys, commandById, defaultHotkeys, hotkeyGroups, hotkeyMap } from "../../lib/commands";
   import { call, run } from "../../lib/host";
   import { accents, activeTheme, darkThemes, editorFonts, lightThemes } from "../../lib/theme";
   import { accentColors } from "@shared/themes";
@@ -39,6 +40,7 @@
     { value: "general", label: "General", icon: Settings2 },
     { value: "appearance", label: "Appearance", icon: Palette },
     { value: "editor", label: "Editor", icon: Type },
+    { value: "hotkeys", label: "Hotkeys", icon: Keyboard },
     { value: "templates", label: "Templates", icon: Files },
   ];
   const tab = $derived(app.settings.settingsTab);
@@ -166,12 +168,90 @@
       shortcutProblem = "Use Ctrl, Alt or the Windows key together with another key.";
       return;
     }
-    const clash = commands.find((command) => !command.globalShortcut && [command.shortcut, ...(command.alsoKeys ?? [])].some((s) => s && normalizeShortcut(s) === shortcut));
+    // Holocron's own shortcuts, as customised in the Hotkeys tab, are refused.
+    const clash = boundHotkeys().find((binding) => normalizeShortcut(binding.key) === shortcut);
     if (clash) {
-      shortcutProblem = `Holocron already uses ${shortcutLabel(shortcut)} for “${clash.title}”.`;
+      shortcutProblem = `Holocron already uses ${shortcutLabel(shortcut)} for “${commandById.get(clash.id)?.title ?? clash.id}”.`;
       return;
     }
     setShortcut(shortcut);
+  }
+
+  // ---- Hotkeys (HK-01) ----
+  // Every rebindable command with the shortcut in force; click one (or press
+  // Enter on it) and press the keys. Esc keeps the current one, Backspace
+  // clears it. Only overrides are stored, so Reset just forgets one.
+  let hotkeyFilter = $state("");
+  let recordingHotkey = $state<string | null>(null);
+  let hotkeyProblem = $state<string | null>(null);
+  const hotkeyGroupList = hotkeyGroups();
+  const effectiveHotkeyMap = $derived(hotkeyMap());
+  const overrideCount = $derived(Object.keys(s.hotkeys).length);
+  const filteredHotkeyGroups = $derived.by(() => {
+    const query = hotkeyFilter.trim().toLowerCase();
+    return hotkeyGroupList
+      .map((group) => ({
+        title: group.title,
+        commands: group.commands.filter((command) => !query || command.title.toLowerCase().includes(query) || (command.shortcut ?? "").toLowerCase().includes(query)),
+      }))
+      .filter((group) => group.commands.length > 0);
+  });
+  /** The other commands sharing this command's key (shown in amber; the one bound last wins). */
+  function conflictNames(id: string): string[] {
+    return hotkeyConflicts(effectiveHotkeyMap, id).map((other) => commandById.get(other)?.title ?? other);
+  }
+  const isOverridden = (id: string) => id in s.hotkeys;
+  /** Stores an override (null = unbound); a value equal to the default removes the override. */
+  function setHotkey(id: string, value: string | null) {
+    const next = { ...s.hotkeys };
+    delete next[id]; // re-added last, so the newest binding wins a conflict
+    if (value !== (defaultHotkeys[id] ?? null)) next[id] = value;
+    app.setSetting("hotkeys", next);
+  }
+  function resetHotkey(id: string) {
+    if (!isOverridden(id)) return;
+    const next = { ...s.hotkeys };
+    delete next[id];
+    app.setSetting("hotkeys", next);
+  }
+  function startHotkeyRecording(id: string) {
+    recordingHotkey = id;
+    hotkeyProblem = null;
+  }
+  function stopHotkeyRecording() {
+    recordingHotkey = null;
+  }
+  function onHotkeyKeydown(event: KeyboardEvent, id: string) {
+    if (recordingHotkey !== id) {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        startHotkeyRecording(id);
+      }
+      return;
+    }
+    if (event.key === "Tab" && !event.ctrlKey && !event.altKey && !event.metaKey) {
+      stopHotkeyRecording();
+      return; // let focus move on
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === "Escape") {
+      stopHotkeyRecording();
+      return;
+    }
+    if ((event.key === "Backspace" || event.key === "Delete") && !event.ctrlKey && !event.altKey && !event.shiftKey) {
+      setHotkey(id, null);
+      stopHotkeyRecording();
+      return;
+    }
+    const hotkey = recordHotkey(event);
+    if (hotkey === null) return; // a modifier on its own: wait for the key
+    if (hotkey === "") {
+      hotkeyProblem = "That key is used for typing. Add Ctrl or Alt, or use a function key.";
+      return;
+    }
+    setHotkey(id, hotkey);
+    stopHotkeyRecording();
   }
 
   const captureError = $derived(shortcutProblem ?? (s.quickCaptureEnabled && !recording ? app.state.quickCapture.error : null));
@@ -589,6 +669,65 @@
             "Each note’s files go in a subfolder that moves with the note. File › Organise Attachments… sorts existing files.",
           )}
         </div>
+      {:else if tab === "hotkeys"}
+        <div class="hotkeys-toolbar">
+          <input
+            class="text-field hotkeys-filter"
+            type="search"
+            placeholder="Filter commands"
+            aria-label="Filter commands"
+            spellcheck="false"
+            autocomplete="off"
+            bind:value={hotkeyFilter}
+          />
+          <button class="button" disabled={overrideCount === 0} onclick={() => app.setSetting("hotkeys", {})}>Restore all defaults</button>
+        </div>
+        <p class="hotkeys-help" class:error={hotkeyProblem !== null} role={hotkeyProblem ? "alert" : undefined}>
+          {hotkeyProblem ??
+            (recordingHotkey ? "Press the new shortcut. Esc keeps the current one; Backspace removes it." : "Click a shortcut and press the keys you want. Changes apply at once.")}
+        </p>
+        {#each filteredHotkeyGroups as group (group.title)}
+          <h3 class="section-label">{group.title}</h3>
+          <div class="group">
+            {#each group.commands as command (command.id)}
+              {@const key = effectiveHotkeyMap[command.id]}
+              {@const conflicts = conflictNames(command.id)}
+              {@const overridden = isOverridden(command.id)}
+              <div class="row hotkey-row">
+                <div class="row-text">
+                  <span class="row-label" id="hotkey-{command.id}">{command.title}</span>
+                  {#if conflicts.length > 0}
+                    <span class="row-help conflict">Also used by {conflicts.join(", ")} — the one set last wins.</span>
+                  {/if}
+                </div>
+                <div class="row-control shortcut">
+                  <button
+                    class="text-field recorder hotkey"
+                    class:recording={recordingHotkey === command.id}
+                    class:unbound={!key}
+                    class:overridden
+                    data-shortcut-recorder
+                    aria-labelledby="hotkey-{command.id}"
+                    title="Click, then press the new shortcut"
+                    onclick={() => startHotkeyRecording(command.id)}
+                    onkeydown={(event) => onHotkeyKeydown(event, command.id)}
+                    onblur={() => recordingHotkey === command.id && stopHotkeyRecording()}
+                  >
+                    {recordingHotkey === command.id ? "Press keys…" : command.shortcut ?? "None"}
+                  </button>
+                  <button class="icon-button small" aria-label="Remove shortcut" title="Remove shortcut" disabled={!key} onclick={() => setHotkey(command.id, null)}>
+                    <X size={14} />
+                  </button>
+                  <button class="icon-button small" aria-label="Reset to default" title="Reset to default" disabled={!overridden} onclick={() => resetHotkey(command.id)}>
+                    <RotateCcw size={14} />
+                  </button>
+                </div>
+              </div>
+            {/each}
+          </div>
+        {:else}
+          <p class="hotkeys-help">No commands match.</p>
+        {/each}
       {:else}
         <h3 class="section-label first">Templates</h3>
         <div class="group">
@@ -825,6 +964,53 @@
   .recorder:disabled {
     opacity: 0.45;
     cursor: default;
+  }
+
+  /* Hotkeys tab (HK-01) */
+  .hotkeys-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .hotkeys-filter {
+    flex: 1;
+    width: auto;
+  }
+  .hotkeys-help {
+    margin: 0 2px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--ui-text-2);
+  }
+  .hotkeys-help.error {
+    color: var(--ui-danger);
+  }
+  .hotkey-row {
+    min-height: 42px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+  .row-help.conflict {
+    color: var(--ui-warning, #d6951b);
+  }
+  .recorder.hotkey {
+    width: auto;
+    min-width: 132px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    font-size: 12px;
+  }
+  .recorder.hotkey.unbound:not(.recording) {
+    color: var(--ui-text-3);
+    font-weight: 400;
+  }
+  .recorder.hotkey.overridden:not(.recording) {
+    border-color: var(--ui-strong-border);
+    color: var(--ui-accent-text);
+  }
+  .icon-button.small {
+    width: 26px;
+    height: 26px;
   }
   .example {
     max-width: 100%;
